@@ -5,12 +5,19 @@
 
 1. The operator supplies a reviewed headline with `--headline`.
 2. OpenAI Image API creates a text-free editorial background.
-3. Pillow crops the image and adds the dark news-style gradient, highlighted
-   headline, and `Bits Today` byline.
+3. Pillow crops the image and adds the dark news-style gradient, branded
+   headline, `Bits Today | <date>` byline, and bottom-right logo.
 
 The image model never renders the headline. All typography is added
-programmatically by Pillow. The current design has no bottom footer, badges, or
+programmatically by Pillow. The palette uses coral `#FF5757` and mint
+`#C2FFE1`; the current design has no bottom footer, extra badges, or
 AI-generated credit line.
+
+Three Pillow presets are available through `--style`:
+
+- `brand-block`: bold sans-serif blocks with an italic final line.
+- `editorial-italic`: serif editorial typography and italic mint emphasis.
+- `split-signal`: display type with alternating bold-italic word accents.
 
 ## Setup
 
@@ -29,6 +36,7 @@ Do not put the API key in this repository or pass it as a command-line argument.
 python .\generate_post.py `
   "NEW: China’s Z.AI begins operating a 1-gigawatt AI data center built entirely with domestic chips — enough power for roughly 750,000 homes." `
   --headline "China’s Z.AI Opens 1-Gigawatt Data Center Powered by Domestic Chips" `
+  --style brand-block `
   --output .\output\china-ai-data-center.png `
   --keep-background
 ```
@@ -79,11 +87,25 @@ the `FXTWITTER_API_BASE` environment variable.
 
 ## Generate a news-style description
 
-`generate_description.py` turns validated source text into a high-stakes,
-news-style social description. It uses few-shot examples for paragraphing and
-attribution, but the prompt instructs the model to use only the supplied source
-text, lead with the most consequential angle, and not invent unsupported
-catastrophe or complete truncated clauses.
+`generate_description.py` turns validated source text into a bilingual,
+high-stakes social description. The first model call writes the English news
+copy. A second model call translates and summarizes that copy into concise
+Bangla while preserving names, numbers, attribution, and uncertainty. The
+script uses the fixed `gpt-5.6-luna` model for both calls; the model is not
+configurable through `.env` or CLI arguments. The output is ready for every
+publishing stage in this format:
+
+```text
+English description
+
+---
+
+বাংলা অনুবাদ-সারাংশ
+```
+
+The English prompt uses few-shot examples for paragraphing and attribution,
+but both prompts prohibit unsupported facts and completed truncated clauses.
+The combined output is capped at 2,200 characters for Instagram compatibility.
 
 ```powershell
 python .\generate_description.py `
@@ -97,9 +119,9 @@ python .\generate_description.py `
 2. Fetch and validate the post through the free open-source FxTwitter backend.
 3. The assistant writes a factual hook headline from the extracted full post.
 4. Run `generate_post.py` with that headline and create a draft image.
-5. Generate a description with `generate_description.py`, send it and the image
-   to Telegram, then show the same package for review. Revise it until the user
-   says `yes`.
+5. Generate the English-plus-Bangla description with `generate_description.py`,
+   send it and the image to Telegram, then show the same package for review.
+   Revise it until the user says `yes`.
 6. Publish to Facebook and Instagram only after the user explicitly says `yes`
    for the exact latest preview package.
 

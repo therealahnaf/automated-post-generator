@@ -28,8 +28,12 @@ DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
 DEFAULT_POST_SOURCE = "Bits Today"
-RED = (225, 24, 32, 255)
+DEFAULT_BRAND_LOGO = Path(__file__).with_name("bitstodaylogo-trans.png")
+BRAND_CORAL = (255, 87, 87, 255)
+BRAND_MINT = (194, 255, 225, 255)
+INK = (12, 17, 21, 255)
 WHITE = (250, 250, 248, 255)
+STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,8 @@ class PostMetadata:
     image_model: str
     image_size: str
     image_quality: str
+    style: str
+    logo_source: str
     created_at: str
 
 
@@ -126,6 +132,52 @@ def find_font(bold: bool, override: Path | None = None) -> str:
     raise FileNotFoundError("No suitable Arial or DejaVu Sans font was found.")
 
 
+def find_font_variant(variant: str, override: Path | None = None) -> str:
+    """Locate a display, serif, italic, or sans font for a style preset."""
+    if override and variant in {"bold", "bold-italic", "display"}:
+        if not override.is_file():
+            raise FileNotFoundError(f"Font not found: {override}")
+        return str(override)
+
+    candidates = {
+        "regular": [
+            Path(r"C:\Windows\Fonts\arial.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        ],
+        "bold": [
+            Path(r"C:\Windows\Fonts\arialbd.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ],
+        "italic": [
+            Path(r"C:\Windows\Fonts\ariali.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf"),
+        ],
+        "bold-italic": [
+            Path(r"C:\Windows\Fonts\arialbi.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf"),
+        ],
+        "serif-bold": [
+            Path(r"C:\Windows\Fonts\georgiab.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
+        ],
+        "serif-bold-italic": [
+            Path(r"C:\Windows\Fonts\georgiaz.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf"),
+        ],
+        "display": [
+            Path(r"C:\Windows\Fonts\bahnschrift.ttf"),
+            Path(r"C:\Windows\Fonts\impact.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"),
+        ],
+    }
+    if variant not in candidates:
+        raise ValueError(f"Unknown font variant: {variant}")
+    for candidate in candidates[variant]:
+        if candidate.is_file():
+            return str(candidate)
+    raise FileNotFoundError(f"No suitable font was found for variant '{variant}'.")
+
+
 def text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> int:
     box = draw.textbbox((0, 0), text, font=font)
     return box[2] - box[0]
@@ -179,6 +231,10 @@ def build_byline(source: str) -> str:
     return source or DEFAULT_POST_SOURCE
 
 
+def build_byline_text(source: str, post_date: date) -> str:
+    return f"{build_byline(source)} | {post_date.strftime('%d %b %Y')}"
+
+
 def add_scrim(image: Image.Image) -> Image.Image:
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     pixels = overlay.load()
@@ -195,6 +251,243 @@ def add_scrim(image: Image.Image) -> Image.Image:
     return Image.alpha_composite(image.convert("RGBA"), overlay)
 
 
+def draw_byline(
+    draw: ImageDraw.ImageDraw,
+    source: str,
+    post_date: date,
+    x: int,
+    y: int,
+    *,
+    source_color: tuple[int, int, int, int],
+    detail_color: tuple[int, int, int, int],
+) -> None:
+    bold_font = ImageFont.truetype(find_font_variant("bold"), size=24)
+    regular_font = ImageFont.truetype(find_font_variant("regular"), size=24)
+    brand = build_byline(source)
+    separator_and_date = f" | {post_date.strftime('%d %b %Y')}"
+    draw.text((x, y), brand, font=bold_font, fill=source_color)
+    draw.text(
+        (x + text_width(draw, brand, bold_font), y),
+        separator_and_date,
+        font=regular_font,
+        fill=detail_color,
+    )
+
+
+def paste_brand_logo(canvas: Image.Image, logo_path: Path | None) -> None:
+    if logo_path is None:
+        return
+    if not logo_path.is_file():
+        raise FileNotFoundError(f"Brand logo not found: {logo_path}")
+    with Image.open(logo_path) as logo_source:
+        logo = logo_source.convert("RGBA")
+        alpha_box = logo.getchannel("A").getbbox()
+        if alpha_box:
+            logo = logo.crop(alpha_box)
+        logo.thumbnail((118, 118), Image.Resampling.LANCZOS)
+    margin = 46
+    x = canvas.width - margin - logo.width
+    y = canvas.height - margin - logo.height
+    canvas.alpha_composite(logo, (x, y))
+
+
+def draw_brand_block(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    source: str,
+    post_date: date,
+    font_override: Path | None,
+) -> None:
+    margin = 62
+    max_width = CANVAS_SIZE[0] - margin * 2
+    bold_path = find_font_variant("bold", font_override)
+    italic_path = find_font_variant("bold-italic", font_override)
+    headline_font, lines, line_height = fit_headline(
+        draw, title, bold_path, max_width=max_width, max_height=395
+    )
+    italic_font = ImageFont.truetype(italic_path, size=headline_font.size)
+
+    y = 58
+    for index, line in enumerate(lines):
+        font = italic_font if index == len(lines) - 1 else headline_font
+        width = text_width(draw, line, font)
+        if index == 0:
+            draw.rounded_rectangle(
+                (margin - 10, y - 3, margin + width + 14, y + line_height - 2),
+                radius=5,
+                fill=BRAND_CORAL,
+            )
+            fill = WHITE
+        elif index == 1:
+            draw.rounded_rectangle(
+                (margin - 10, y - 3, margin + width + 14, y + line_height - 2),
+                radius=5,
+                fill=BRAND_MINT,
+            )
+            fill = INK
+        else:
+            fill = BRAND_MINT if index == len(lines) - 1 else WHITE
+        draw.text(
+            (margin, y),
+            line,
+            font=font,
+            fill=fill,
+            stroke_width=1,
+            stroke_fill=(0, 0, 0, 105),
+        )
+        y += line_height
+
+    draw_byline(
+        draw,
+        source,
+        post_date,
+        margin,
+        y + 14,
+        source_color=BRAND_CORAL,
+        detail_color=BRAND_MINT,
+    )
+
+
+def draw_editorial_italic(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    source: str,
+    post_date: date,
+    font_override: Path | None,
+) -> None:
+    margin = 76
+    text_x = margin + 25
+    max_width = CANVAS_SIZE[0] - text_x - 58
+    bold_path = find_font_variant("serif-bold", font_override)
+    italic_path = find_font_variant("serif-bold-italic", font_override)
+    headline_font, lines, line_height = fit_headline(
+        draw, title, bold_path, max_width=max_width, max_height=420
+    )
+    italic_font = ImageFont.truetype(italic_path, size=headline_font.size)
+
+    y = 68
+    rule_bottom = y + len(lines) * line_height - 8
+    draw.rounded_rectangle(
+        (margin, y + 4, margin + 10, rule_bottom),
+        radius=5,
+        fill=BRAND_CORAL,
+    )
+    for index, line in enumerate(lines):
+        is_last = index == len(lines) - 1
+        font = italic_font if is_last else headline_font
+        if index == 0:
+            fill = BRAND_CORAL
+        elif is_last:
+            fill = BRAND_MINT
+        else:
+            fill = WHITE
+        draw.text(
+            (text_x, y),
+            line,
+            font=font,
+            fill=fill,
+            stroke_width=1,
+            stroke_fill=(0, 0, 0, 115),
+        )
+        y += line_height
+
+    underline_y = y + 7
+    draw.rectangle((text_x, underline_y, text_x + 132, underline_y + 5), fill=BRAND_MINT)
+    draw_byline(
+        draw,
+        source,
+        post_date,
+        text_x,
+        underline_y + 18,
+        source_color=WHITE,
+        detail_color=BRAND_MINT,
+    )
+
+
+def mixed_line_width(
+    draw: ImageDraw.ImageDraw,
+    words: list[str],
+    primary_font: ImageFont.FreeTypeFont,
+    accent_font: ImageFont.FreeTypeFont,
+    accent_index: int,
+) -> int:
+    width = 0
+    for index, word in enumerate(words):
+        font = accent_font if index == accent_index else primary_font
+        width += text_width(draw, word, font)
+        if index + 1 < len(words):
+            width += text_width(draw, " ", primary_font)
+    return width
+
+
+def draw_split_signal(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    source: str,
+    post_date: date,
+    font_override: Path | None,
+) -> None:
+    margin = 62
+    max_width = CANVAS_SIZE[0] - margin * 2
+    display_path = find_font_variant("display", font_override)
+    accent_path = find_font_variant("bold-italic", font_override)
+    headline_font, lines, line_height = fit_headline(
+        draw, title, display_path, max_width=max_width, max_height=405
+    )
+
+    draw.rectangle((margin, 54, margin + 108, 64), fill=BRAND_CORAL)
+    draw.rectangle((margin + 108, 54, margin + 274, 64), fill=BRAND_MINT)
+    y = 82
+    for line_index, line in enumerate(lines):
+        words = line.split()
+        numeric_index = next(
+            (
+                index
+                for index, word in enumerate(words)
+                if any(char.isdigit() for char in word)
+            ),
+            None,
+        )
+        accent_index = numeric_index if numeric_index is not None else len(words) - 1
+        size = headline_font.size
+        while size >= 40:
+            primary_font = ImageFont.truetype(display_path, size=size)
+            accent_font = ImageFont.truetype(accent_path, size=size)
+            if mixed_line_width(
+                draw, words, primary_font, accent_font, accent_index
+            ) <= max_width:
+                break
+            size -= 2
+        accent_color = BRAND_CORAL if line_index % 2 == 0 else BRAND_MINT
+        x = margin
+        for word_index, word in enumerate(words):
+            is_accent = word_index == accent_index
+            font = accent_font if is_accent else primary_font
+            fill = accent_color if is_accent else WHITE
+            draw.text(
+                (x, y),
+                word,
+                font=font,
+                fill=fill,
+                stroke_width=1,
+                stroke_fill=(0, 0, 0, 115),
+            )
+            x += text_width(draw, word, font)
+            if word_index + 1 < len(words):
+                x += text_width(draw, " ", primary_font)
+        y += line_height
+
+    draw_byline(
+        draw,
+        source,
+        post_date,
+        margin,
+        y + 15,
+        source_color=BRAND_MINT,
+        detail_color=WHITE,
+    )
+
+
 def compose_post(
     background_bytes: bytes,
     title: str,
@@ -202,6 +495,8 @@ def compose_post(
     post_date: date,
     credit: str,
     font_override: Path | None = None,
+    style: str = "brand-block",
+    logo_path: Path | None = DEFAULT_BRAND_LOGO,
 ) -> Image.Image:
     with Image.open(io.BytesIO(background_bytes)) as generated:
         background = ImageOps.fit(
@@ -213,37 +508,15 @@ def compose_post(
     canvas = add_scrim(background)
     draw = ImageDraw.Draw(canvas)
 
-    margin = 62
-    max_width = CANVAS_SIZE[0] - margin * 2
-    bold_path = find_font(True, font_override)
-    regular_path = find_font(False, None)
-    headline_font, lines, line_height = fit_headline(
-        draw, title, bold_path, max_width=max_width, max_height=390
-    )
-
-    y = 58
-    highlighted_lines = min(2, max(1, len(lines) - 1))
-    for index, line in enumerate(lines):
-        width = text_width(draw, line, headline_font)
-        if index < highlighted_lines:
-            draw.rounded_rectangle(
-                (margin - 10, y - 3, margin + width + 12, y + line_height - 2),
-                radius=3,
-                fill=RED,
-            )
-        draw.text(
-            (margin, y),
-            line,
-            font=headline_font,
-            fill=WHITE,
-            stroke_width=1,
-            stroke_fill=(0, 0, 0, 100),
-        )
-        y += line_height
-
-    byline_font = ImageFont.truetype(regular_path, size=23)
-    byline = build_byline(source)
-    draw.text((margin, y + 13), byline, font=byline_font, fill=(235, 235, 232, 235))
+    if style not in STYLE_CHOICES:
+        raise ValueError(f"Unknown post style: {style}")
+    renderer = {
+        "brand-block": draw_brand_block,
+        "editorial-italic": draw_editorial_italic,
+        "split-signal": draw_split_signal,
+    }[style]
+    renderer(draw, title, source, post_date, font_override)
+    paste_brand_logo(canvas, logo_path)
 
     return canvas.convert("RGB")
 
@@ -283,6 +556,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--date", type=parse_date, default=date.today())
     parser.add_argument("--font", type=Path, help="Optional bold TrueType/OpenType font.")
+    parser.add_argument(
+        "--style",
+        choices=STYLE_CHOICES,
+        default="brand-block",
+        help="Pillow typography and brand-color preset.",
+    )
+    parser.add_argument(
+        "--logo",
+        type=Path,
+        default=DEFAULT_BRAND_LOGO,
+        help="Transparent brand logo placed in the bottom-right corner.",
+    )
     parser.add_argument(
         "--image-model", default=os.getenv("OPENAI_IMAGE_MODEL", DEFAULT_IMAGE_MODEL)
     )
@@ -339,6 +624,8 @@ def main(argv: list[str] | None = None) -> int:
             post_date=args.date,
             credit=args.credit,
             font_override=args.font,
+            style=args.style,
+            logo_path=args.logo,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         post.save(args.output, format="PNG", optimize=True)
@@ -355,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
             image_model=args.image_model,
             image_size=args.image_size,
             image_quality=args.image_quality,
+            style=args.style,
+            logo_source=str(args.logo.resolve()),
             created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         metadata_path = args.output.with_suffix(".json")

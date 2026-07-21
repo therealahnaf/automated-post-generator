@@ -18,7 +18,11 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).with_name(".env"))
 
 
-DEFAULT_DESCRIPTION_MODEL = "gpt-5-mini"
+TEXT_GENERATION_MODEL = "gpt-5.6-luna"
+DESCRIPTION_SEPARATOR = "---"
+MAX_ENGLISH_DESCRIPTION_CHARACTERS = 1300
+MAX_BANGLA_DESCRIPTION_CHARACTERS = 700
+MAX_COMBINED_DESCRIPTION_CHARACTERS = 2200
 
 SYSTEM_INSTRUCTIONS = """You are a high-stakes newsroom copy editor for Bits Today.
 Write urgent, dramatic, consequence-first social post descriptions from only the
@@ -28,6 +32,17 @@ quotes that are not present in the source material. Preserve attribution and
 uncertainty. If the source is short, incomplete, or truncated, write a shorter
 description and do not complete unfinished clauses. Output plain paragraphs
 only, with no headings, labels, bullets, hashtags, or markdown.
+"""
+
+BANGLA_SYSTEM_INSTRUCTIONS = """You are the Bangla-language copy editor for Bits Today.
+Translate and summarize the supplied English news description into natural,
+clear Bangla. Preserve the central actor, action, important names, numbers,
+attribution, and uncertainty. Use only facts present in the English description.
+Do not add background, implications, predictions, certainty, or dramatic claims.
+Write one or two concise paragraphs that are shorter than the English version.
+Use Bangla script for the prose while retaining proper nouns in English when
+that is clearer. Output only the Bangla copy, with no heading, language label,
+separator, bullets, hashtags, or markdown.
 """
 
 FEW_SHOT_EXAMPLES = [
@@ -134,6 +149,8 @@ Rules for the current story:
 - If the source text ends mid-thought, ignore the unfinished fragment instead
   of completing it.
 - Write one to three paragraphs. Use fewer paragraphs when the source is short.
+- Keep the English description under 1,300 characters so the bilingual caption
+  remains publishable on every configured platform.
 - Output only the description.
 
 Few-shot examples:
@@ -143,6 +160,28 @@ Few-shot examples:
 SOURCE START
 {source_text}
 SOURCE END"""
+
+
+def build_bangla_prompt(english_description: str) -> str:
+    english_description = english_description.strip()
+    if not english_description:
+        raise ValueError("English description cannot be empty.")
+    return f"""Create a concise Bangla translation-summary of the English Bits Today
+description between DESCRIPTION START and DESCRIPTION END.
+
+Requirements:
+- Preserve every important name, number, attribution, and uncertainty used in
+  the English description.
+- Summarize rather than translating sentence by sentence.
+- Keep the Bangla version clearly shorter than the English version.
+- Use one or two short paragraphs and no more than
+  {MAX_BANGLA_DESCRIPTION_CHARACTERS} characters.
+- Do not add a heading, language label, separator, hashtag, or markdown.
+- Output only the Bangla text.
+
+DESCRIPTION START
+{english_description}
+DESCRIPTION END"""
 
 
 def extract_response_text(response: Any) -> str:
@@ -164,27 +203,21 @@ def extract_response_text(response: Any) -> str:
     raise RuntimeError("OpenAI did not return description text.")
 
 
-def supports_minimal_reasoning(model: str) -> bool:
-    return model.lower().startswith("gpt-5")
-
-
 def create_description_response(
     client: Any,
     *,
-    model: str,
     prompt: str,
     max_output_tokens: int,
 ) -> Any:
     request: dict[str, Any] = {
-        "model": model,
+        "model": TEXT_GENERATION_MODEL,
         "input": [
             {"role": "system", "content": SYSTEM_INSTRUCTIONS},
             {"role": "user", "content": prompt},
         ],
         "max_output_tokens": max_output_tokens,
+        "reasoning": {"effort": "none"},
     }
-    if supports_minimal_reasoning(model):
-        request["reasoning"] = {"effort": "minimal"}
     return client.responses.create(**request)
 
 
@@ -192,7 +225,6 @@ def generate_description(
     client: Any,
     source_text: str,
     *,
-    model: str,
     max_output_tokens: int,
 ) -> str:
     prompt = build_user_prompt(source_text)
@@ -205,15 +237,120 @@ def generate_description(
     for token_budget in token_budgets:
         response = create_description_response(
             client,
-            model=model,
             prompt=prompt,
             max_output_tokens=token_budget,
         )
         try:
-            return extract_response_text(response)
+            text = extract_response_text(response)
+            if len(text) > MAX_ENGLISH_DESCRIPTION_CHARACTERS:
+                raise RuntimeError(
+                    "OpenAI returned an English description longer than "
+                    f"{MAX_ENGLISH_DESCRIPTION_CHARACTERS} characters."
+                )
+            return text
         except RuntimeError as exc:
             last_error = exc
     raise last_error or RuntimeError("OpenAI did not return description text.")
+
+
+def contains_bangla_text(value: str) -> bool:
+    return bool(re.search(r"[\u0980-\u09ff]", value))
+
+
+def create_bangla_response(
+    client: Any,
+    *,
+    prompt: str,
+    max_output_tokens: int,
+) -> Any:
+    request: dict[str, Any] = {
+        "model": TEXT_GENERATION_MODEL,
+        "input": [
+            {"role": "system", "content": BANGLA_SYSTEM_INSTRUCTIONS},
+            {"role": "user", "content": prompt},
+        ],
+        "max_output_tokens": max_output_tokens,
+        "reasoning": {"effort": "none"},
+    }
+    return client.responses.create(**request)
+
+
+def generate_bangla_summary(
+    client: Any,
+    english_description: str,
+    *,
+    max_output_tokens: int,
+) -> str:
+    prompt = build_bangla_prompt(english_description)
+    token_budgets = [max_output_tokens]
+    retry_budget = min(max(max_output_tokens * 2, 800), 2000)
+    if retry_budget != max_output_tokens:
+        token_budgets.append(retry_budget)
+
+    last_error: RuntimeError | None = None
+    for token_budget in token_budgets:
+        response = create_bangla_response(
+            client,
+            prompt=prompt,
+            max_output_tokens=token_budget,
+        )
+        try:
+            text = extract_response_text(response)
+            if not contains_bangla_text(text):
+                raise RuntimeError("OpenAI did not return Bangla translation text.")
+            if len(text) > MAX_BANGLA_DESCRIPTION_CHARACTERS:
+                raise RuntimeError(
+                    "OpenAI returned Bangla text longer than "
+                    f"{MAX_BANGLA_DESCRIPTION_CHARACTERS} characters."
+                )
+            return text
+        except RuntimeError as exc:
+            last_error = exc
+    raise last_error or RuntimeError("OpenAI did not return Bangla translation text.")
+
+
+def combine_descriptions(
+    english_description: str,
+    bangla_description: str,
+    *,
+    separator: str = DESCRIPTION_SEPARATOR,
+) -> str:
+    english_description = english_description.strip()
+    bangla_description = bangla_description.strip()
+    separator = separator.strip()
+    if not english_description:
+        raise ValueError("English description cannot be empty.")
+    if not bangla_description or not contains_bangla_text(bangla_description):
+        raise ValueError("Bangla description must contain Bangla text.")
+    if not separator:
+        raise ValueError("Description separator cannot be empty.")
+    combined = f"{english_description}\n\n{separator}\n\n{bangla_description}"
+    if len(combined) > MAX_COMBINED_DESCRIPTION_CHARACTERS:
+        raise ValueError(
+            f"Combined bilingual description is {len(combined)} characters; "
+            f"maximum is {MAX_COMBINED_DESCRIPTION_CHARACTERS}."
+        )
+    return combined
+
+
+def generate_bilingual_description(
+    client: Any,
+    source_text: str,
+    *,
+    description_max_output_tokens: int,
+    translation_max_output_tokens: int,
+) -> str:
+    english_description = generate_description(
+        client,
+        source_text,
+        max_output_tokens=description_max_output_tokens,
+    )
+    bangla_description = generate_bangla_summary(
+        client,
+        english_description,
+        max_output_tokens=translation_max_output_tokens,
+    )
+    return combine_descriptions(english_description, bangla_description)
 
 
 
@@ -230,18 +367,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path, help="Write the description to a file.")
     parser.add_argument(
-        "--model",
-        default=os.getenv("OPENAI_DESCRIPTION_MODEL", DEFAULT_DESCRIPTION_MODEL),
-        help=(
-            "OpenAI text model for the description "
-            f"(default: OPENAI_DESCRIPTION_MODEL or {DEFAULT_DESCRIPTION_MODEL})."
-        ),
-    )
-    parser.add_argument(
         "--max-output-tokens",
         type=int,
         default=1500,
         help="Maximum output tokens for the generated description.",
+    )
+    parser.add_argument(
+        "--translation-max-output-tokens",
+        type=int,
+        default=700,
+        help="Maximum output tokens for the Bangla translation-summary.",
     )
     parser.add_argument(
         "--print-prompt",
@@ -271,17 +406,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than zero.")
+        if args.translation_max_output_tokens <= 0:
+            raise ValueError(
+                "--translation-max-output-tokens must be greater than zero."
+            )
         source_text = read_source(args)
         if args.print_prompt:
             print(build_user_prompt(source_text))
             return 0
 
         require_api_key()
-        description = generate_description(
+        description = generate_bilingual_description(
             make_client(),
             source_text,
-            model=args.model,
-            max_output_tokens=args.max_output_tokens,
+            description_max_output_tokens=args.max_output_tokens,
+            translation_max_output_tokens=args.translation_max_output_tokens,
         )
         if not description:
             raise RuntimeError("Generated description is empty.")

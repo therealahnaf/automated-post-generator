@@ -32,6 +32,14 @@ class GeneratePostTests(unittest.TestCase):
         self.assertEqual(generate_post.build_byline("  Bits Today  "), "Bits Today")
         self.assertEqual(generate_post.build_byline(""), "Bits Today")
 
+    def test_build_byline_text_places_date_beside_brand(self) -> None:
+        self.assertEqual(
+            generate_post.build_byline_text(
+                "Bits Today Desk", date(2026, 7, 21)
+            ),
+            "Bits Today | 21 Jul 2026",
+        )
+
     def test_image_prompt_is_story_specific_not_hardcoded(self) -> None:
         prompt = generate_post.build_image_prompt(
             "Anthropic reached a $1.5 billion copyright settlement.",
@@ -63,7 +71,7 @@ class GeneratePostTests(unittest.TestCase):
         red_pixels = sum(
             1
             for red, green, blue in pixels
-            if red > 180 and green < 70 and blue < 80
+            if red > 240 and 70 < green < 110 and blue < 110
         )
         self.assertGreater(red_pixels, 1000)
 
@@ -78,6 +86,37 @@ class GeneratePostTests(unittest.TestCase):
             if red > 200 and green < 50 and blue < 60
         )
         self.assertEqual(footer_red_pixels, 0)
+
+    def test_all_brand_styles_include_palette_and_bottom_right_logo(self) -> None:
+        background = Image.new("RGB", (1024, 1280), (35, 70, 100))
+        payload = io.BytesIO()
+        background.save(payload, format="PNG")
+
+        for style in generate_post.STYLE_CHOICES:
+            with self.subTest(style=style):
+                result = generate_post.compose_post(
+                    payload.getvalue(),
+                    "China Z.AI opens gigawatt-scale domestic-chip data center",
+                    source="Bits Today",
+                    post_date=date(2026, 7, 21),
+                    credit="",
+                    style=style,
+                )
+                self.assertEqual(result.size, (1080, 1350))
+
+                headline = result.crop((30, 30, 1050, 570))
+                colors = headline.getcolors(
+                    maxcolors=headline.width * headline.height
+                ) or []
+                values = {color for _, color in colors}
+                self.assertIn(generate_post.BRAND_CORAL[:3], values)
+                self.assertIn(generate_post.BRAND_MINT[:3], values)
+
+                logo = result.crop((860, 1160, 1080, 1350))
+                logo_colors = logo.getcolors(maxcolors=logo.width * logo.height) or []
+                logo_values = {color for _, color in logo_colors}
+                self.assertIn(generate_post.BRAND_CORAL[:3], logo_values)
+                self.assertIn(generate_post.BRAND_MINT[:3], logo_values)
 
 
 if __name__ == "__main__":

@@ -18,14 +18,23 @@ social post.
    headline and do not add unverified facts.
 3. Generate a text-free editorial background and run `generate_post.py` with
    the chosen `--headline`. Pillow owns all gradient and typography rendering.
-   The image byline must render only `Bits Today`; do not add `Desk`, an
-   AI-generated credit line, a bottom footer, or a badge.
-4. Render and inspect the draft, then generate a high-stakes news-style
-   description with `generate_description.py`. Use the fetched source text or
-   `--tweet-json` output, preserve attribution and uncertainty, and do not add
-   facts from outside the validated source. Make the writing feel urgent and
-   consequential, but do not invent catastrophe, certainty, or consequences
-   beyond the source.
+   Always use the approved `--style brand-block` Pillow preset with the brand
+   colors `#FF5757` and `#C2FFE1`. The byline must render `Bits Today | <date>`,
+   and the transparent Bits Today logo must appear in the bottom-right corner.
+   Do not add `Desk`, an AI-generated credit line, a bottom footer, or an extra
+   badge. Keep the other presets for explicit style experiments only; do not
+   select them during the normal publishing workflow.
+4. Render and inspect the draft, then generate a bilingual description with
+   `generate_description.py`. Its first model call creates the high-stakes
+   English news description; its second model call translates and summarizes
+   that English copy into concise Bangla. Both text-generation calls must use
+   the fixed `gpt-5.6-luna` model; do not configure text models through `.env`
+   or command-line flags. The saved result must contain the English description
+   first, then the separator `---`, then the Bangla copy.
+   Use the fetched source text or `--tweet-json` output, preserve attribution
+   and uncertainty in both languages, and do not add facts from outside the
+   validated source. Make the writing feel urgent and consequential, but do not
+   invent catastrophe, certainty, or consequences beyond the source.
 5. Send the draft image and generated description through
    `notify_telegram.py --stage preview --send`. Only after that succeeds, show
    the same draft in the Codex task and ask for revisions or the exact approval
