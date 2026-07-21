@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate or publish an approved image post to the configured Instagram account."""
+"""Validate or publish an ordered image post to the configured Instagram account."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ GRAPH_ROOT = "https://graph.instagram.com"
 DEFAULT_GRAPH_VERSION = "v25.0"
 GRAPH_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
 MAX_CAPTION_CHARACTERS = 2200
+MAX_CAROUSEL_ITEMS = 10
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,16 @@ def validate_image_url(image_url: str) -> str:
     return image_url.strip()
 
 
+def validate_image_urls(primary: str, secondary: list[str]) -> list[str]:
+    image_urls = [validate_image_url(primary)]
+    image_urls.extend(validate_image_url(url) for url in secondary)
+    if len(image_urls) > MAX_CAROUSEL_ITEMS:
+        raise ValueError(
+            f"Instagram supports at most {MAX_CAROUSEL_ITEMS} carousel images."
+        )
+    return image_urls
+
+
 def validate_caption(caption: str) -> str:
     caption = caption.strip()
     if not caption:
@@ -148,6 +159,51 @@ def create_image_container(
     container_id = str(payload.get("id", ""))
     if not container_id:
         raise RuntimeError("Instagram returned no media container ID.")
+    return container_id
+
+
+def create_carousel_item_container(
+    session: requests.Session,
+    config: InstagramConfig,
+    image_url: str,
+) -> str:
+    response = session.post(
+        graph_url(config, config.user_id, "media"),
+        data={"image_url": image_url, "is_carousel_item": "true"},
+        headers=bearer_headers(config),
+        timeout=(10, 60),
+    )
+    payload = parse_graph_response(response)
+    container_id = str(payload.get("id", ""))
+    if not container_id:
+        raise RuntimeError("Instagram returned no carousel item container ID.")
+    return container_id
+
+
+def create_carousel_container(
+    session: requests.Session,
+    config: InstagramConfig,
+    child_ids: list[str],
+    caption: str,
+) -> str:
+    if not 2 <= len(child_ids) <= MAX_CAROUSEL_ITEMS:
+        raise ValueError(
+            f"An Instagram carousel requires 2 to {MAX_CAROUSEL_ITEMS} items."
+        )
+    response = session.post(
+        graph_url(config, config.user_id, "media"),
+        data={
+            "media_type": "CAROUSEL",
+            "children": ",".join(child_ids),
+            "caption": caption,
+        },
+        headers=bearer_headers(config),
+        timeout=(10, 60),
+    )
+    payload = parse_graph_response(response)
+    container_id = str(payload.get("id", ""))
+    if not container_id:
+        raise RuntimeError("Instagram returned no carousel container ID.")
     return container_id
 
 
@@ -236,7 +292,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--image-url",
         required=True,
-        help="Public HTTPS image URL for Instagram to download.",
+        help="Public HTTPS URL for the generated main image.",
+    )
+    parser.add_argument(
+        "--secondary-image-url",
+        action="append",
+        default=[],
+        help=(
+            "Additional public HTTPS image URL. Repeat in the desired carousel "
+            "order (maximum 10 images total)."
+        ),
     )
     caption_group = parser.add_mutually_exclusive_group(required=True)
     caption_group.add_argument("--caption", help="Instagram caption.")
@@ -257,7 +322,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         require_publish_confirmation(args.publish, args.confirm)
-        image_url = validate_image_url(args.image_url)
+        image_urls = validate_image_urls(
+            args.image_url, args.secondary_image_url
+        )
         caption = read_caption(args)
         config = load_config()
         with requests.Session() as session:
@@ -267,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
                 "instagram_user_id": account["user_id"],
                 "instagram_username": account["username"],
                 "account_type": account["account_type"],
+                "image_urls": image_urls,
+                "image_count": len(image_urls),
                 "caption_characters": len(caption),
                 "quota_total": (limit.get("config") or {}).get("quota_total"),
                 "quota_usage": limit.get("quota_usage"),
@@ -275,7 +344,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"status": "validated_not_published", **common}, indent=2))
                 return 0
 
-            container_id = create_image_container(session, config, image_url, caption)
+            if len(image_urls) == 1:
+                container_id = create_image_container(
+                    session, config, image_urls[0], caption
+                )
+                carousel_item_ids: list[str] = []
+            else:
+                carousel_item_ids = []
+                for image_url in image_urls:
+                    child_id = create_carousel_item_container(
+                        session, config, image_url
+                    )
+                    wait_for_container(session, config, child_id)
+                    carousel_item_ids.append(child_id)
+                container_id = create_carousel_container(
+                    session, config, carousel_item_ids, caption
+                )
             wait_for_container(session, config, container_id)
             media_id = publish_container(session, config, container_id)
             media = get_media_details(session, config, media_id)
@@ -284,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "status": "published",
                         **common,
+                        "instagram_container_id": container_id,
+                        "instagram_carousel_item_ids": carousel_item_ids,
                         "instagram_media_id": media_id,
                         "instagram_permalink": media.get("permalink"),
                     },

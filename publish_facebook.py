@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate or publish an approved image post to the configured Facebook Page."""
+"""Validate or publish an ordered image post to the configured Facebook Page."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ load_dotenv(Path(__file__).with_name(".env"))
 GRAPH_ROOT = "https://graph.facebook.com"
 DEFAULT_GRAPH_VERSION = "v25.0"
 GRAPH_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
+MAX_POST_IMAGES = 10
 
 
 @dataclass(frozen=True)
@@ -103,9 +104,7 @@ def publish_photo(
     image_path: Path,
     message: str,
 ) -> dict[str, Any]:
-    mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
-    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
-        raise ValueError("Facebook image must be a JPEG, PNG, or WebP file.")
+    mime_type = image_mime_type(image_path)
     with image_path.open("rb") as image_file:
         response = session.post(
             graph_url(config, "photos"),
@@ -115,6 +114,73 @@ def publish_photo(
             timeout=(10, 180),
         )
     return parse_graph_response(response)
+
+
+def image_mime_type(image_path: Path) -> str:
+    mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
+    if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise ValueError("Facebook image must be a JPEG, PNG, or WebP file.")
+    return mime_type
+
+
+def validate_image_paths(primary: Path, secondary: list[Path]) -> list[Path]:
+    images = [primary, *secondary]
+    if len(images) > MAX_POST_IMAGES:
+        raise ValueError(
+            f"A cross-platform post supports at most {MAX_POST_IMAGES} images."
+        )
+    for image in images:
+        if not image.is_file():
+            raise FileNotFoundError(f"Image not found: {image}")
+        image_mime_type(image)
+    return images
+
+
+def upload_unpublished_photo(
+    session: requests.Session,
+    config: FacebookConfig,
+    image_path: Path,
+) -> str:
+    mime_type = image_mime_type(image_path)
+    with image_path.open("rb") as image_file:
+        response = session.post(
+            graph_url(config, "photos"),
+            data={"published": "false"},
+            files={"source": (image_path.name, image_file, mime_type)},
+            headers=bearer_headers(config),
+            timeout=(10, 180),
+        )
+    payload = parse_graph_response(response)
+    photo_id = str(payload.get("id", ""))
+    if not photo_id:
+        raise RuntimeError("Facebook returned no ID for an unpublished photo.")
+    return photo_id
+
+
+def publish_multi_photo_post(
+    session: requests.Session,
+    config: FacebookConfig,
+    photo_ids: list[str],
+    message: str,
+) -> str:
+    if len(photo_ids) < 2:
+        raise ValueError("A Facebook multi-photo post requires at least two photos.")
+    data: dict[str, str] = {"message": message}
+    for index, photo_id in enumerate(photo_ids):
+        data[f"attached_media[{index}]"] = json.dumps(
+            {"media_fbid": photo_id}, separators=(",", ":")
+        )
+    response = session.post(
+        graph_url(config, "feed"),
+        data=data,
+        headers=bearer_headers(config),
+        timeout=(10, 60),
+    )
+    payload = parse_graph_response(response)
+    post_id = str(payload.get("id", ""))
+    if not post_id:
+        raise RuntimeError("Facebook returned no multi-photo post ID.")
+    return post_id
 
 
 def get_photo_details(
@@ -137,6 +203,20 @@ def get_photo_details(
         )
         payload["largest_image_url"] = largest.get("source")
     return payload
+
+
+def get_post_details(
+    session: requests.Session,
+    config: FacebookConfig,
+    post_id: str,
+) -> dict[str, Any]:
+    response = session.get(
+        graph_object_url(config, post_id),
+        params={"fields": "id,permalink_url"},
+        headers=bearer_headers(config),
+        timeout=(10, 30),
+    )
+    return parse_graph_response(response)
 
 
 def require_publish_confirmation(publish: bool, confirmation: str | None) -> None:
@@ -173,6 +253,16 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("--image", required=True, type=Path)
+    parser.add_argument(
+        "--secondary-image",
+        action="append",
+        default=[],
+        type=Path,
+        help=(
+            "Additional local image to publish after --image. Repeat in the "
+            "desired carousel order (maximum 10 images total)."
+        ),
+    )
     message_group = parser.add_mutually_exclusive_group(required=True)
     message_group.add_argument("--message", help="Facebook post description.")
     message_group.add_argument(
@@ -196,8 +286,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         require_publish_confirmation(args.publish, args.confirm)
-        if not args.image.is_file():
-            raise FileNotFoundError(f"Image not found: {args.image}")
+        images = validate_image_paths(args.image, args.secondary_image)
         message = read_message(args)
         config = load_config()
         with requests.Session() as session:
@@ -205,26 +294,61 @@ def main(argv: list[str] | None = None) -> int:
             common = {
                 "page_id": page["id"],
                 "page_name": page["name"],
-                "image": str(args.image.resolve()),
-                "image_sha256": file_sha256(args.image),
+                "image": str(images[0].resolve()),
+                "image_sha256": file_sha256(images[0]),
+                "images": [str(image.resolve()) for image in images],
+                "image_sha256s": [file_sha256(image) for image in images],
+                "image_count": len(images),
                 "message_characters": len(message),
             }
             if not args.publish:
                 print(json.dumps({"status": "validated_not_published", **common}, indent=2))
                 return 0
 
-            result = publish_photo(session, config, args.image, message)
-            photo_id = result.get("id")
-            photo = get_photo_details(session, config, str(photo_id)) if photo_id else {}
+            if len(images) == 1:
+                result = publish_photo(session, config, images[0], message)
+                photo_ids = [str(result.get("id", ""))]
+                post_id = str(result.get("post_id", ""))
+                photo_details = (
+                    [get_photo_details(session, config, photo_ids[0])]
+                    if photo_ids[0]
+                    else []
+                )
+                permalink = photo_details[0].get("link") if photo_details else None
+            else:
+                photo_ids = [
+                    upload_unpublished_photo(session, config, image)
+                    for image in images
+                ]
+                post_id = publish_multi_photo_post(
+                    session, config, photo_ids, message
+                )
+                photo_details = [
+                    get_photo_details(session, config, photo_id)
+                    for photo_id in photo_ids
+                ]
+                permalink = get_post_details(session, config, post_id).get(
+                    "permalink_url"
+                )
+
+            image_urls = [
+                details.get("largest_image_url") for details in photo_details
+            ]
+            if len(image_urls) != len(images) or not all(image_urls):
+                raise RuntimeError(
+                    "Facebook published the media but did not return every hosted image URL."
+                )
             print(
                 json.dumps(
                     {
                         "status": "published",
                         **common,
-                        "facebook_photo_id": photo_id,
-                        "facebook_post_id": result.get("post_id"),
-                        "facebook_permalink": photo.get("link"),
-                        "facebook_image_url": photo.get("largest_image_url"),
+                        "facebook_photo_id": photo_ids[0],
+                        "facebook_photo_ids": photo_ids,
+                        "facebook_post_id": post_id,
+                        "facebook_permalink": permalink,
+                        "facebook_image_url": image_urls[0],
+                        "facebook_image_urls": image_urls,
                     },
                     indent=2,
                 )

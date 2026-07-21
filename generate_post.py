@@ -14,10 +14,16 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from dotenv import load_dotenv
+
+from post_language import (
+    HEADLINE_HIGHLIGHT_STYLES,
+    read_headline_highlight,
+    read_post_language,
+)
 
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -27,8 +33,13 @@ CANVAS_SIZE = (1080, 1350)
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
+TEXT_GENERATION_MODEL = "gpt-5.6-luna"
 DEFAULT_POST_SOURCE = "Bits Today"
 DEFAULT_BRAND_LOGO = Path(__file__).with_name("bitstodaylogo-trans.png")
+ROBOTO_REGULAR = Path(__file__).with_name("assets") / "fonts" / "Roboto-Variable.ttf"
+ROBOTO_ITALIC = (
+    Path(__file__).with_name("assets") / "fonts" / "Roboto-Italic-Variable.ttf"
+)
 BRAND_CORAL = (255, 87, 87, 255)
 BRAND_MINT = (194, 255, 225, 255)
 INK = (12, 17, 21, 255)
@@ -40,6 +51,9 @@ STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
 class PostMetadata:
     source_text: str
     title: str
+    english_title: str
+    post_language: str
+    headline_highlight: str
     image_prompt: str
     background_source: str
     image_model: str
@@ -72,6 +86,67 @@ def make_client() -> Any:
             "The openai package is missing. Run: python -m pip install -r requirements.txt"
         ) from exc
     return OpenAI()
+
+
+HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for Bits Today.
+Translate the supplied approved English news headline into natural, concise
+Bangla suitable for a social-news image. Preserve every name, number, unit,
+attribution, and uncertainty. Do not add facts, commentary, labels, quotation
+marks, hashtags, or markdown. Output only the Bangla headline."""
+
+
+def contains_bangla_text(value: str) -> bool:
+    return bool(re.search(r"[\u0980-\u09ff]", value))
+
+
+def extract_response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+    fragments: list[str] = []
+    for item in getattr(response, "output", []) or []:
+        for content in getattr(item, "content", []) or []:
+            text = (
+                content.get("text")
+                if isinstance(content, dict)
+                else getattr(content, "text", None)
+            )
+            if isinstance(text, str):
+                fragments.append(text)
+    if fragments:
+        return "\n".join(fragments).strip()
+    raise RuntimeError("OpenAI did not return a translated headline.")
+
+
+def translate_headline_to_bangla(
+    client: Any,
+    english_headline: str,
+    *,
+    max_output_tokens: int = 300,
+) -> str:
+    response = client.responses.create(
+        model=TEXT_GENERATION_MODEL,
+        input=[
+            {"role": "system", "content": HEADLINE_TRANSLATION_INSTRUCTIONS},
+            {
+                "role": "user",
+                "content": (
+                    "Translate this approved headline into Bangla. Preserve its "
+                    "meaning and keep it compact:\n\n" + english_headline
+                ),
+            },
+        ],
+        max_output_tokens=max_output_tokens,
+        reasoning={"effort": "none"},
+    )
+    translated = normalize_news_text(extract_response_text(response)).strip(
+        " \"'“”"
+    ).rstrip("।.")
+    if not contains_bangla_text(translated):
+        raise RuntimeError("OpenAI did not return a Bangla headline translation.")
+    if len(translated) > 180:
+        raise RuntimeError("Translated Bangla headline exceeds 180 characters.")
+    return translated
 
 
 def build_image_prompt(news_text: str, title: str) -> str:
@@ -178,6 +253,32 @@ def find_font_variant(variant: str, override: Path | None = None) -> str:
     raise FileNotFoundError(f"No suitable font was found for variant '{variant}'.")
 
 
+def load_font(
+    font_path: str | Path,
+    *,
+    size: int,
+    index: int = 0,
+    variation_name: str | None = None,
+) -> ImageFont.FreeTypeFont:
+    font = ImageFont.truetype(str(font_path), size=size, index=index)
+    if variation_name:
+        font.set_variation_by_name(variation_name)
+    return font
+
+
+def load_roboto_font(
+    *,
+    size: int,
+    bold: bool,
+    italic: bool = False,
+) -> ImageFont.FreeTypeFont:
+    path = ROBOTO_ITALIC if italic else ROBOTO_REGULAR
+    if not path.is_file():
+        raise FileNotFoundError(f"Bundled Roboto font not found: {path}")
+    variation = "Bold Italic" if bold and italic else "Bold" if bold else "Italic" if italic else "Regular"
+    return load_font(path, size=size, variation_name=variation)
+
+
 def text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> int:
     box = draw.textbbox((0, 0), text, font=font)
     return box[2] - box[0]
@@ -211,16 +312,52 @@ def fit_headline(
     font_path: str,
     max_width: int,
     max_height: int,
+    font_index: int = 0,
+    variation_name: str | None = None,
 ) -> tuple[ImageFont.FreeTypeFont, list[str], int]:
     for size in range(76, 43, -2):
-        font = ImageFont.truetype(font_path, size=size)
+        font = load_font(
+            font_path,
+            size=size,
+            index=font_index,
+            variation_name=variation_name,
+        )
         lines = wrap_headline(draw, title, font, max_width)
         line_height = max(size + 8, draw.textbbox((0, 0), "Ag", font=font)[3] + 8)
         if len(lines) <= 5 and len(lines) * line_height <= max_height:
             return font, lines, line_height
-    font = ImageFont.truetype(font_path, size=42)
+    font = load_font(
+        font_path,
+        size=42,
+        index=font_index,
+        variation_name=variation_name,
+    )
     lines = wrap_headline(draw, title, font, max_width)
     return font, lines[:6], 50
+
+
+def find_bangla_font(*, bold: bool) -> tuple[str, int]:
+    candidates = [
+        (Path(r"C:\Windows\Fonts\Nirmala.ttc"), 1 if bold else 0),
+        (
+            Path("/usr/share/fonts/truetype/noto/NotoSansBengali-Bold.ttf")
+            if bold
+            else Path("/usr/share/fonts/truetype/noto/NotoSansBengali-Regular.ttf"),
+            0,
+        ),
+        (
+            Path("/usr/share/fonts/opentype/noto/NotoSansBengali-Bold.ttf")
+            if bold
+            else Path("/usr/share/fonts/opentype/noto/NotoSansBengali-Regular.ttf"),
+            0,
+        ),
+    ]
+    for path, index in candidates:
+        if path.is_file():
+            return str(path), index
+    raise FileNotFoundError(
+        "No Bengali-capable font was found. Install Nirmala UI or Noto Sans Bengali."
+    )
 
 
 def build_byline(source: str) -> str:
@@ -261,8 +398,8 @@ def draw_byline(
     source_color: tuple[int, int, int, int],
     detail_color: tuple[int, int, int, int],
 ) -> None:
-    bold_font = ImageFont.truetype(find_font_variant("bold"), size=24)
-    regular_font = ImageFont.truetype(find_font_variant("regular"), size=24)
+    bold_font = load_roboto_font(size=24, bold=True)
+    regular_font = load_roboto_font(size=24, bold=False)
     brand = build_byline(source)
     separator_and_date = f" | {post_date.strftime('%d %b %Y')}"
     draw.text((x, y), brand, font=bold_font, fill=source_color)
@@ -291,40 +428,83 @@ def paste_brand_logo(canvas: Image.Image, logo_path: Path | None) -> None:
     canvas.alpha_composite(logo, (x, y))
 
 
+def headline_highlight_colors(
+    line_index: int,
+    highlight_style: str,
+) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]] | None:
+    if highlight_style not in HEADLINE_HIGHLIGHT_STYLES:
+        raise ValueError(f"Unknown headline highlight style: {highlight_style}")
+    if highlight_style == "cyan" and line_index == 0:
+        return BRAND_MINT, INK
+    if highlight_style == "red" and line_index == 0:
+        return BRAND_CORAL, WHITE
+    if highlight_style == "dual" and line_index == 0:
+        return BRAND_CORAL, WHITE
+    if highlight_style == "dual" and line_index == 1:
+        return BRAND_MINT, INK
+    return None
+
+
 def draw_brand_block(
     draw: ImageDraw.ImageDraw,
     title: str,
     source: str,
     post_date: date,
     font_override: Path | None,
+    highlight_style: str = "dual",
 ) -> None:
     margin = 62
     max_width = CANVAS_SIZE[0] - margin * 2
-    bold_path = find_font_variant("bold", font_override)
-    italic_path = find_font_variant("bold-italic", font_override)
-    headline_font, lines, line_height = fit_headline(
-        draw, title, bold_path, max_width=max_width, max_height=395
-    )
-    italic_font = ImageFont.truetype(italic_path, size=headline_font.size)
+    if contains_bangla_text(title):
+        bold_path, bold_index = find_bangla_font(bold=True)
+        headline_font, lines, line_height = fit_headline(
+            draw,
+            title,
+            bold_path,
+            max_width=max_width,
+            max_height=395,
+            font_index=bold_index,
+        )
+        italic_font = ImageFont.truetype(
+            bold_path, size=headline_font.size, index=bold_index
+        )
+    else:
+        if font_override:
+            bold_path = find_font_variant("bold", font_override)
+            italic_path = find_font_variant("bold-italic", font_override)
+            bold_variation = None
+            italic_variation = None
+        else:
+            bold_path = str(ROBOTO_REGULAR)
+            italic_path = str(ROBOTO_ITALIC)
+            bold_variation = "Bold"
+            italic_variation = "Bold Italic"
+        headline_font, lines, line_height = fit_headline(
+            draw,
+            title,
+            bold_path,
+            max_width=max_width,
+            max_height=395,
+            variation_name=bold_variation,
+        )
+        italic_font = load_font(
+            italic_path,
+            size=headline_font.size,
+            variation_name=italic_variation,
+        )
 
     y = 58
     for index, line in enumerate(lines):
         font = italic_font if index == len(lines) - 1 else headline_font
         width = text_width(draw, line, font)
-        if index == 0:
+        highlight = headline_highlight_colors(index, highlight_style)
+        if highlight:
+            background_color, fill = highlight
             draw.rounded_rectangle(
                 (margin - 10, y - 3, margin + width + 14, y + line_height - 2),
                 radius=5,
-                fill=BRAND_CORAL,
+                fill=background_color,
             )
-            fill = WHITE
-        elif index == 1:
-            draw.rounded_rectangle(
-                (margin - 10, y - 3, margin + width + 14, y + line_height - 2),
-                radius=5,
-                fill=BRAND_MINT,
-            )
-            fill = INK
         else:
             fill = BRAND_MINT if index == len(lines) - 1 else WHITE
         draw.text(
@@ -497,6 +677,7 @@ def compose_post(
     font_override: Path | None = None,
     style: str = "brand-block",
     logo_path: Path | None = DEFAULT_BRAND_LOGO,
+    headline_highlight: str = "dual",
 ) -> Image.Image:
     with Image.open(io.BytesIO(background_bytes)) as generated:
         background = ImageOps.fit(
@@ -510,12 +691,21 @@ def compose_post(
 
     if style not in STYLE_CHOICES:
         raise ValueError(f"Unknown post style: {style}")
-    renderer = {
-        "brand-block": draw_brand_block,
-        "editorial-italic": draw_editorial_italic,
-        "split-signal": draw_split_signal,
-    }[style]
-    renderer(draw, title, source, post_date, font_override)
+    if style == "brand-block":
+        draw_brand_block(
+            draw,
+            title,
+            source,
+            post_date,
+            font_override,
+            headline_highlight,
+        )
+    else:
+        renderer = {
+            "editorial-italic": draw_editorial_italic,
+            "split-signal": draw_split_signal,
+        }[style]
+        renderer(draw, title, source, post_date, font_override)
     paste_brand_logo(canvas, logo_path)
 
     return canvas.convert("RGB")
@@ -528,6 +718,15 @@ def parse_date(value: str) -> date:
         raise argparse.ArgumentTypeError("date must use YYYY-MM-DD") from exc
 
 
+def configure_utf8(stream: TextIO) -> None:
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate a 1080x1350 tech-news post with OpenAI and Pillow."
@@ -536,7 +735,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--headline",
         required=True,
-        help="Headline to render. It is not generated by this script.",
+        help=(
+            "Approved English headline. For a Bangla-selected tweet, the script "
+            "translates this headline before rendering."
+        ),
+    )
+    parser.add_argument(
+        "--tweet-json",
+        type=Path,
+        help="Read the persisted post_language selected by fetch_tweets.py.",
     )
     parser.add_argument("--output", type=Path, default=Path("output/post.png"))
     parser.add_argument(
@@ -586,6 +793,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_utf8(sys.stdout)
+    configure_utf8(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
         source_text = normalize_news_text(args.news)
@@ -595,6 +804,17 @@ def main(argv: list[str] | None = None) -> int:
         if not title:
             raise ValueError("The headline cannot be empty.")
         image_prompt = build_image_prompt(source_text, title)
+        english_title = title
+        post_language = (
+            read_post_language(args.tweet_json) if args.tweet_json else "english"
+        )
+        headline_highlight = (
+            read_headline_highlight(args.tweet_json) if args.tweet_json else "dual"
+        )
+        if post_language == "bangla":
+            require_api_key()
+            print("Translating approved headline to Bangla...", file=sys.stderr)
+            title = translate_headline_to_bangla(make_client(), english_title)
         if args.background_input:
             if not args.background_input.is_file():
                 raise FileNotFoundError(
@@ -626,6 +846,7 @@ def main(argv: list[str] | None = None) -> int:
             font_override=args.font,
             style=args.style,
             logo_path=args.logo,
+            headline_highlight=headline_highlight,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         post.save(args.output, format="PNG", optimize=True)
@@ -637,6 +858,9 @@ def main(argv: list[str] | None = None) -> int:
         metadata = PostMetadata(
             source_text=source_text,
             title=title,
+            english_title=english_title,
+            post_language=post_language,
+            headline_highlight=headline_highlight,
             image_prompt=image_prompt,
             background_source=background_source,
             image_model=args.image_model,
@@ -651,6 +875,8 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(asdict(metadata), ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
+        print(f"Language: {post_language}")
+        print(f"Headline highlight: {headline_highlight}")
         print(f"Title: {title}")
         print(f"Post: {args.output.resolve()}")
         print(f"Metadata: {metadata_path.resolve()}")

@@ -11,7 +11,8 @@
 The image model never renders the headline. All typography is added
 programmatically by Pillow. The palette uses coral `#FF5757` and mint
 `#C2FFE1`; the current design has no bottom footer, extra badges, or
-AI-generated credit line.
+AI-generated credit line. English headlines and bylines use bundled Roboto;
+Bangla headlines retain their Bengali-capable font.
 
 Three Pillow presets are available through `--style`:
 
@@ -74,16 +75,42 @@ The implementation follows the same single-tweet backend selected by
 [x-tweet-fetcher](https://github.com/ythx-101/x-tweet-fetcher).
 When FxTwitter appears to return a long-post preview, the script validates a
 matching VxTwitter-compatible response and uses its longer text if available.
+Pass `--media-dir` to download attached tweet photos in source order. These
+become secondary post images; videos are currently ignored.
+At the start of each fetch, the default `--language auto` randomly chooses
+English or Bangla once and stores the result as `post_language` in the JSON.
+The default `--highlight-style auto` independently chooses a one-line cyan
+block, a one-line red block, or the current two-line red-plus-cyan treatment.
+Both choices are stored in the JSON and reused instead of being rerolled.
 
 ```powershell
 python .\fetch_tweets.py `
   "https://x.com/Polymarket/status/2079479742802141202?s=20" `
+  --media-dir .\output\polymarket-media `
   --output .\output\polymarket-tweet.json
 ```
 
 The default public endpoint is `https://api.fxtwitter.com`. You can point the
 same script at a self-hosted FxEmbed-compatible endpoint with `--api-base` or
 the `FXTWITTER_API_BASE` environment variable.
+
+## Brand downloaded tweet images
+
+`brand_tweet_images.py` creates publishing-ready copies of downloaded tweet
+photos. It preserves each photo, adds a `#212121` border, and places the Bits
+Today transparent logo directly over the bottom-right corner. Source files are
+not overwritten, and multiple inputs retain the order supplied on the command
+line.
+
+```powershell
+python .\brand_tweet_images.py `
+  .\output\tweet-media\123-photo-1.jpg `
+  .\output\tweet-media\123-photo-2.jpg `
+  --output-dir .\output\tweet-media-branded
+```
+
+Use the resulting `*-branded` files as the ordered secondary images in the
+Telegram, Facebook, and Instagram stages.
 
 ## Generate a news-style description
 
@@ -92,8 +119,8 @@ high-stakes social description. The first model call writes the English news
 copy. A second model call translates and summarizes that copy into concise
 Bangla while preserving names, numbers, attribution, and uncertainty. The
 script uses the fixed `gpt-5.6-luna` model for both calls; the model is not
-configurable through `.env` or CLI arguments. The output is ready for every
-publishing stage in this format:
+configurable through `.env` or CLI arguments. For an English-selected post, the
+output order is:
 
 ```text
 English description
@@ -102,6 +129,9 @@ English description
 
 বাংলা অনুবাদ-সারাংশ
 ```
+
+For a Bangla-selected post, the same sections are reversed: Bangla first, then
+`---`, then English.
 
 The English prompt uses few-shot examples for paragraphing and attribution,
 but both prompts prohibit unsupported facts and completed truncated clauses.
@@ -116,11 +146,15 @@ python .\generate_description.py `
 ## Editorial approval workflow
 
 1. Send the assistant an X/Twitter status URL.
-2. Fetch and validate the post through the free open-source FxTwitter backend.
-3. The assistant writes a factual hook headline from the extracted full post.
-4. Run `generate_post.py` with that headline and create a draft image.
+2. Fetch and validate the post through the free open-source FxTwitter backend;
+   its random English/Bangla selection is saved in the tweet JSON.
+3. The assistant writes a factual English hook headline from the extracted post.
+4. Run `generate_post.py` with that headline and `--tweet-json`. English renders
+   unchanged. Bangla triggers one fixed-model translation call and renders the
+   translated headline with a Bengali-capable font.
 5. Generate the English-plus-Bangla description with `generate_description.py`,
-   send it and the image to Telegram, then show the same package for review.
+   send it and the complete ordered image set to Telegram, then show the same
+   package for review. The generated graphic is first and tweet photos follow.
    Revise it until the user says `yes`.
 6. Publish to Facebook and Instagram only after the user explicitly says `yes`
    for the exact latest preview package.
@@ -144,14 +178,16 @@ before requesting preview feedback:
 ```powershell
 python .\notify_telegram.py `
   --image .\output\draft-post.png `
+  --secondary-image .\output\tweet-photo-1.jpg `
   --description-file .\output\draft-description.txt `
   --stage preview `
   --send
 ```
 
-Every materially revised image or description must be resent with
-`--stage preview --send` before requesting approval again. The script sends the
-image first and the full description as one or more separate Telegram messages.
+Repeat `--secondary-image` for additional tweet photos. Every materially revised
+image or description must be resent with `--stage preview --send` before
+requesting approval again. The script sends the generated main image first,
+then source images in order, then the full description as separate messages.
 
 ## Validate or publish to Facebook
 
@@ -161,6 +197,7 @@ the expected Page. Without `--publish`, it performs validation only:
 ```powershell
 python .\publish_facebook.py `
   --image .\output\approved-post.png `
+  --secondary-image .\output\tweet-photo-1.jpg `
   --message-file .\output\approved-description.txt
 ```
 
@@ -170,25 +207,30 @@ publishing requires both safety arguments:
 ```powershell
 python .\publish_facebook.py `
   --image .\output\approved-post.png `
+  --secondary-image .\output\tweet-photo-1.jpg `
   --message-file .\output\approved-description.txt `
   --publish `
   --confirm yes
 ```
 
-Facebook credentials are loaded from `.env` and are never supplied on the
-command line.
+Repeat `--secondary-image` for more attached photos. With multiple images, the
+publisher creates one ordered Facebook multi-photo post and returns
+`facebook_image_urls` for the Instagram stage. Facebook credentials are loaded
+from `.env` and are never supplied on the command line.
 
 ## Validate or publish to Instagram
 
 Instagram Login publishing uses the configured `@bits_t0day` Business account.
-Meta requires a public HTTPS image URL, so the approved workflow publishes the
-image to Facebook first and reuses its Facebook-hosted image URL for Instagram.
+Meta requires public HTTPS image URLs, so the approved workflow publishes the
+ordered images to Facebook first and reuses their Facebook-hosted URLs for an
+Instagram carousel. The generated graphic remains the first carousel item.
 
 Without `--publish`, this validates the account and publishing quota only:
 
 ```powershell
 python .\publish_instagram.py `
   --image-url "https://public.example/approved-post.png" `
+  --secondary-image-url "https://public.example/tweet-photo-1.jpg" `
   --caption-file .\output\approved-description.txt
 ```
 
@@ -197,6 +239,7 @@ After explicit approval of the exact latest preview, publishing additionally req
 ```powershell
 python .\publish_instagram.py `
   --image-url "https://public.example/approved-post.png" `
+  --secondary-image-url "https://public.example/tweet-photo-1.jpg" `
   --caption-file .\output\approved-description.txt `
   --publish `
   --confirm yes

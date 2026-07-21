@@ -201,20 +201,35 @@ def send_review_package(
     image: Path,
     description: str,
     stage: str,
+    secondary_images: list[Path] | None = None,
 ) -> dict[str, Any]:
-    image = validate_image(image)
+    images = [validate_image(image)]
+    images.extend(validate_image(item) for item in secondary_images or [])
     description = validate_description(description)
     label = STAGE_LABELS[stage]
 
-    media_type = mimetypes.guess_type(image.name)[0] or "application/octet-stream"
-    with image.open("rb") as image_file:
-        photo_result = call_telegram(
-            session,
-            config,
-            "sendPhoto",
-            data={"chat_id": config.chat_id, "caption": f"Bits Today — {label}"},
-            files={"photo": (image.name, image_file, media_type)},
+    photo_results = []
+    for index, current_image in enumerate(images):
+        media_type = (
+            mimetypes.guess_type(current_image.name)[0]
+            or "application/octet-stream"
         )
+        image_label = "MAIN IMAGE" if index == 0 else f"SOURCE IMAGE {index}"
+        with current_image.open("rb") as image_file:
+            photo_results.append(
+                call_telegram(
+                    session,
+                    config,
+                    "sendPhoto",
+                    data={
+                        "chat_id": config.chat_id,
+                        "caption": f"Bits Today — {label} — {image_label}",
+                    },
+                    files={
+                        "photo": (current_image.name, image_file, media_type)
+                    },
+                )
+            )
 
     text = f"Bits Today — {label}\n\n{description}"
     text_results = []
@@ -234,7 +249,8 @@ def send_review_package(
         )
 
     return {
-        "photo_message_id": photo_result.get("message_id"),
+        "photo_message_id": photo_results[0].get("message_id"),
+        "photo_message_ids": [item.get("message_id") for item in photo_results],
         "description_message_ids": [item.get("message_id") for item in text_results],
     }
 
@@ -260,6 +276,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="List private chats that have messaged the bot, then exit.",
     )
     parser.add_argument("--image", type=Path, help="Local review image.")
+    parser.add_argument(
+        "--secondary-image",
+        action="append",
+        default=[],
+        type=Path,
+        help="Additional source image to preview after --image; repeat as needed.",
+    )
     description_group = parser.add_mutually_exclusive_group()
     description_group.add_argument("--description", help="Review description.")
     description_group.add_argument(
@@ -304,6 +327,9 @@ def main(argv: list[str] | None = None) -> int:
                     "--image and either --description or --description-file are required."
                 )
             image = validate_image(args.image)
+            secondary_images = [
+                validate_image(item) for item in args.secondary_image
+            ]
             description = read_description(args)
             chat = verify_chat(session, config)
             if not args.send:
@@ -316,6 +342,10 @@ def main(argv: list[str] | None = None) -> int:
                             "chat_type": chat.get("type"),
                             "stage": args.stage,
                             "image": str(image),
+                            "secondary_images": [
+                                str(item) for item in secondary_images
+                            ],
+                            "image_count": 1 + len(secondary_images),
                             "description_characters": len(description),
                         },
                         ensure_ascii=False,
@@ -330,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
                 image=image,
                 description=description,
                 stage=args.stage,
+                secondary_images=secondary_images,
             )
             print(
                 json.dumps(

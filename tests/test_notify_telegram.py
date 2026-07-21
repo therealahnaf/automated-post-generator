@@ -70,6 +70,7 @@ class NotifyTelegramTests(unittest.TestCase):
             )
 
         self.assertEqual(result["photo_message_id"], 10)
+        self.assertEqual(result["photo_message_ids"], [10])
         self.assertEqual(result["description_message_ids"], [11])
         self.assertEqual(session.post.call_count, 2)
         photo_call, message_call = session.post.call_args_list
@@ -80,6 +81,43 @@ class NotifyTelegramTests(unittest.TestCase):
         self.assertIn(
             "Detailed draft description.", message_call.kwargs["data"]["text"]
         )
+
+    def test_send_review_package_sends_main_then_secondary_images(self) -> None:
+        responses = []
+        for message_id in (20, 21, 22):
+            response = Mock()
+            response.ok = True
+            response.status_code = 200
+            response.json.return_value = {
+                "ok": True,
+                "result": {"message_id": message_id},
+            }
+            responses.append(response)
+        session = Mock()
+        session.post.side_effect = responses
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            main_image = Path(temp_dir) / "main.png"
+            source_image = Path(temp_dir) / "source.jpg"
+            main_image.write_bytes(b"main-image")
+            source_image.write_bytes(b"source-image")
+            result = notify_telegram.send_review_package(
+                session,
+                self.config,
+                image=main_image,
+                secondary_images=[source_image],
+                description="Ordered package.",
+                stage="preview",
+            )
+
+        self.assertEqual(result["photo_message_ids"], [20, 21])
+        self.assertEqual(result["description_message_ids"], [22])
+        main_call, secondary_call, description_call = session.post.call_args_list
+        self.assertEqual(main_call.kwargs["files"]["photo"][0], "main.png")
+        self.assertIn("MAIN IMAGE", main_call.kwargs["data"]["caption"])
+        self.assertEqual(secondary_call.kwargs["files"]["photo"][0], "source.jpg")
+        self.assertIn("SOURCE IMAGE 1", secondary_call.kwargs["data"]["caption"])
+        self.assertTrue(description_call.args[0].endswith("/sendMessage"))
 
 
 if __name__ == "__main__":

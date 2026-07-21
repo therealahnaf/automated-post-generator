@@ -1,6 +1,7 @@
 import io
 import unittest
 from datetime import date
+from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -8,6 +9,66 @@ import generate_post
 
 
 class GeneratePostTests(unittest.TestCase):
+    def test_english_brand_font_is_roboto(self) -> None:
+        font = generate_post.load_roboto_font(size=48, bold=True)
+        self.assertEqual(font.getname()[0], "Roboto")
+
+    def test_headline_highlight_variants(self) -> None:
+        self.assertEqual(
+            generate_post.headline_highlight_colors(0, "cyan"),
+            (generate_post.BRAND_MINT, generate_post.INK),
+        )
+        self.assertIsNone(generate_post.headline_highlight_colors(1, "cyan"))
+        self.assertEqual(
+            generate_post.headline_highlight_colors(0, "red"),
+            (generate_post.BRAND_CORAL, generate_post.WHITE),
+        )
+        self.assertIsNone(generate_post.headline_highlight_colors(1, "red"))
+        self.assertEqual(
+            generate_post.headline_highlight_colors(0, "dual"),
+            (generate_post.BRAND_CORAL, generate_post.WHITE),
+        )
+        self.assertEqual(
+            generate_post.headline_highlight_colors(1, "dual"),
+            (generate_post.BRAND_MINT, generate_post.INK),
+        )
+
+    def test_translates_headline_with_fixed_luna_model(self) -> None:
+        calls = []
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                output_text="দেশীয় চিপে ১ গিগাওয়াট ডেটা সেন্টার চালু",
+                output=[],
+            )
+
+        client = SimpleNamespace(responses=SimpleNamespace(create=create))
+        translated = generate_post.translate_headline_to_bangla(
+            client,
+            "Domestic chips power a one-gigawatt data center",
+        )
+
+        self.assertTrue(generate_post.contains_bangla_text(translated))
+        self.assertEqual(calls[0]["model"], "gpt-5.6-luna")
+        self.assertEqual(calls[0]["reasoning"], {"effort": "none"})
+
+    def test_brand_block_renders_bangla_headline(self) -> None:
+        background = Image.new("RGB", (1024, 1280), (35, 70, 100))
+        payload = io.BytesIO()
+        background.save(payload, format="PNG")
+
+        result = generate_post.compose_post(
+            payload.getvalue(),
+            "দেশীয় চিপে ১ গিগাওয়াট ডেটা সেন্টার চালু",
+            source="Bits Today",
+            post_date=date(2026, 7, 22),
+            credit="",
+            style="brand-block",
+        )
+
+        self.assertEqual(result.size, (1080, 1350))
+
     def test_normalize_news_text_removes_invisible_characters(self) -> None:
         raw = "NEW: China’s Z.\u200bAI  begins\noperating"
         self.assertEqual(normalize := generate_post.normalize_news_text(raw), "NEW: China’s Z.AI begins operating")

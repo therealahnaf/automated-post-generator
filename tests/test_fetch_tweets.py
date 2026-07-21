@@ -1,7 +1,11 @@
 import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from PIL import Image
 
 import fetch_tweets
 
@@ -121,15 +125,56 @@ class FetchTweetsTests(unittest.TestCase):
             return_value={"id": "2079479742802141202", "text": "Tweet"},
         ):
             result = fetch_tweets.fetch_tweets(
-                ["https://x.com/Polymarket/status/2079479742802141202"]
+                ["https://x.com/Polymarket/status/2079479742802141202"],
+                post_language="bangla",
+                headline_highlight="cyan",
             )
 
         self.assertEqual(result["provider"], "fxtwitter")
         self.assertEqual(result["full_text_provider_api"], "https://api.vxtwitter.com")
         self.assertFalse(result["official_x_api_used"])
+        self.assertEqual(result["post_language"], "bangla")
+        self.assertEqual(result["headline_highlight"], "cyan")
         self.assertEqual(
             result["open_source_project"],
             "https://github.com/FxEmbed/FxEmbed",
+        )
+
+    @patch("fetch_tweets.fetch_binary")
+    def test_downloads_tweet_photos_in_source_order(self, mock_fetch_binary) -> None:
+        payload = io.BytesIO()
+        Image.new("RGB", (320, 180), "blue").save(payload, format="JPEG")
+        mock_fetch_binary.return_value = (payload.getvalue(), "image/jpeg")
+        tweet = {
+            "id": "2079590123038204255",
+            "media": {
+                "photos": [
+                    {"id": "first", "type": "photo", "url": "https://cdn/1.jpg"},
+                    {"id": "second", "type": "photo", "url": "https://cdn/2.jpg"},
+                ]
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            downloaded = fetch_tweets.download_tweet_photos(
+                tweet,
+                Path(directory),
+                timeout=30,
+            )
+
+            self.assertEqual([item["position"] for item in downloaded], [1, 2])
+            self.assertEqual(
+                [Path(item["local_path"]).name for item in downloaded],
+                [
+                    "2079590123038204255-photo-1.jpg",
+                    "2079590123038204255-photo-2.jpg",
+                ],
+            )
+            self.assertTrue(all(Path(item["local_path"]).is_file() for item in downloaded))
+            self.assertEqual(tweet["downloaded_photos"], downloaded)
+        self.assertEqual(
+            [call.args[0] for call in mock_fetch_binary.call_args_list],
+            ["https://cdn/1.jpg", "https://cdn/2.jpg"],
         )
 
 

@@ -54,6 +54,50 @@ class PublishInstagramTests(unittest.TestCase):
         )
         self.assertNotIn("access_token", call.kwargs["data"])
 
+    def test_carousel_item_uses_public_url_without_caption(self) -> None:
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {"id": "child-id"}
+        session = Mock()
+        session.post.return_value = response
+
+        child_id = publish_instagram.create_carousel_item_container(
+            session,
+            self.config,
+            "https://example.com/source.jpg",
+        )
+
+        self.assertEqual(child_id, "child-id")
+        data = session.post.call_args.kwargs["data"]
+        self.assertEqual(data["image_url"], "https://example.com/source.jpg")
+        self.assertEqual(data["is_carousel_item"], "true")
+        self.assertNotIn("caption", data)
+
+    def test_carousel_parent_preserves_child_order_and_caption(self) -> None:
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {"id": "carousel-id"}
+        session = Mock()
+        session.post.return_value = response
+
+        carousel_id = publish_instagram.create_carousel_container(
+            session,
+            self.config,
+            ["generated-child", "tweet-child-1", "tweet-child-2"],
+            "Approved caption",
+        )
+
+        self.assertEqual(carousel_id, "carousel-id")
+        data = session.post.call_args.kwargs["data"]
+        self.assertEqual(data["media_type"], "CAROUSEL")
+        self.assertEqual(
+            data["children"],
+            "generated-child,tweet-child-1,tweet-child-2",
+        )
+        self.assertEqual(data["caption"], "Approved caption")
+
     @patch("publish_instagram.time.sleep")
     def test_waits_until_container_is_finished(self, mock_sleep) -> None:
         processing = Mock()

@@ -14,6 +14,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from post_language import POST_LANGUAGES, read_post_language
+
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -314,6 +316,7 @@ def combine_descriptions(
     bangla_description: str,
     *,
     separator: str = DESCRIPTION_SEPARATOR,
+    primary_language: str = "english",
 ) -> str:
     english_description = english_description.strip()
     bangla_description = bangla_description.strip()
@@ -324,7 +327,12 @@ def combine_descriptions(
         raise ValueError("Bangla description must contain Bangla text.")
     if not separator:
         raise ValueError("Description separator cannot be empty.")
-    combined = f"{english_description}\n\n{separator}\n\n{bangla_description}"
+    if primary_language not in POST_LANGUAGES:
+        raise ValueError(f"Unsupported primary language: {primary_language}")
+    if primary_language == "bangla":
+        combined = f"{bangla_description}\n\n{separator}\n\n{english_description}"
+    else:
+        combined = f"{english_description}\n\n{separator}\n\n{bangla_description}"
     if len(combined) > MAX_COMBINED_DESCRIPTION_CHARACTERS:
         raise ValueError(
             f"Combined bilingual description is {len(combined)} characters; "
@@ -339,6 +347,7 @@ def generate_bilingual_description(
     *,
     description_max_output_tokens: int,
     translation_max_output_tokens: int,
+    primary_language: str = "english",
 ) -> str:
     english_description = generate_description(
         client,
@@ -350,7 +359,11 @@ def generate_bilingual_description(
         english_description,
         max_output_tokens=translation_max_output_tokens,
     )
-    return combine_descriptions(english_description, bangla_description)
+    return combine_descriptions(
+        english_description,
+        bangla_description,
+        primary_language=primary_language,
+    )
 
 
 
@@ -401,6 +414,12 @@ def read_source(args: argparse.Namespace) -> str:
     return text
 
 
+def resolve_primary_language(args: argparse.Namespace) -> str:
+    if args.tweet_json:
+        return read_post_language(args.tweet_json)
+    return "english"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -411,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--translation-max-output-tokens must be greater than zero."
             )
         source_text = read_source(args)
+        primary_language = resolve_primary_language(args)
         if args.print_prompt:
             print(build_user_prompt(source_text))
             return 0
@@ -421,6 +441,7 @@ def main(argv: list[str] | None = None) -> int:
             source_text,
             description_max_output_tokens=args.max_output_tokens,
             translation_max_output_tokens=args.translation_max_output_tokens,
+            primary_language=primary_language,
         )
         if not description:
             raise RuntimeError("Generated description is empty.")

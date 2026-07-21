@@ -203,6 +203,31 @@ class GenerateDescriptionTests(unittest.TestCase):
             generate_description.BANGLA_SYSTEM_INSTRUCTIONS,
         )
 
+    def test_bangla_primary_description_appears_first(self) -> None:
+        combined = generate_description.combine_descriptions(
+            "English description.",
+            "বাংলা বিবরণ।",
+            primary_language="bangla",
+        )
+
+        self.assertEqual(
+            combined,
+            "বাংলা বিবরণ।\n\n---\n\nEnglish description.",
+        )
+
+    def test_resolves_primary_language_from_tweet_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(
+                json.dumps({"post_language": "bangla", "items": []}),
+                encoding="utf-8",
+            )
+            args = type("Args", (), {"tweet_json": path})()
+
+            self.assertEqual(
+                generate_description.resolve_primary_language(args), "bangla"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,12 +3,15 @@
 
 The default backend is FxTwitter, the public deployment of the MIT-licensed
 FxEmbed project. The request and JSON parsing use only Python's standard
-library; no account, API key, or Apify subscription is required.
+backend; no account, API key, or Apify subscription is required. Pillow is used
+to validate any attached photos before they enter the publishing workflow.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import re
@@ -20,7 +23,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from PIL import Image
 from dotenv import load_dotenv
+
+from post_language import (
+    AUTO_HIGHLIGHT_STYLE,
+    AUTO_LANGUAGE,
+    HEADLINE_HIGHLIGHT_STYLES,
+    POST_LANGUAGES,
+    choose_headline_highlight,
+    choose_post_language,
+)
 
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -31,6 +44,8 @@ DEFAULT_FULL_TEXT_API_BASE = "https://api.vxtwitter.com"
 OPEN_SOURCE_PROJECT = "https://github.com/FxEmbed/FxEmbed"
 IMPLEMENTATION_REFERENCE = "https://github.com/ythx-101/x-tweet-fetcher"
 STATUS_PATH = re.compile(r"^/([^/]+)/status/(\d+)(?:/.*)?$")
+MAX_TWEET_IMAGE_BYTES = 20 * 1024 * 1024
+IMAGE_FORMAT_SUFFIXES = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 
 
 def status_parts(value: str) -> tuple[str, str]:
@@ -71,6 +86,93 @@ def fetch_json(endpoint: str, *, timeout: float) -> Any:
     )
     with urlopen(request, timeout=timeout) as response:
         return json.load(response)
+
+
+def fetch_binary(endpoint: str, *, timeout: float) -> tuple[bytes, str]:
+    request = Request(
+        endpoint,
+        headers={
+            "Accept": "image/jpeg,image/png,image/webp",
+            "User-Agent": "ctrl-ai-open-source-tweet-fetcher/1.0",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        payload = response.read(MAX_TWEET_IMAGE_BYTES + 1)
+        content_type = response.headers.get_content_type()
+    if len(payload) > MAX_TWEET_IMAGE_BYTES:
+        raise RuntimeError(
+            f"Tweet image exceeds {MAX_TWEET_IMAGE_BYTES // (1024 * 1024)} MB."
+        )
+    return payload, content_type
+
+
+def extract_photo_media(tweet: dict[str, Any]) -> list[dict[str, Any]]:
+    media = tweet.get("media")
+    if not isinstance(media, dict):
+        return []
+    photos = media.get("photos")
+    if not isinstance(photos, list):
+        photos = [
+            item
+            for item in media.get("all") or []
+            if isinstance(item, dict) and item.get("type") == "photo"
+        ]
+    normalized = []
+    for photo in photos:
+        if not isinstance(photo, dict):
+            continue
+        url = str(photo.get("url", "")).strip()
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            continue
+        normalized.append(photo)
+    return normalized
+
+
+def download_tweet_photos(
+    tweet: dict[str, Any],
+    media_dir: Path,
+    *,
+    timeout: float,
+) -> list[dict[str, Any]]:
+    tweet_id = str(tweet.get("id", "")).strip()
+    if not tweet_id:
+        raise ValueError("Cannot download media for a tweet without an ID.")
+    photos = extract_photo_media(tweet)
+    media_dir.mkdir(parents=True, exist_ok=True)
+    downloaded: list[dict[str, Any]] = []
+    for position, photo in enumerate(photos, start=1):
+        source_url = str(photo["url"])
+        payload, content_type = fetch_binary(source_url, timeout=timeout)
+        try:
+            with Image.open(io.BytesIO(payload)) as image:
+                image_format = str(image.format or "").upper()
+                width, height = image.size
+                image.verify()
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"Tweet photo {position} did not contain a valid supported image."
+            ) from exc
+        suffix = IMAGE_FORMAT_SUFFIXES.get(image_format)
+        if not suffix:
+            raise RuntimeError(
+                f"Tweet photo {position} uses unsupported format {image_format or 'unknown'}."
+            )
+        destination = media_dir / f"{tweet_id}-photo-{position}{suffix}"
+        destination.write_bytes(payload)
+        downloaded.append(
+            {
+                "position": position,
+                "source_url": source_url,
+                "local_path": str(destination.resolve()),
+                "content_type": content_type,
+                "width": width,
+                "height": height,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
+    tweet["downloaded_photos"] = downloaded
+    return downloaded
 
 
 def looks_possibly_truncated(text: str) -> bool:
@@ -211,24 +313,35 @@ def fetch_tweets(
     api_base: str = DEFAULT_API_BASE,
     full_text_api_base: str = DEFAULT_FULL_TEXT_API_BASE,
     timeout: float = 30.0,
+    media_dir: Path | None = None,
+    post_language: str = AUTO_LANGUAGE,
+    headline_highlight: str = AUTO_HIGHLIGHT_STYLE,
 ) -> dict[str, Any]:
     """Fetch one or more public status URLs using the free open-source backend."""
+    selected_language = choose_post_language(post_language)
+    selected_highlight = choose_headline_highlight(headline_highlight)
+    items = [
+        fetch_tweet(
+            url,
+            api_base=api_base,
+            full_text_api_base=full_text_api_base,
+            timeout=timeout,
+        )
+        for url in urls
+    ]
+    if media_dir is not None:
+        for item in items:
+            download_tweet_photos(item, media_dir, timeout=timeout)
     return {
+        "post_language": selected_language,
+        "headline_highlight": selected_highlight,
         "provider": "fxtwitter",
         "provider_api": api_base.rstrip("/"),
         "full_text_provider_api": full_text_api_base.rstrip("/"),
         "open_source_project": OPEN_SOURCE_PROJECT,
         "implementation_reference": IMPLEMENTATION_REFERENCE,
         "official_x_api_used": False,
-        "items": [
-            fetch_tweet(
-                url,
-                api_base=api_base,
-                full_text_api_base=full_text_api_base,
-                timeout=timeout,
-            )
-            for url in urls
-        ],
+        "items": items,
     }
 
 
@@ -240,7 +353,30 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("urls", nargs="+", help="One or more X/Twitter status URLs.")
+    parser.add_argument(
+        "--language",
+        choices=(AUTO_LANGUAGE, *POST_LANGUAGES),
+        default=AUTO_LANGUAGE,
+        help=(
+            "Primary post language. The default, auto, randomly chooses English "
+            "or Bangla once and saves it in the output JSON."
+        ),
+    )
+    parser.add_argument(
+        "--highlight-style",
+        choices=(AUTO_HIGHLIGHT_STYLE, *HEADLINE_HIGHLIGHT_STYLES),
+        default=AUTO_HIGHLIGHT_STYLE,
+        help=(
+            "Headline block treatment. The default randomly selects one cyan "
+            "line, one red line, or the current red-plus-cyan two-line style."
+        ),
+    )
     parser.add_argument("--output", type=Path, help="Write JSON to this file.")
+    parser.add_argument(
+        "--media-dir",
+        type=Path,
+        help="Download attached tweet photos into this directory in source order.",
+    )
     parser.add_argument(
         "--api-base",
         default=os.getenv("FXTWITTER_API_BASE", DEFAULT_API_BASE),
@@ -290,6 +426,9 @@ def main(argv: list[str] | None = None) -> int:
             api_base=args.api_base,
             full_text_api_base=args.full_text_api_base,
             timeout=args.timeout,
+            media_dir=args.media_dir,
+            post_language=args.language,
+            headline_highlight=args.highlight_style,
         )
         document = {
             "requested_urls": urls,

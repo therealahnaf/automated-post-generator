@@ -86,6 +86,57 @@ class PublishFacebookTests(unittest.TestCase):
 
         self.assertEqual(details["largest_image_url"], "https://cdn/large.jpg")
 
+    def test_uploads_secondary_photo_as_unpublished(self) -> None:
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {"id": "secondary-photo-id"}
+        session = Mock()
+        session.post.return_value = response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "source.jpg"
+            image_path.write_bytes(b"jpeg")
+            photo_id = publish_facebook.upload_unpublished_photo(
+                session, self.config, image_path
+            )
+
+        self.assertEqual(photo_id, "secondary-photo-id")
+        call = session.post.call_args
+        self.assertTrue(call.args[0].endswith("/123456/photos"))
+        self.assertEqual(call.kwargs["data"], {"published": "false"})
+
+    def test_multi_photo_post_preserves_attachment_order(self) -> None:
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {"id": "page_post_id"}
+        session = Mock()
+        session.post.return_value = response
+
+        post_id = publish_facebook.publish_multi_photo_post(
+            session,
+            self.config,
+            ["generated-id", "tweet-photo-1", "tweet-photo-2"],
+            "Approved description",
+        )
+
+        self.assertEqual(post_id, "page_post_id")
+        call = session.post.call_args
+        self.assertTrue(call.args[0].endswith("/123456/feed"))
+        self.assertEqual(
+            call.kwargs["data"]["attached_media[0]"],
+            '{"media_fbid":"generated-id"}',
+        )
+        self.assertEqual(
+            call.kwargs["data"]["attached_media[1]"],
+            '{"media_fbid":"tweet-photo-1"}',
+        )
+        self.assertEqual(
+            call.kwargs["data"]["attached_media[2]"],
+            '{"media_fbid":"tweet-photo-2"}',
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
