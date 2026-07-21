@@ -35,21 +35,29 @@ social post.
    and uncertainty in both languages, and do not add facts from outside the
    validated source. Make the writing feel urgent and consequential, but do not
    invent catastrophe, certainty, or consequences beyond the source.
-5. Send the draft image and generated description through
+5. After description generation, search the internet for additional relevant
+   details about the story. If the search produces useful information, enhance
+   the English description with that context and revise the Bangla
+   translation-summary so it matches the final English version. If no useful
+   additional details are found, keep the generated bilingual description as
+   it is. Do not force extra context into the post. Keep the final bilingual
+   copy within the configured platform length limit and retain the `---`
+   separator.
+6. Send the draft image and enhanced bilingual description through
    `notify_telegram.py --stage preview --send`. Only after that succeeds, show
    the same draft in the Codex task and ask for revisions or the exact approval
    word `yes`. Reuse `--background-input` for typography or layout revisions
    that do not require a new background. Send every materially revised
    image-and-description pair to Telegram before asking again.
-6. Only an explicit `yes` referring to the exact latest preview package
+7. Only an explicit `yes` referring to the exact latest preview package
    authorizes publishing to both the configured Facebook Page and Instagram
    account. Do not publish on ambiguous approval. If the package was changed
    after Telegram delivery, resend it before accepting approval.
-7. Invoke `publish_facebook.py` first after approval. Its publishing path
+8. Invoke `publish_facebook.py` first after approval. Its publishing path
    additionally requires both `--publish` and `--confirm yes`. Retrieve the
    resulting Facebook-hosted image URL, then invoke `publish_instagram.py` with
    the same approved description; it has the same dual confirmation guard.
-8. After publishing, return both platform post IDs or URLs. If one platform
+9. After publishing, return both platform post IDs or URLs. If one platform
    succeeds and the other fails, report the partial result accurately and do
    not create a duplicate post.
 
