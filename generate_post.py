@@ -90,9 +90,12 @@ def make_client() -> Any:
 
 HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for Bits Today.
 Translate the supplied approved English news headline into natural, concise
-Bangla suitable for a social-news image. Preserve every name, number, unit,
-attribution, and uncertainty. Do not add facts, commentary, labels, quotation
-marks, hashtags, or markdown. Output only the Bangla headline."""
+Bangla suitable for a social-news image. Preserve every name, product name,
+organization name, model name, number, unit, attribution, and uncertainty.
+Keep names and named products in their original English spelling: never
+translate or transliterate them into Bangla script. Do not add facts,
+commentary, labels, quotation marks, hashtags, or markdown. Output only the
+Bangla headline."""
 
 
 def contains_bangla_text(value: str) -> bool:
@@ -132,7 +135,9 @@ def translate_headline_to_bangla(
                 "role": "user",
                 "content": (
                     "Translate this approved headline into Bangla. Preserve its "
-                    "meaning and keep it compact:\n\n" + english_headline
+                    "meaning and keep it compact. Keep all proper names, "
+                    "organizations, products, and model names exactly in English "
+                    "spelling:\n\n" + english_headline
                 ),
             },
         ],
@@ -306,6 +311,72 @@ def wrap_headline(
     return lines
 
 
+def is_english_name_token(token: str) -> bool:
+    """Whether a headline token needs the Latin fallback font.
+
+    Bangla display fonts are not guaranteed to include Latin glyphs. Proper
+    names deliberately retained in English therefore need explicit fallback.
+    """
+    return bool(re.search(r"[A-Za-z0-9]", token))
+
+
+def mixed_text_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    bangla_font: ImageFont.FreeTypeFont,
+    latin_font: ImageFont.FreeTypeFont,
+) -> int:
+    words = text.split()
+    if not words:
+        return 0
+    space_width = text_width(draw, " ", bangla_font)
+    width = 0
+    for index, word in enumerate(words):
+        font = latin_font if is_english_name_token(word) else bangla_font
+        width += text_width(draw, word, font)
+        if index < len(words) - 1:
+            width += space_width
+    return width
+
+
+def wrap_mixed_headline(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    bangla_font: ImageFont.FreeTypeFont,
+    latin_font: ImageFont.FreeTypeFont,
+    max_width: int,
+) -> list[str]:
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        proposal = f"{current} {word}".strip()
+        if current and mixed_text_width(draw, proposal, bangla_font, latin_font) > max_width:
+            lines.append(current)
+            current = word
+        else:
+            current = proposal
+    if current:
+        lines.append(current)
+    return lines
+
+
+def draw_mixed_headline_text(
+    draw: ImageDraw.ImageDraw,
+    position: tuple[int, int],
+    text: str,
+    bangla_font: ImageFont.FreeTypeFont,
+    latin_font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+) -> None:
+    x, y = position
+    space_width = text_width(draw, " ", bangla_font)
+    for word in text.split():
+        font = latin_font if is_english_name_token(word) else bangla_font
+        draw.text((x, y), word, font=font, fill=fill)
+        x += text_width(draw, word, font) + space_width
+
+
 def fit_headline(
     draw: ImageDraw.ImageDraw,
     title: str,
@@ -465,10 +536,25 @@ def draw_brand_block(
             max_height=395,
             font_index=bold_index,
         )
-        italic_font = ImageFont.truetype(
-            bold_path, size=headline_font.size, index=bold_index
+        latin_font = load_roboto_font(size=headline_font.size, bold=True)
+        lines = wrap_mixed_headline(
+            draw, title, headline_font, latin_font, max_width
         )
+        while len(lines) > 5 and headline_font.size > 42:
+            headline_font = load_font(
+                bold_path, size=headline_font.size - 2, index=bold_index
+            )
+            latin_font = load_roboto_font(size=headline_font.size, bold=True)
+            lines = wrap_mixed_headline(
+                draw, title, headline_font, latin_font, max_width
+            )
+        line_height = max(
+            headline_font.size + 8,
+            draw.textbbox((0, 0), "Ag", font=headline_font)[3] + 8,
+        )
+        italic_font = headline_font
     else:
+        latin_font = None
         if font_override:
             bold_path = find_font_variant("bold", font_override)
             italic_path = find_font_variant("bold-italic", font_override)
@@ -496,7 +582,12 @@ def draw_brand_block(
     y = 58
     for index, line in enumerate(lines):
         font = italic_font if index == len(lines) - 1 else headline_font
-        width = text_width(draw, line, font)
+        is_bangla = contains_bangla_text(title)
+        width = (
+            mixed_text_width(draw, line, headline_font, latin_font)
+            if is_bangla and latin_font is not None
+            else text_width(draw, line, font)
+        )
         highlight = headline_highlight_colors(index, highlight_style)
         if highlight:
             background_color, fill = highlight
@@ -507,14 +598,19 @@ def draw_brand_block(
             )
         else:
             fill = BRAND_MINT if index == len(lines) - 1 else WHITE
-        draw.text(
-            (margin, y),
-            line,
-            font=font,
-            fill=fill,
-            stroke_width=1,
-            stroke_fill=(0, 0, 0, 105),
-        )
+        if is_bangla and latin_font is not None:
+            draw_mixed_headline_text(
+                draw, (margin, y), line, headline_font, latin_font, fill
+            )
+        else:
+            draw.text(
+                (margin, y),
+                line,
+                font=font,
+                fill=fill,
+                stroke_width=1,
+                stroke_fill=(0, 0, 0, 105),
+            )
         y += line_height
 
     draw_byline(
