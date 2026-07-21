@@ -6,10 +6,11 @@
 1. The operator supplies a reviewed headline with `--headline`.
 2. OpenAI Image API creates a text-free editorial background.
 3. Pillow crops the image and adds the dark news-style gradient, highlighted
-   headline, and byline.
+   headline, and `Bits Today` byline.
 
 The image model never renders the headline. All typography is added
-programmatically by Pillow. The current design has no bottom footer or badges.
+programmatically by Pillow. The current design has no bottom footer, badges, or
+AI-generated credit line.
 
 ## Setup
 
@@ -63,6 +64,8 @@ These tests do not call the API or spend credits.
 It does not use X's official API, an X developer account, Apify, or an API key.
 The implementation follows the same single-tweet backend selected by
 [x-tweet-fetcher](https://github.com/ythx-101/x-tweet-fetcher).
+When FxTwitter appears to return a long-post preview, the script validates a
+matching VxTwitter-compatible response and uses its longer text if available.
 
 ```powershell
 python .\fetch_tweets.py `
@@ -74,17 +77,31 @@ The default public endpoint is `https://api.fxtwitter.com`. You can point the
 same script at a self-hosted FxEmbed-compatible endpoint with `--api-base` or
 the `FXTWITTER_API_BASE` environment variable.
 
+## Generate a news-style description
+
+`generate_description.py` turns validated source text into a high-stakes,
+news-style social description. It uses few-shot examples for paragraphing and
+attribution, but the prompt instructs the model to use only the supplied source
+text, lead with the most consequential angle, and not invent unsupported
+catastrophe or complete truncated clauses.
+
+```powershell
+python .\generate_description.py `
+  --tweet-json .\output\polymarket-tweet.json `
+  --output .\output\polymarket-description.txt
+```
+
 ## Editorial approval workflow
 
 1. Send the assistant an X/Twitter status URL.
 2. Fetch and validate the post through the free open-source FxTwitter backend.
-3. The assistant writes a factual headline from the extracted post.
+3. The assistant writes a factual hook headline from the extracted full post.
 4. Run `generate_post.py` with that headline and create a draft image.
-5. Write a draft description, send it and the image to Telegram, then show the
-   same package for review. Revise it until the user says `proceed`.
-6. On `proceed`, write a detailed cross-platform description, send the final
-   image and description to Telegram, and return the same package for approval.
-7. Publish to Facebook and Instagram only after the user explicitly says `yes`.
+5. Generate a description with `generate_description.py`, send it and the image
+   to Telegram, then show the same package for review. Revise it until the user
+   says `yes`.
+6. Publish to Facebook and Instagram only after the user explicitly says `yes`
+   for the exact latest preview package.
 
 The Facebook publisher is guarded by both conversational approval and explicit
 command-line confirmation so validation cannot accidentally publish a post.
@@ -110,9 +127,9 @@ python .\notify_telegram.py `
   --send
 ```
 
-Immediately before requesting final publishing approval, use the exact final
-image and description with `--stage final --send`. The script sends the image
-first and the full description as one or more separate Telegram messages.
+Every materially revised image or description must be resent with
+`--stage preview --send` before requesting approval again. The script sends the
+image first and the full description as one or more separate Telegram messages.
 
 ## Validate or publish to Facebook
 
@@ -125,7 +142,7 @@ python .\publish_facebook.py `
   --message-file .\output\approved-description.txt
 ```
 
-After the user has approved the exact final image and description with `yes`,
+After the user has approved the exact latest preview image and description with `yes`,
 publishing requires both safety arguments:
 
 ```powershell
@@ -153,7 +170,7 @@ python .\publish_instagram.py `
   --caption-file .\output\approved-description.txt
 ```
 
-After explicit final approval, publishing additionally requires:
+After explicit approval of the exact latest preview, publishing additionally requires:
 
 ```powershell
 python .\publish_instagram.py `

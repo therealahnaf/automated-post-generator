@@ -27,6 +27,21 @@ class GeneratePostTests(unittest.TestCase):
         for line in lines:
             self.assertLessEqual(generate_post.text_width(draw, line, font), 480)
 
+    def test_build_byline_renders_brand_only(self) -> None:
+        self.assertEqual(generate_post.build_byline("Bits Today Desk"), "Bits Today")
+        self.assertEqual(generate_post.build_byline("  Bits Today  "), "Bits Today")
+        self.assertEqual(generate_post.build_byline(""), "Bits Today")
+
+    def test_image_prompt_is_story_specific_not_hardcoded(self) -> None:
+        prompt = generate_post.build_image_prompt(
+            "Anthropic reached a $1.5 billion copyright settlement.",
+            "Anthropic Reaches $1.5B AI Copyright Settlement",
+        )
+
+        self.assertIn("Anthropic reached", prompt)
+        self.assertIn("courtrooms", prompt)
+        self.assertNotIn("data-center campus in China", prompt)
+
     def test_compose_post_outputs_expected_canvas_and_red_highlight(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))
         payload = io.BytesIO()
@@ -34,9 +49,9 @@ class GeneratePostTests(unittest.TestCase):
         result = generate_post.compose_post(
             payload.getvalue(),
             "China’s Z.AI opens gigawatt-scale domestic-chip data center",
-            source="Bits Today Desk",
+            source="Bits Today",
             post_date=date(2026, 7, 21),
-            credit="AI-generated editorial visual",
+            credit="",
         )
         self.assertEqual(result.size, (1080, 1350))
         sample = result.crop((30, 30, 1050, 500))

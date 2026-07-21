@@ -27,6 +27,7 @@ CANVAS_SIZE = (1080, 1350)
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
+DEFAULT_POST_SOURCE = "Bits Today"
 RED = (225, 24, 32, 255)
 WHITE = (250, 250, 248, 255)
 
@@ -73,10 +74,10 @@ Asset type: vertical editorial background for a technology-news social post
 Primary request: Create a believable editorial photograph inspired by the news context below.
 News context: {news_text}
 Editorial angle: {title}
-Scene/backdrop: a vast modern AI data-center campus in China at dusk, with long server halls, electrical substations, cooling infrastructure, and restrained red architectural accents
-Style/medium: photorealistic documentary news photography, natural atmospheric haze, real industrial materials, credible engineering scale
-Composition/framing: 4:5 portrait; dramatic wide elevated view; keep the upper 35 percent darker and visually calm for a headline; place the strongest infrastructure detail in the middle and lower portions
-Lighting/mood: serious, high-stakes, cinematic but realistic; cool blue ambient light with warm red and amber practical lights
+Scene/backdrop: choose a credible editorial scene that directly fits the current news context, such as courtrooms, government offices, corporate headquarters, data centers, newsrooms, infrastructure, devices, documents, or city settings when relevant
+Style/medium: photorealistic documentary news photography, real materials, grounded details, no fantasy elements
+Composition/framing: 4:5 portrait; dramatic wide or medium editorial view; keep the upper 35 percent darker and visually calm for a headline; place the strongest story-specific detail in the middle and lower portions
+Lighting/mood: serious, high-stakes, cinematic but realistic; controlled contrast with restrained red accents where natural to the scene
 Constraints: no people in close-up; no readable signs; no logos; no trademarks; no text; no captions; no borders; no watermark; do not render the headline inside the image
 """.strip()
 
@@ -170,6 +171,14 @@ def fit_headline(
     return font, lines[:6], 50
 
 
+def build_byline(source: str) -> str:
+    """Return the only brand text rendered below the headline."""
+    source = normalize_news_text(source).strip(" |")
+    if source.casefold() == "bits today desk":
+        return DEFAULT_POST_SOURCE
+    return source or DEFAULT_POST_SOURCE
+
+
 def add_scrim(image: Image.Image) -> Image.Image:
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     pixels = overlay.load()
@@ -233,7 +242,7 @@ def compose_post(
         y += line_height
 
     byline_font = ImageFont.truetype(regular_path, size=23)
-    byline = f"{source}  |  {post_date.strftime('%d %b %Y')}  |  {credit}"
+    byline = build_byline(source)
     draw.text((margin, y + 13), byline, font=byline_font, fill=(235, 235, 232, 235))
 
     return canvas.convert("RGB")
@@ -264,10 +273,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        default=os.getenv("POST_SOURCE", "Bits Today Desk"),
-        help="Byline source name (default: POST_SOURCE or 'Bits Today Desk').",
+        default=os.getenv("POST_SOURCE", DEFAULT_POST_SOURCE),
+        help=f"Brand name rendered below the headline (default: POST_SOURCE or '{DEFAULT_POST_SOURCE}').",
     )
-    parser.add_argument("--credit", default="AI-generated editorial visual")
+    parser.add_argument(
+        "--credit",
+        default="",
+        help="Deprecated compatibility option. Credits are not rendered.",
+    )
     parser.add_argument("--date", type=parse_date, default=date.today())
     parser.add_argument("--font", type=Path, help="Optional bold TrueType/OpenType font.")
     parser.add_argument(
