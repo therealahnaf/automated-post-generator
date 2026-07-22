@@ -160,11 +160,11 @@ Asset type: vertical editorial background for a technology-news social post
 Primary request: Create a believable editorial photograph inspired by the news context below.
 News context: {news_text}
 Editorial angle: {title}
-Scene/backdrop: choose a credible editorial scene that directly fits the current news context, such as courtrooms, government offices, corporate headquarters, data centers, newsrooms, infrastructure, devices, documents, or city settings when relevant
+Scene/backdrop: choose a credible editorial scene that directly fits the current news context, such as courtrooms, government offices, corporate headquarters, data centers, newsrooms, infrastructure, devices, documents, city settings, country flags or emotions of a person (angry, sad, happy) when relevant
 Style/medium: photorealistic documentary news photography, real materials, grounded details, no fantasy elements
 Composition/framing: 4:5 portrait; dramatic wide or medium editorial view; keep the upper 35 percent darker and visually calm for a headline; place the strongest story-specific detail in the middle and lower portions
 Lighting/mood: serious, high-stakes, cinematic but realistic; controlled contrast with restrained red accents where natural to the scene
-Constraints: no people in close-up; no readable signs; no logos; no trademarks; no text; no captions; no borders; no watermark; do not render the headline inside the image
+Constraints: no readable signs; no logos; no trademarks; no text; no captions; no borders; no watermark; do not render the headline inside the image
 """.strip()
 
 
