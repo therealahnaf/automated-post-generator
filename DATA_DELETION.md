@@ -53,6 +53,6 @@ under the service provider's own privacy and deletion procedures.
 
 ## Contact
 
-**Developer:** Ahnaf Hassan  
-**Email:** [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com)
+**Developer:** Ahnaf Hassan
 
+**Email:** [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com)

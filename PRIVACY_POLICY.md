@@ -101,6 +101,6 @@ updated effective date at the top of this document.
 
 For privacy questions or deletion requests, contact:
 
-**Developer:** Ahnaf Hassan  
-**Email:** [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com)
+**Developer:** Ahnaf Hassan
 
+**Email:** [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com)
