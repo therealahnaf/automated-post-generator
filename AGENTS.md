@@ -3,6 +3,9 @@
 Use this workflow whenever the user supplies an X/Twitter status URL for a
 social post.
 
+Do not stop partway through this workflow: continue until the full workflow is
+complete or until an explicit user approval is required.
+
 1. Extract the full post through `fetch_tweets.py`. It uses the free,
    MIT-licensed FxEmbed/FxTwitter backend first and may recover longer text
    through the configured VxTwitter-compatible fallback when FxTwitter returns a

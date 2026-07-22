@@ -317,7 +317,21 @@ def is_english_name_token(token: str) -> bool:
     Bangla display fonts are not guaranteed to include Latin glyphs. Proper
     names deliberately retained in English therefore need explicit fallback.
     """
-    return bool(re.search(r"[A-Za-z0-9]", token))
+    return bool(re.fullmatch(r"[A-Za-z0-9]+", token))
+
+
+def mixed_script_runs(token: str) -> list[tuple[str, bool]]:
+    """Split a token into Latin and non-Latin runs for mixed Bangla copy.
+
+    A headline can retain an English name and attach Bangla grammar to it, for
+    example ``Conjecture-এর``. Drawing that whole token with the Latin fallback
+    loses the Bengali suffix; drawing it wholly with the Bengali font can lose
+    the name. Keep each run with the font that supports its script.
+    """
+    return [
+        (run, is_english_name_token(run))
+        for run in re.findall(r"[A-Za-z0-9]+|[^A-Za-z0-9]+", token)
+    ]
 
 
 def mixed_text_width(
@@ -332,8 +346,10 @@ def mixed_text_width(
     space_width = text_width(draw, " ", bangla_font)
     width = 0
     for index, word in enumerate(words):
-        font = latin_font if is_english_name_token(word) else bangla_font
-        width += text_width(draw, word, font)
+        width += sum(
+            text_width(draw, run, latin_font if is_latin else bangla_font)
+            for run, is_latin in mixed_script_runs(word)
+        )
         if index < len(words) - 1:
             width += space_width
     return width
@@ -372,9 +388,11 @@ def draw_mixed_headline_text(
     x, y = position
     space_width = text_width(draw, " ", bangla_font)
     for word in text.split():
-        font = latin_font if is_english_name_token(word) else bangla_font
-        draw.text((x, y), word, font=font, fill=fill)
-        x += text_width(draw, word, font) + space_width
+        for run, is_latin in mixed_script_runs(word):
+            font = latin_font if is_latin else bangla_font
+            draw.text((x, y), run, font=font, fill=fill)
+            x += text_width(draw, run, font)
+        x += space_width
 
 
 def fit_headline(
