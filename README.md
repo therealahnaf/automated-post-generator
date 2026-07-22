@@ -71,12 +71,12 @@ These tests do not call the API or spend credits.
 `fetch_tweets.py` accepts one or more status URLs and emits JSON through
 [FxTwitter](https://github.com/FxEmbed/FxEmbed), a free MIT-licensed project.
 It does not use X's official API, an X developer account, Apify, or an API key.
-The implementation follows the same single-tweet backend selected by
-[x-tweet-fetcher](https://github.com/ythx-101/x-tweet-fetcher).
-When FxTwitter appears to return a long-post preview, the script validates a
-matching VxTwitter-compatible response and uses its longer text if available.
-Pass `--media-dir` to download attached tweet photos in source order. These
-become secondary post images; videos are currently ignored.
+The fetcher uses FxTwitter v2's thread endpoint so the root post and every
+same-author continuation are retained. Pass `--media-dir` to download
+photos from the same-author thread and nested quoted posts, and to extract a
+JPEG opening frame from attached videos with FFmpeg. These become secondary
+post images in source order, capped at nine so the generated graphic keeps the
+cross-platform package at ten images total.
 At the start of each fetch, the default `--language auto` randomly chooses
 English or Bangla once and stores the result as `post_language` in the JSON.
 The default `--highlight-style auto` independently chooses a one-line cyan
@@ -96,11 +96,11 @@ the `FXTWITTER_API_BASE` environment variable.
 
 ## Brand downloaded tweet images
 
-`brand_tweet_images.py` creates publishing-ready copies of downloaded tweet
-photos. It preserves each photo, adds a `#212121` border, and places the Bits
-Today transparent logo directly over the bottom-right corner. Source files are
-not overwritten, and multiple inputs retain the order supplied on the command
-line.
+`brand_tweet_images.py` creates publishing-ready 1080x1350 copies of downloaded
+tweet media. It contains the complete source without cropping or unnecessary
+upscaling, lets a `#212121` frame fill the unused 4:5 canvas area, and places the
+Bits Today transparent logo in the bottom-right corner. Source files are not
+overwritten, and multiple inputs retain the order supplied on the command line.
 
 ```powershell
 python .\brand_tweet_images.py `
@@ -154,7 +154,8 @@ python .\generate_description.py `
    translated headline with a Bengali-capable font.
 5. Generate the English-plus-Bangla description with `generate_description.py`,
    send it and the complete ordered image set to Telegram, then show the same
-   package for review. The generated graphic is first and tweet photos follow.
+   package for review. The generated graphic is first and ordered thread/quote
+   photos and video opening frames follow.
    Revise it until the user says `yes`.
 6. Publish to Facebook and Instagram only after the user explicitly says `yes`
    for the exact latest preview package.
@@ -184,7 +185,7 @@ python .\notify_telegram.py `
   --send
 ```
 
-Repeat `--secondary-image` for additional tweet photos. Every materially revised
+Repeat `--secondary-image` for additional media images. Every materially revised
 image or description must be resent with `--stage preview --send` before
 requesting approval again. The script sends the generated main image first,
 then source images in order, then the full description as separate messages.

@@ -38,6 +38,14 @@ class FetchTweetsTests(unittest.TestCase):
             "https://api.fxtwitter.com/Polymarket/status/2079479742802141202",
         )
 
+    def test_builds_fxtwitter_v2_thread_endpoint(self) -> None:
+        self.assertEqual(
+            fetch_tweets.fxtwitter_thread_endpoint(
+                "https://x.com/Polymarket/status/2079479742802141202"
+            ),
+            "https://api.fxtwitter.com/2/thread/2079479742802141202",
+        )
+
     def test_detects_possible_long_post_preview(self) -> None:
         self.assertTrue(fetch_tweets.looks_possibly_truncated("A" * 260))
         self.assertTrue(fetch_tweets.looks_possibly_truncated("News preview…"))
@@ -121,7 +129,7 @@ class FetchTweetsTests(unittest.TestCase):
 
     def test_result_declares_open_source_non_official_backend(self) -> None:
         with patch(
-            "fetch_tweets.fetch_tweet",
+            "fetch_tweets.fetch_thread",
             return_value={"id": "2079479742802141202", "text": "Tweet"},
         ):
             result = fetch_tweets.fetch_tweets(
@@ -131,6 +139,7 @@ class FetchTweetsTests(unittest.TestCase):
             )
 
         self.assertEqual(result["provider"], "fxtwitter")
+        self.assertEqual(result["provider_api"], "https://api.fxtwitter.com/2")
         self.assertEqual(result["full_text_provider_api"], "https://api.vxtwitter.com")
         self.assertFalse(result["official_x_api_used"])
         self.assertEqual(result["post_language"], "bangla")
@@ -176,6 +185,91 @@ class FetchTweetsTests(unittest.TestCase):
             [call.args[0] for call in mock_fetch_binary.call_args_list],
             ["https://cdn/1.jpg", "https://cdn/2.jpg"],
         )
+
+    @patch("fetch_tweets.urlopen")
+    def test_fetches_full_same_author_thread_with_v2(self, mock_urlopen) -> None:
+        payload = {
+            "code": 200,
+            "status": {"id": "100", "text": "Root"},
+            "thread": [
+                {"id": "100", "text": "Root"},
+                {"id": "101", "text": "Continuation"},
+            ],
+        }
+        mock_urlopen.return_value = io.StringIO(json.dumps(payload))
+
+        tweet = fetch_tweets.fetch_thread("https://x.com/example/status/100")
+
+        self.assertEqual([item["id"] for item in tweet["thread"]], ["100", "101"])
+        self.assertEqual(tweet["thread_count"], 2)
+        self.assertEqual(tweet["text_source"], "fxtwitter_v2")
+
+    def test_selects_highest_bitrate_mp4_video(self) -> None:
+        video = {
+            "formats": [
+                {"container": "application/x-mpegURL", "url": "https://cdn/a.m3u8"},
+                {"container": "video/mp4", "bitrate": 288000, "url": "https://cdn/low.mp4"},
+                {"container": "video/mp4", "bitrate": 2176000, "url": "https://cdn/high.mp4"},
+            ]
+        }
+
+        self.assertEqual(fetch_tweets.best_video_url(video), "https://cdn/high.mp4")
+
+    @patch("fetch_tweets.extract_video_frame")
+    @patch("fetch_tweets.fetch_binary")
+    def test_downloads_quote_photo_and_thread_video_frame_in_order(
+        self, mock_fetch_binary, mock_extract_video_frame
+    ) -> None:
+        payload = io.BytesIO()
+        Image.new("RGB", (320, 180), "blue").save(payload, format="JPEG")
+        mock_fetch_binary.return_value = (payload.getvalue(), "image/jpeg")
+        tweet = {
+            "id": "100",
+            "text": "Root",
+            "quote": {
+                "id": "90",
+                "text": "Quoted",
+                "media": {"photos": [{"type": "photo", "url": "https://cdn/q.jpg"}]},
+            },
+        }
+        tweet["thread"] = [
+            tweet,
+            {
+                "id": "101",
+                "text": "Continuation",
+                "media": {
+                    "videos": [
+                        {
+                            "type": "video",
+                            "formats": [
+                                {"container": "video/mp4", "url": "https://cdn/v.mp4"}
+                            ],
+                        }
+                    ]
+                },
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            frame_path = Path(directory) / "101-video-1-frame.jpg"
+            Image.new("RGB", (640, 360), "red").save(frame_path, format="JPEG")
+            mock_extract_video_frame.return_value = {
+                "kind": "video_frame",
+                "source_url": "https://cdn/v.mp4",
+                "local_path": str(frame_path),
+                "content_type": "image/jpeg",
+                "width": 640,
+                "height": 360,
+                "frame_seconds": 0.5,
+                "sha256": "hash",
+            }
+            downloaded = fetch_tweets.download_tweet_media(
+                tweet, Path(directory), timeout=30
+            )
+
+        self.assertEqual([item["kind"] for item in downloaded], ["photo", "video_frame"])
+        self.assertEqual([item["origin"] for item in downloaded], ["quote", "thread"])
+        self.assertEqual([item["source_status_id"] for item in downloaded], ["90", "101"])
 
 
 if __name__ == "__main__":

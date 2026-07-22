@@ -80,6 +80,56 @@ class GenerateDescriptionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 generate_description.read_tweet_text(path)
 
+    def test_read_tweet_text_combines_thread_and_quoted_post(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "id": "100",
+                                "text": "Root claim.",
+                                "author": {"name": "Reporter", "screen_name": "reporter"},
+                                "quote": {
+                                    "id": "90",
+                                    "text": "Original quoted claim.",
+                                    "author": {"screen_name": "source"},
+                                },
+                                "thread": [
+                                    {
+                                        "id": "100",
+                                        "text": "Root claim.",
+                                        "author": {
+                                            "name": "Reporter",
+                                            "screen_name": "reporter",
+                                        },
+                                        "quote": {
+                                            "id": "90",
+                                            "text": "Original quoted claim.",
+                                            "author": {"screen_name": "source"},
+                                        },
+                                    },
+                                    {
+                                        "id": "101",
+                                        "text": "Technical follow-up.",
+                                        "author": {"screen_name": "reporter"},
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            source = generate_description.read_tweet_text(path)
+
+        self.assertIn("Main post by Reporter (@reporter):\nRoot claim.", source)
+        self.assertIn("Quoted post by @source:\nOriginal quoted claim.", source)
+        self.assertIn("Thread continuation 1 by @reporter:\nTechnical follow-up.", source)
+        self.assertLess(source.index("Original quoted claim."), source.index("Technical follow-up."))
+
     def test_description_uses_fixed_luna_model_and_no_reasoning(self) -> None:
         client = FakeClient(["A generated description."])
 

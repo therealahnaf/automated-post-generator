@@ -15,6 +15,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +48,8 @@ IMPLEMENTATION_REFERENCE = "https://github.com/ythx-101/x-tweet-fetcher"
 STATUS_PATH = re.compile(r"^/([^/]+)/status/(\d+)(?:/.*)?$")
 MAX_TWEET_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_FORMAT_SUFFIXES = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
+MAX_SECONDARY_IMAGES = 9
+DEFAULT_VIDEO_FRAME_SECONDS = 0.5
 
 
 def status_parts(value: str) -> tuple[str, str]:
@@ -74,6 +78,12 @@ def fxtwitter_endpoint(url: str, api_base: str = DEFAULT_API_BASE) -> str:
     """Build the FxTwitter endpoint for a single public status URL."""
     handle, status_id = status_parts(url)
     return f"{api_base.rstrip('/')}/{handle}/status/{status_id}"
+
+
+def fxtwitter_thread_endpoint(url: str, api_base: str = DEFAULT_API_BASE) -> str:
+    """Build the FxTwitter v2 endpoint for a same-author thread."""
+    _, status_id = status_parts(url)
+    return f"{api_base.rstrip('/')}/2/thread/{status_id}"
 
 
 def fetch_json(endpoint: str, *, timeout: float) -> Any:
@@ -172,6 +182,220 @@ def download_tweet_photos(
             }
         )
     tweet["downloaded_photos"] = downloaded
+    return downloaded
+
+
+def extract_video_media(tweet: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return valid video media objects in API source order."""
+    media = tweet.get("media")
+    if not isinstance(media, dict):
+        return []
+    videos = media.get("videos")
+    if not isinstance(videos, list):
+        videos = [
+            item
+            for item in media.get("all") or []
+            if isinstance(item, dict) and item.get("type") in {"video", "gif"}
+        ]
+    return [video for video in videos if isinstance(video, dict)]
+
+
+def best_video_url(video: dict[str, Any]) -> str:
+    """Choose the highest-bitrate HTTPS MP4 variant from a video object."""
+    candidates: list[tuple[int, str]] = []
+    for variant in video.get("formats") or video.get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        url = str(variant.get("url", "")).strip()
+        parsed = urlparse(url)
+        container = str(
+            variant.get("container") or variant.get("content_type") or ""
+        ).lower()
+        if parsed.scheme != "https" or not parsed.netloc:
+            continue
+        if "mp4" not in container and ".mp4" not in parsed.path.lower():
+            continue
+        try:
+            bitrate = int(variant.get("bitrate") or variant.get("bit_rate") or 0)
+        except (TypeError, ValueError):
+            bitrate = 0
+        candidates.append((bitrate, url))
+    direct_url = str(video.get("url", "")).strip()
+    direct_parsed = urlparse(direct_url)
+    if (
+        direct_parsed.scheme == "https"
+        and direct_parsed.netloc
+        and ".mp4" in direct_parsed.path.lower()
+    ):
+        candidates.append((0, direct_url))
+    if not candidates:
+        raise RuntimeError("Tweet video has no downloadable HTTPS MP4 variant.")
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def extract_video_frame(
+    video: dict[str, Any],
+    destination: Path,
+    *,
+    frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
+) -> dict[str, Any]:
+    """Extract a JPEG opening frame from the best video variant with FFmpeg."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg is required to extract tweet video opening frames.")
+    source_url = best_video_url(video)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{frame_seconds:g}",
+        "-i",
+        source_url,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        "-y",
+        str(destination),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise RuntimeError(f"Could not extract tweet video frame: {detail}") from exc
+    try:
+        with Image.open(destination) as image:
+            width, height = image.size
+            image.verify()
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("FFmpeg did not produce a valid tweet video frame.") from exc
+    payload = destination.read_bytes()
+    return {
+        "kind": "video_frame",
+        "source_url": source_url,
+        "local_path": str(destination.resolve()),
+        "content_type": "image/jpeg",
+        "width": width,
+        "height": height,
+        "frame_seconds": frame_seconds,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def quoted_tweet(tweet: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the nested quoted status across supported FxTwitter schemas."""
+    for key in ("quote", "quoted_tweet", "quotedTweet"):
+        value = tweet.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def ordered_content_statuses(tweet: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Return thread statuses and their nested quotes in deterministic order."""
+    thread = tweet.get("thread")
+    statuses = thread if isinstance(thread, list) and thread else [tweet]
+    ordered: list[tuple[str, dict[str, Any]]] = []
+    seen: set[str] = set()
+
+    def append_status(origin: str, status: dict[str, Any], depth: int = 0) -> None:
+        status_id = str(status.get("id", "")).strip()
+        identity = status_id or f"object-{id(status)}"
+        if identity in seen:
+            return
+        seen.add(identity)
+        ordered.append((origin, status))
+        quote = quoted_tweet(status)
+        if quote is not None and depth < 3:
+            append_status("quote", quote, depth + 1)
+
+    for index, status in enumerate(statuses):
+        if isinstance(status, dict):
+            append_status("main" if index == 0 else "thread", status)
+    return ordered
+
+
+def download_tweet_media(
+    tweet: dict[str, Any],
+    media_dir: Path,
+    *,
+    timeout: float,
+    frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
+    limit: int = MAX_SECONDARY_IMAGES,
+) -> list[dict[str, Any]]:
+    """Download thread/quote photos and video frames in deterministic order."""
+    if limit < 0:
+        raise ValueError("Media limit cannot be negative.")
+    media_dir.mkdir(parents=True, exist_ok=True)
+    ordered_statuses = ordered_content_statuses(tweet)
+    total_media = sum(
+        len(extract_photo_media(status)) + len(extract_video_media(status))
+        for _, status in ordered_statuses
+    )
+    downloaded: list[dict[str, Any]] = []
+    downloaded_photos: list[dict[str, Any]] = []
+    for origin, status in ordered_statuses:
+        if len(downloaded) >= limit:
+            break
+        status_id = str(status.get("id", "")).strip()
+        if not status_id:
+            continue
+        for photo_index, photo in enumerate(extract_photo_media(status), start=1):
+            if len(downloaded) >= limit:
+                break
+            source_url = str(photo["url"])
+            payload, content_type = fetch_binary(source_url, timeout=timeout)
+            try:
+                with Image.open(io.BytesIO(payload)) as image:
+                    image_format = str(image.format or "").upper()
+                    width, height = image.size
+                    image.verify()
+            except (OSError, ValueError) as exc:
+                raise RuntimeError("Tweet media did not contain a valid image.") from exc
+            suffix = IMAGE_FORMAT_SUFFIXES.get(image_format)
+            if not suffix:
+                raise RuntimeError(
+                    f"Tweet photo uses unsupported format {image_format or 'unknown'}."
+                )
+            destination = media_dir / f"{status_id}-photo-{photo_index}{suffix}"
+            destination.write_bytes(payload)
+            item = {
+                "kind": "photo",
+                "origin": origin,
+                "source_status_id": status_id,
+                "position": len(downloaded) + 1,
+                "source_url": source_url,
+                "local_path": str(destination.resolve()),
+                "content_type": content_type,
+                "width": width,
+                "height": height,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+            downloaded.append(item)
+            downloaded_photos.append(item)
+        for video_index, video in enumerate(extract_video_media(status), start=1):
+            if len(downloaded) >= limit:
+                break
+            destination = media_dir / f"{status_id}-video-{video_index}-frame.jpg"
+            item = extract_video_frame(
+                video,
+                destination,
+                frame_seconds=frame_seconds,
+            )
+            item.update(
+                {
+                    "origin": origin,
+                    "source_status_id": status_id,
+                    "position": len(downloaded) + 1,
+                }
+            )
+            downloaded.append(item)
+    tweet["downloaded_media"] = downloaded
+    tweet["downloaded_photos"] = downloaded_photos
+    tweet["media_truncated"] = total_media > len(downloaded)
     return downloaded
 
 
@@ -307,6 +531,69 @@ def fetch_tweet(
     )
 
 
+def fetch_thread(
+    url: str,
+    *,
+    api_base: str = DEFAULT_API_BASE,
+    full_text_api_base: str = DEFAULT_FULL_TEXT_API_BASE,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Fetch one status plus its complete same-author thread via FxTwitter v2."""
+    del full_text_api_base  # FxTwitter v2 returns the complete text for thread items.
+    canonical_url = normalize_tweet_url(url)
+    _, expected_id = status_parts(canonical_url)
+    endpoint = fxtwitter_thread_endpoint(canonical_url, api_base)
+    try:
+        payload = fetch_json(endpoint, timeout=timeout)
+    except HTTPError as exc:
+        raise RuntimeError(
+            f"FxTwitter returned HTTP {exc.code} for {canonical_url}."
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"FxTwitter request failed for {canonical_url}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"FxTwitter returned invalid JSON for {canonical_url}.")
+    status = payload.get("status")
+    if payload.get("code") != 200 or not isinstance(status, dict):
+        raise RuntimeError(
+            f"FxTwitter returned no status for {canonical_url}: "
+            f"{payload.get('message', 'unknown error')}"
+        )
+    returned_id = str(status.get("id", "")).strip()
+    if returned_id != expected_id:
+        raise RuntimeError(
+            f"FxTwitter returned tweet ID {returned_id or 'missing'}; "
+            f"expected {expected_id}."
+        )
+    if not str(status.get("text", "")).strip():
+        raise RuntimeError(f"FxTwitter returned an empty tweet for {canonical_url}.")
+
+    normalized_thread: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    raw_thread = payload.get("thread")
+    root_thread_item = dict(status)
+    root_thread_item.pop("thread", None)
+    candidates = [root_thread_item, *(raw_thread if isinstance(raw_thread, list) else [])]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(candidate.get("id", "")).strip()
+        if not candidate_id or candidate_id in seen_ids:
+            continue
+        if not str(candidate.get("text", "")).strip():
+            continue
+        seen_ids.add(candidate_id)
+        candidate["text_source"] = "fxtwitter_v2"
+        normalized_thread.append(candidate)
+    status["thread"] = normalized_thread
+    status["thread_count"] = len(normalized_thread)
+    status["text_source"] = "fxtwitter_v2"
+    status["full_text_recovery"] = {"attempted": False, "reason": "fxtwitter_v2"}
+    return status
+
+
 def fetch_tweets(
     urls: list[str],
     *,
@@ -314,6 +601,7 @@ def fetch_tweets(
     full_text_api_base: str = DEFAULT_FULL_TEXT_API_BASE,
     timeout: float = 30.0,
     media_dir: Path | None = None,
+    video_frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
     post_language: str = AUTO_LANGUAGE,
     headline_highlight: str = AUTO_HIGHLIGHT_STYLE,
 ) -> dict[str, Any]:
@@ -321,7 +609,7 @@ def fetch_tweets(
     selected_language = choose_post_language(post_language)
     selected_highlight = choose_headline_highlight(headline_highlight)
     items = [
-        fetch_tweet(
+        fetch_thread(
             url,
             api_base=api_base,
             full_text_api_base=full_text_api_base,
@@ -331,12 +619,17 @@ def fetch_tweets(
     ]
     if media_dir is not None:
         for item in items:
-            download_tweet_photos(item, media_dir, timeout=timeout)
+            download_tweet_media(
+                item,
+                media_dir,
+                timeout=timeout,
+                frame_seconds=video_frame_seconds,
+            )
     return {
         "post_language": selected_language,
         "headline_highlight": selected_highlight,
         "provider": "fxtwitter",
-        "provider_api": api_base.rstrip("/"),
+        "provider_api": f"{api_base.rstrip('/')}/2",
         "full_text_provider_api": full_text_api_base.rstrip("/"),
         "open_source_project": OPEN_SOURCE_PROJECT,
         "implementation_reference": IMPLEMENTATION_REFERENCE,
@@ -375,7 +668,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--media-dir",
         type=Path,
-        help="Download attached tweet photos into this directory in source order.",
+        help=(
+            "Download thread and quoted-post photos plus video opening frames "
+            "into this directory in source order."
+        ),
+    )
+    parser.add_argument(
+        "--video-frame-seconds",
+        type=float,
+        default=DEFAULT_VIDEO_FRAME_SECONDS,
+        help="Timestamp used for video opening frames (default: 0.5 seconds).",
     )
     parser.add_argument(
         "--api-base",
@@ -420,6 +722,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.timeout <= 0:
             raise ValueError("--timeout must be greater than zero.")
+        if args.video_frame_seconds < 0:
+            raise ValueError("--video-frame-seconds cannot be negative.")
         urls = [normalize_tweet_url(url) for url in args.urls]
         result = fetch_tweets(
             urls,
@@ -427,6 +731,7 @@ def main(argv: list[str] | None = None) -> int:
             full_text_api_base=args.full_text_api_base,
             timeout=args.timeout,
             media_dir=args.media_dir,
+            video_frame_seconds=args.video_frame_seconds,
             post_language=args.language,
             headline_highlight=args.highlight_style,
         )

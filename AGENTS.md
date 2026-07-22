@@ -6,21 +6,20 @@ social post.
 Do not stop partway through this workflow: continue until the full workflow is
 complete or until an explicit user approval is required.
 
-1. Extract the full post through `fetch_tweets.py`. It uses the free,
-   MIT-licensed FxEmbed/FxTwitter backend first and may recover longer text
-   through the configured VxTwitter-compatible fallback when FxTwitter returns a
-   possible long-post preview. It does not use X's official API, an X developer
-   key, or Apify. Validate the returned tweet ID and non-empty text before using
-   it. If full text cannot be recovered for a visibly truncated source, report
-   the exact error instead of drafting from partial text. A self-hosted
-   FxEmbed-compatible deployment may be supplied with `--api-base`. Always use
-   `--media-dir` to download attached tweet photos and preserve their source
-   order. Its default `--language auto` must randomly select `english` or
+1. Extract the full post and its same-author thread through `fetch_tweets.py`.
+   It uses FxTwitter v2's `/thread/{id}` endpoint from the free, MIT-licensed
+   FxEmbed project. It does not use X's official API, an X developer key, or
+   Apify. Validate the returned tweet ID and non-empty text before using it. A
+   self-hosted FxEmbed-compatible deployment may be supplied with `--api-base`.
+   Always use `--media-dir` to download photos from the thread and nested quoted
+   posts, and to extract a JPEG opening frame from every attached video with
+   FFmpeg. Preserve thread, quote, and media source order. The generated main
+   post plus these secondary images must never exceed 10 images total. Its
+   default `--language auto` must randomly select `english` or
    `bangla` once and persist the result as `post_language` in the tweet JSON.
    Its default `--highlight-style auto` must also randomly select `cyan`, `red`,
    or `dual` once and persist it as `headline_highlight`. Never reroll either
-   choice later in the same story workflow. Ignore videos until the publishing
-   workflow explicitly supports them.
+   choice later in the same story workflow.
 2. Write the English headline in the Codex task from the extracted full post. Treat the
    headline as the hook: lead with the most important, eye-catching actor,
    action, risk, contrast, scale, number, or power shift in the source. Preserve
@@ -43,10 +42,13 @@ complete or until an explicit user approval is required.
    Do not add `Desk`, an AI-generated credit line, a bottom footer, or an extra
    badge. Keep the other presets for explicit style experiments only; do not
    select them during the normal publishing workflow. This generated post is
-   always the primary image. Run every downloaded tweet photo through
-   `brand_tweet_images.py` so it receives the `#212121` border and bottom-right
-   transparent Bits Today logo overlay with no background plate. The branded
-   tweet photos follow the generated post as secondary images in their original
+   always the primary image. Run every downloaded tweet photo and extracted
+   video opening frame through
+   `brand_tweet_images.py` so the complete source is contained without cropping
+   inside a 1080x1350 `#212121` frame. The frame must fill any unused 4:5 canvas
+   area. Keep the bottom-right transparent Bits Today logo overlay with no
+   background plate. The branded
+   media images follow the generated post as secondary images in their original
    order, up to 10 images total.
 4. Render and inspect the draft, then generate a bilingual description with
    `generate_description.py`. Its first model call creates the high-stakes
@@ -56,9 +58,10 @@ complete or until an explicit user approval is required.
    or command-line flags. The saved result must follow the persisted language
    choice: English first for `english`, or Bangla first for `bangla`, then the
    separator `---`, then the other language.
-   Use the fetched source text or `--tweet-json` output, preserve attribution
-   and uncertainty in both languages, and do not add facts from outside the
-   validated source. Make the writing feel urgent and consequential, but do not
+   When using `--tweet-json`, the description source must include the complete
+   fetched same-author thread and all nested quoted-post text. Preserve
+   attribution and uncertainty in both languages, and do not add facts from
+   outside the validated source. Make the writing feel urgent and consequential, but do not
    invent catastrophe, certainty, or consequences beyond the source.
 5. After description generation, search the internet for additional relevant
    details about the story. If the search produces useful information, enhance
@@ -69,9 +72,9 @@ complete or until an explicit user approval is required.
    it is. Do not force extra context into the post. Keep the final bilingual
    copy within the configured platform length limit and retain the `---`
    separator.
-6. Send the generated main image, every ordered secondary tweet photo, and the
+6. Send the generated main image, every ordered secondary media image, and the
    enhanced bilingual description through `notify_telegram.py --stage preview
-   --send`, using one `--secondary-image` argument per tweet photo. Only after
+   --send`, using one `--secondary-image` argument per media image. Only after
    that succeeds, show the same complete image set in the Codex task and ask for
    revisions or the exact approval word `yes`. Reuse `--background-input` for
    typography or layout revisions that do not require a new background. Send
@@ -82,14 +85,14 @@ complete or until an explicit user approval is required.
    account. Do not publish on ambiguous approval. If the package was changed
    after Telegram delivery, resend it before accepting approval.
 8. Invoke `publish_facebook.py` first after approval, passing the generated post
-   through `--image` and each tweet photo through `--secondary-image` in source
+   through `--image` and each media image through `--secondary-image` in source
    order. Its publishing path additionally requires both `--publish` and
    `--confirm yes`. For multiple images, it must create one ordered Facebook
    multi-photo post and return every Facebook-hosted image URL. Invoke
    `publish_instagram.py` with the first hosted URL as `--image-url` and the
    remaining URLs as ordered `--secondary-image-url` arguments; it must publish
    one Instagram carousel with the same approved description and image order.
-   With no tweet photos, both publishers retain their single-image behavior.
+   With no secondary media, both publishers retain their single-image behavior.
 9. After publishing, return both platform post IDs or URLs. If one platform
    succeeds and the other fails, report the partial result accurately and do
    not create a duplicate post.

@@ -111,12 +111,68 @@ def read_tweet_text(path: Path) -> str:
     if not isinstance(tweet, dict):
         raise ValueError(f"Invalid tweet item in {path}.")
     tweet_id = str(tweet.get("id", "")).strip()
-    text = normalize_source_text(str(tweet.get("text", "")))
     if not tweet_id:
         raise ValueError(f"Tweet ID is missing in {path}.")
+    text = assemble_tweet_source(tweet)
     if not text:
         raise ValueError(f"Tweet text is empty in {path}.")
     return text
+
+
+def tweet_author_label(tweet: dict[str, Any]) -> str:
+    author = tweet.get("author")
+    if not isinstance(author, dict):
+        return "unknown author"
+    handle = str(
+        author.get("screen_name") or author.get("username") or author.get("handle") or ""
+    ).strip().lstrip("@")
+    name = normalize_source_text(str(author.get("name", "")))
+    if handle and name:
+        return f"{name} (@{handle})"
+    if handle:
+        return f"@{handle}"
+    return name or "unknown author"
+
+
+def nested_quote(tweet: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("quote", "quoted_tweet", "quotedTweet"):
+        value = tweet.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def assemble_tweet_source(tweet: dict[str, Any]) -> str:
+    """Combine a same-author thread and nested quote text for description input."""
+    thread = tweet.get("thread")
+    statuses = thread if isinstance(thread, list) and thread else [tweet]
+    valid_statuses = [status for status in statuses if isinstance(status, dict)]
+    has_quote = any(nested_quote(status) is not None for status in valid_statuses)
+    if len(valid_statuses) == 1 and not has_quote:
+        return normalize_source_text(str(valid_statuses[0].get("text", "")))
+
+    blocks: list[str] = []
+    seen_ids: set[str] = set()
+
+    def add_status(status: dict[str, Any], label: str, depth: int = 0) -> None:
+        status_id = str(status.get("id", "")).strip()
+        identity = status_id or f"object-{id(status)}"
+        if identity in seen_ids:
+            return
+        seen_ids.add(identity)
+        status_text = normalize_source_text(str(status.get("text", "")))
+        if status_text:
+            blocks.append(f"{label} by {tweet_author_label(status)}:\n{status_text}")
+        quote = nested_quote(status)
+        if quote is not None and depth < 3:
+            add_status(quote, "Quoted post", depth + 1)
+
+    for index, status in enumerate(valid_statuses):
+        add_status(
+            status,
+            "Main post" if index == 0 else f"Thread continuation {index}",
+        )
+    return "\n\n".join(blocks)
 
 
 def build_user_prompt(source_text: str) -> str:

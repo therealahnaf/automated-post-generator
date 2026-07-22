@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Add the Bits Today border and logo treatment to downloaded tweet photos."""
+"""Frame downloaded tweet media without cropping it."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from PIL import Image, ImageColor, ImageOps
 
 DEFAULT_BORDER_COLOR = "#212121"
 DEFAULT_LOGO = Path(__file__).with_name("bitstodaylogo-trans.png")
+DEFAULT_CANVAS_SIZE = (1080, 1350)
 SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -74,6 +76,7 @@ def brand_tweet_image(
     logo_path: Path = DEFAULT_LOGO,
     border_color: str = DEFAULT_BORDER_COLOR,
     border_width: int | None = None,
+    canvas_size: tuple[int, int] = DEFAULT_CANVAS_SIZE,
 ) -> dict[str, Any]:
     if not input_path.is_file():
         raise FileNotFoundError(f"Tweet image not found: {input_path}")
@@ -81,27 +84,49 @@ def brand_tweet_image(
 
     with Image.open(input_path) as image_source:
         source = ImageOps.exif_transpose(image_source).convert("RGBA")
-    width, height = source.size
-    if width < 1 or height < 1:
+    source_width, source_height = source.size
+    if source_width < 1 or source_height < 1:
         raise ValueError(f"Tweet image has invalid dimensions: {input_path}")
+    canvas_width, canvas_height = canvas_size
+    if canvas_width < 1 or canvas_height < 1:
+        raise ValueError("Canvas width and height must both be positive.")
 
     if border_width is None:
-        border_width = max(24, min(72, round(min(width, height) * 0.045)))
+        border_width = max(24, min(72, round(min(canvas_size) * 0.045)))
     if border_width < 1:
         raise ValueError("Border width must be at least 1 pixel.")
+    available_width = canvas_width - border_width * 2
+    available_height = canvas_height - border_width * 2
+    if available_width < 1 or available_height < 1:
+        raise ValueError("Border width leaves no room for the source image.")
+
+    scale = min(
+        1.0,
+        available_width / source_width,
+        available_height / source_height,
+    )
+    rendered_width = max(1, round(source_width * scale))
+    rendered_height = max(1, round(source_height * scale))
+    if (rendered_width, rendered_height) != source.size:
+        source = source.resize(
+            (rendered_width, rendered_height),
+            Image.Resampling.LANCZOS,
+        )
+    source_x = (canvas_width - rendered_width) // 2
+    source_y = (canvas_height - rendered_height) // 2
 
     canvas = Image.new(
         "RGBA",
-        (width + border_width * 2, height + border_width * 2),
+        canvas_size,
         (*color, 255),
     )
-    canvas.alpha_composite(source, (border_width, border_width))
+    canvas.alpha_composite(source, (source_x, source_y))
 
-    logo_side = max(72, min(150, round(min(width, height) * 0.14)))
+    logo_side = max(72, min(150, round(min(canvas_size) * 0.14)))
     logo = load_logo(logo_path, logo_side)
     logo_inset = max(12, round(border_width * 0.4))
-    logo_x = border_width + width - logo.width - logo_inset
-    logo_y = border_width + height - logo.height - logo_inset
+    logo_x = canvas_width - logo.width - logo_inset
+    logo_y = canvas_height - logo.height - logo_inset
     canvas.alpha_composite(
         logo,
         (logo_x, logo_y),
@@ -111,8 +136,19 @@ def brand_tweet_image(
     return {
         "input": str(input_path.resolve()),
         "output": str(output_path.resolve()),
-        "source_size": [width, height],
+        "source_size": [source_width, source_height],
+        "rendered_size": [rendered_width, rendered_height],
+        "source_box": [
+            source_x,
+            source_y,
+            source_x + rendered_width,
+            source_y + rendered_height,
+        ],
         "output_size": list(canvas.size),
+        "aspect_ratio": (
+            f"{canvas_width // math.gcd(canvas_width, canvas_height)}:"
+            f"{canvas_height // math.gcd(canvas_width, canvas_height)}"
+        ),
         "border_color": border_color.upper(),
         "border_width": border_width,
         "logo": str(logo_path.resolve()),
@@ -121,7 +157,10 @@ def brand_tweet_image(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Add a #212121 border and Bits Today corner logo to tweet images."
+        description=(
+            "Place tweet media uncropped inside a fixed 4:5 #212121 frame with "
+            "the Bits Today corner logo."
+        )
     )
     parser.add_argument("images", nargs="+", type=Path, help="Tweet image files.")
     parser.add_argument(
@@ -135,8 +174,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--border-width",
         type=int,
-        help="Border width in pixels; defaults to 4.5%% of the shorter side.",
+        help="Minimum frame inset in pixels; defaults to 4.5%% of the canvas width.",
     )
+    parser.add_argument("--canvas-width", type=int, default=DEFAULT_CANVAS_SIZE[0])
+    parser.add_argument("--canvas-height", type=int, default=DEFAULT_CANVAS_SIZE[1])
     return parser
 
 
@@ -154,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
                     logo_path=args.logo,
                     border_color=args.border_color,
                     border_width=args.border_width,
+                    canvas_size=(args.canvas_width, args.canvas_height),
                 )
             )
         print(json.dumps({"images": results}, indent=2))
