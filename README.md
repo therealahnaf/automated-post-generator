@@ -245,3 +245,32 @@ python .\publish_instagram.py `
   --publish `
   --confirm yes
 ```
+
+## Telegram-to-Codex hourly queue (VPS)
+
+`telegram_codex_queue.py` polls the configured private Telegram chat, stores
+new text messages in a durable SQLite FIFO queue, and runs one job per hour.
+Messages are deduplicated by both Telegram update ID and chat/message ID. The
+runner passes each prompt to `codex exec` over standard input with the required
+`Read AGENTS.md` prefix and unattended-publishing suffix.
+
+Install or refresh the managed root crontab entry:
+
+```bash
+./.venv/bin/python telegram_codex_queue.py --install-cron
+```
+
+Installation deliberately skips all Telegram history already waiting at that
+moment. New messages are picked up at minute 7 of each hour. A file lock avoids
+overlapping jobs; failures are not automatically retried because a job may have
+partially published before failing.
+
+```bash
+./.venv/bin/python telegram_codex_queue.py --status
+./.venv/bin/python telegram_codex_queue.py --retry JOB_ID
+```
+
+Queue state and logs live under ignored `.automation/`. Set the optional
+`TELEGRAM_ALLOWED_USER_IDS` in `.env` to a comma-separated sender allowlist for
+additional protection. `CODEX_QUEUE_CRON_MINUTE` changes the hourly minute at
+installation time.
