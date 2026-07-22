@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -194,6 +196,61 @@ def split_message(text: str, limit: int = MAX_MESSAGE_CHARACTERS) -> list[str]:
     return chunks
 
 
+def reply_parameters(reply_to_message_id: int | None) -> dict[str, str]:
+    if reply_to_message_id is None:
+        return {}
+    return {
+        "reply_parameters": json.dumps(
+            {
+                "message_id": reply_to_message_id,
+                "allow_sending_without_reply": False,
+            },
+            separators=(",", ":"),
+        )
+    }
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_preview_receipt(
+    path: Path,
+    *,
+    job_id: str | None,
+    reply_to_message_id: int | None,
+    images: list[Path],
+    description: str,
+    telegram_result: dict[str, Any],
+) -> Path:
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    payload = {
+        "job_id": job_id,
+        "stage": "preview",
+        "reply_to_message_id": reply_to_message_id,
+        "sent_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "images": [str(image.resolve()) for image in images],
+        "image_sha256s": [sha256_file(image) for image in images],
+        "description_sha256": hashlib.sha256(description.encode("utf-8")).hexdigest(),
+        **telegram_result,
+    }
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.chmod(0o600)
+    os.replace(temporary, path)
+    path.chmod(0o600)
+    return path
+
+
 def send_review_package(
     session: requests.Session,
     config: TelegramConfig,
@@ -202,6 +259,7 @@ def send_review_package(
     description: str,
     stage: str,
     secondary_images: list[Path] | None = None,
+    reply_to_message_id: int | None = None,
 ) -> dict[str, Any]:
     images = [validate_image(image)]
     images.extend(validate_image(item) for item in secondary_images or [])
@@ -224,6 +282,7 @@ def send_review_package(
                     data={
                         "chat_id": config.chat_id,
                         "caption": f"Bits Today — {label} — {image_label}",
+                        **reply_parameters(reply_to_message_id),
                     },
                     files={
                         "photo": (current_image.name, image_file, media_type)
@@ -243,6 +302,7 @@ def send_review_package(
                     "chat_id": config.chat_id,
                     "text": chunk,
                     "disable_web_page_preview": "true",
+                    **reply_parameters(reply_to_message_id),
                 },
                 timeout=(10, 30),
             )
@@ -252,7 +312,17 @@ def send_review_package(
         "photo_message_id": photo_results[0].get("message_id"),
         "photo_message_ids": [item.get("message_id") for item in photo_results],
         "description_message_ids": [item.get("message_id") for item in text_results],
+        "reply_to_message_id": reply_to_message_id,
     }
+
+
+def watcher_reply_message_id() -> int | None:
+    raw_value = os.getenv("TELEGRAM_REPLY_TO_MESSAGE_ID", "").strip()
+    if not raw_value:
+        return None
+    if not raw_value.isdigit() or int(raw_value) <= 0:
+        raise ValueError("TELEGRAM_REPLY_TO_MESSAGE_ID must be a positive integer.")
+    return int(raw_value)
 
 
 def read_description(args: argparse.Namespace) -> str:
@@ -361,7 +431,19 @@ def main(argv: list[str] | None = None) -> int:
                 description=description,
                 stage=args.stage,
                 secondary_images=secondary_images,
+                reply_to_message_id=watcher_reply_message_id(),
             )
+            receipt_path = None
+            configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
+            if args.stage == "preview" and configured_receipt:
+                receipt_path = write_preview_receipt(
+                    Path(configured_receipt),
+                    job_id=os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip() or None,
+                    reply_to_message_id=result["reply_to_message_id"],
+                    images=[image, *secondary_images],
+                    description=description,
+                    telegram_result=result,
+                )
             print(
                 json.dumps(
                     {
@@ -369,6 +451,9 @@ def main(argv: list[str] | None = None) -> int:
                         "sent": True,
                         "bot_username": bot.get("username"),
                         "stage": args.stage,
+                        "preview_receipt": (
+                            str(receipt_path) if receipt_path is not None else None
+                        ),
                         **result,
                     },
                     ensure_ascii=False,

@@ -274,3 +274,39 @@ Queue state and logs live under ignored `.automation/`. Set the optional
 `TELEGRAM_ALLOWED_USER_IDS` in `.env` to a comma-separated sender allowlist for
 additional protection. `CODEX_QUEUE_CRON_MINUTE` changes the hourly minute at
 installation time.
+
+## Telegram-to-Codex approval watcher (VPS)
+
+`telegram_codex_watcher.py` is a separate, always-running alternative to the
+hourly queue. It uses Telegram long polling, keeps each Codex session, and
+sends previews as replies to the originating Telegram request. Reply exactly
+`yes` to any message in the latest preview package to resume that same Codex
+session and publish. A non-`yes` reply is treated as revision feedback and must
+produce another preview before approval. Replies to stale previews and
+unthreaded `yes` messages are rejected.
+
+The watcher has its own SQLite database under `.automation/watcher/`. On first
+startup it imports the existing hourly queue's Telegram offset, so messages are
+neither replayed nor skipped while switching processes. Interrupted publishing
+is marked failed and never retried automatically.
+
+Pause only the managed cron entry, then install the systemd service:
+
+```bash
+./.venv/bin/python telegram_codex_watcher.py --pause-cron
+sudo install -m 0644 systemd/bitstoday-telegram-watcher.service \
+  /etc/systemd/system/bitstoday-telegram-watcher.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now bitstoday-telegram-watcher.service
+```
+
+Inspect the durable job state and live service logs with:
+
+```bash
+./.venv/bin/python telegram_codex_watcher.py --status
+sudo systemctl status bitstoday-telegram-watcher.service
+sudo journalctl -u bitstoday-telegram-watcher.service -f
+```
+
+The original hourly implementation remains available. Stop and disable the
+watcher, then run `telegram_codex_queue.py --install-cron` to restore it.

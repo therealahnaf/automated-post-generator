@@ -1,0 +1,21 @@
+[Unit]
+Description=Bits Today Telegram Codex watcher
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/automated-post-generator
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/root/automated-post-generator/.venv/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+UMask=0077
+ExecStart=/root/automated-post-generator/.venv/bin/python /root/automated-post-generator/telegram_codex_watcher.py --watch
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

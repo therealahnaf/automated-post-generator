@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,6 +68,7 @@ class NotifyTelegramTests(unittest.TestCase):
                 image=image,
                 description="Detailed draft description.",
                 stage="preview",
+                reply_to_message_id=7,
             )
 
         self.assertEqual(result["photo_message_id"], 10)
@@ -76,11 +78,16 @@ class NotifyTelegramTests(unittest.TestCase):
         photo_call, message_call = session.post.call_args_list
         self.assertTrue(photo_call.args[0].endswith("/sendPhoto"))
         self.assertEqual(photo_call.kwargs["data"]["chat_id"], "123456")
+        self.assertEqual(
+            json.loads(photo_call.kwargs["data"]["reply_parameters"])["message_id"],
+            7,
+        )
         self.assertIn("photo", photo_call.kwargs["files"])
         self.assertTrue(message_call.args[0].endswith("/sendMessage"))
         self.assertIn(
             "Detailed draft description.", message_call.kwargs["data"]["text"]
         )
+        self.assertEqual(result["reply_to_message_id"], 7)
 
     def test_send_review_package_sends_main_then_secondary_images(self) -> None:
         responses = []
@@ -118,6 +125,31 @@ class NotifyTelegramTests(unittest.TestCase):
         self.assertEqual(secondary_call.kwargs["files"]["photo"][0], "source.jpg")
         self.assertIn("SOURCE IMAGE 1", secondary_call.kwargs["data"]["caption"])
         self.assertTrue(description_call.args[0].endswith("/sendMessage"))
+
+    def test_writes_atomic_preview_receipt_with_package_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image = root / "main.png"
+            receipt = root / "state" / "receipt.json"
+            image.write_bytes(b"main-image")
+            notify_telegram.write_preview_receipt(
+                receipt,
+                job_id="42",
+                reply_to_message_id=9,
+                images=[image],
+                description="Preview copy",
+                telegram_result={
+                    "photo_message_ids": [100],
+                    "description_message_ids": [101],
+                },
+            )
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["job_id"], "42")
+        self.assertEqual(payload["reply_to_message_id"], 9)
+        self.assertEqual(payload["photo_message_ids"], [100])
+        self.assertEqual(len(payload["image_sha256s"][0]), 64)
+        self.assertEqual(len(payload["description_sha256"]), 64)
 
 
 if __name__ == "__main__":
