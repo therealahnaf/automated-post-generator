@@ -1,6 +1,9 @@
 import io
+import json
+import tempfile
 import unittest
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageFont
@@ -147,6 +150,81 @@ class GeneratePostTests(unittest.TestCase):
             if red > 200 and green < 50 and blue < 60
         )
         self.assertEqual(footer_red_pixels, 0)
+
+    def test_first_tweet_photo_is_discovered_and_rounded_without_cropping(self) -> None:
+        background = Image.new("RGB", (1024, 1280), (35, 70, 100))
+        payload = io.BytesIO()
+        background.save(payload, format="PNG")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            media = root / "media"
+            media.mkdir()
+            photo_path = media / "first-photo.jpg"
+            photo = Image.new("RGB", (900, 1200), (250, 250, 250))
+            ImageDraw.Draw(photo).rectangle((0, 0, 899, 80), fill=(10, 200, 30))
+            photo.save(photo_path, quality=100, subsampling=0)
+            tweet_json = root / "tweet.json"
+            tweet_json.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "downloaded_photos": [
+                                    {"local_path": str(photo_path)}
+                                ]
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            discovered = generate_post.find_first_tweet_photo(tweet_json)
+            self.assertEqual(discovered, photo_path)
+            result = generate_post.compose_post(
+                payload.getvalue(),
+                "A short headline",
+                source="Bits Today",
+                post_date=date(2026, 7, 23),
+                credit="",
+                logo_path=None,
+                feature_image_path=discovered,
+            )
+
+        self.assertEqual(result.size, (1080, 1350))
+        # A large portrait source is reduced to 465x620 without cropping.
+        red, green, _ = result.getpixel((540, 555))
+        self.assertLess(red, 40)
+        self.assertGreater(green, 170)
+        # The photo's top-left is rounded instead of remaining a square corner.
+        corner = result.getpixel((307, 550))
+        self.assertFalse(corner[0] < 40 and corner[1] > 170)
+
+    def test_small_feature_photo_is_ineligible_and_never_upscaled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            photo_path = Path(temporary_directory) / "small.png"
+            Image.new("RGB", (120, 90), (210, 30, 40)).save(photo_path)
+
+            self.assertFalse(
+                generate_post.feature_photo_meets_minimum(photo_path)
+            )
+            canvas = Image.new("RGBA", (1080, 1350), (0, 0, 0, 255))
+            generate_post.paste_feature_photo(canvas, photo_path)
+
+        pixels = canvas.load()
+        red_points = [
+            (x, y)
+            for y in range(canvas.height)
+            for x in range(canvas.width)
+            if pixels[x, y][0] > 180
+            and pixels[x, y][1] < 60
+            and pixels[x, y][2] < 70
+        ]
+        xs = [point[0] for point in red_points]
+        ys = [point[1] for point in red_points]
+        self.assertLessEqual(max(xs) - min(xs) + 1, 120)
+        self.assertLessEqual(max(ys) - min(ys) + 1, 90)
 
     def test_all_brand_styles_include_palette_and_bottom_right_logo(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))

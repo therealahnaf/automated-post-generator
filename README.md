@@ -47,6 +47,12 @@ The default image model is `gpt-image-2` at medium quality. Override it with
 sidecar containing the supplied title, image prompt, image model, and source
 sentence.
 
+When `--tweet-json` contains downloaded photos, the first photo is automatically
+added uncropped to the main post in a rounded frame when it is at least 640x480.
+Photos are never enlarged; smaller photos remain secondary media only. Use
+`--feature-image` to choose a specific photo, or `--no-feature-image` to disable
+the inset.
+
 For headline or layout revisions, reuse the saved text-free background instead
 of paying for another image generation:
 
@@ -72,11 +78,11 @@ These tests do not call the API or spend credits.
 [FxTwitter](https://github.com/FxEmbed/FxEmbed), a free MIT-licensed project.
 It does not use X's official API, an X developer account, Apify, or an API key.
 The fetcher uses FxTwitter v2's thread endpoint so the root post and every
-same-author continuation are retained. Pass `--media-dir` to download
-photos from the same-author thread and nested quoted posts, and to extract a
-JPEG opening frame from attached videos with FFmpeg. These become secondary
-post images in source order, capped at nine so the generated graphic keeps the
-cross-platform package at ten images total.
+same-author continuation are retained. Pass `--media-dir` to download photos
+from the same-author thread and nested quoted posts. Videos are not downloaded
+and video frames are not extracted. Photos become secondary post images in
+source order, capped at nine so the generated graphic keeps the cross-platform
+package at ten images total.
 At the start of each fetch, the default `--language auto` randomly chooses
 English or Bangla once and stores the result as `post_language` in the JSON.
 The default `--highlight-style auto` independently chooses a one-line cyan
@@ -143,6 +149,21 @@ python .\generate_description.py `
   --output .\output\polymarket-description.txt
 ```
 
+After web research, append the supplied X URL and each research URL actually
+used in the final copy. The X URL is read from the tweet JSON and stays first:
+
+```powershell
+python .\finalize_description.py `
+  --description-file .\output\polymarket-description.txt `
+  --tweet-json .\output\polymarket-tweet.json `
+  --source-url "https://example.com/research-used-in-the-copy" `
+  --output .\output\polymarket-description.txt
+```
+
+The final caption ends with `Sources:` followed by one deduplicated URL per
+line. The formatter rejects output exceeding Instagram's 2,200-character
+caption limit instead of silently truncating the description.
+
 ## Editorial approval workflow
 
 1. Send the assistant an X/Twitter status URL.
@@ -155,7 +176,7 @@ python .\generate_description.py `
 5. Generate the English-plus-Bangla description with `generate_description.py`,
    send it and the complete ordered image set to Telegram, then show the same
    package for review. The generated graphic is first and ordered thread/quote
-   photos and video opening frames follow.
+   photos follow.
    Revise it until the user says `yes`.
 6. Publish to Facebook and Instagram only after the user explicitly says `yes`
    for the exact latest preview package.

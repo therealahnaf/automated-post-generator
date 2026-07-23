@@ -12,8 +12,8 @@ complete or until an explicit user approval is required.
    Apify. Validate the returned tweet ID and non-empty text before using it. A
    self-hosted FxEmbed-compatible deployment may be supplied with `--api-base`.
    Always use `--media-dir` to download photos from the thread and nested quoted
-   posts, and to extract a JPEG opening frame from every attached video with
-   FFmpeg. Preserve thread, quote, and media source order. The generated main
+   posts. Do not download videos or extract video frames. Preserve thread,
+   quote, and photo source order. The generated main
    post plus these secondary images must never exceed 10 images total. Its
    default `--language auto` must randomly select `english` or
    `bangla` once and persist the result as `post_language` in the tweet JSON.
@@ -42,8 +42,12 @@ complete or until an explicit user approval is required.
    Do not add `Desk`, an AI-generated credit line, a bottom footer, or an extra
    badge. Keep the other presets for explicit style experiments only; do not
    select them during the normal publishing workflow. This generated post is
-   always the primary image. Run every downloaded tweet photo and extracted
-   video opening frame through
+   always the primary image. When the tweet contains photos, place its first
+   downloaded photo uncropped in a rounded-corner frame over the lower portion
+   of the same generated editorial background only when it is at least 640x480
+   pixels. Never upscale it. If it is smaller, leave it as secondary media only.
+   Keep an eligible inset photo in the ordered secondary-media set as well. Run
+   every downloaded tweet photo through
    `brand_tweet_images.py` so the complete source is contained without cropping
    inside a 1080x1350 `#212121` frame. The frame must fill any unused 4:5 canvas
    area. Keep the bottom-right transparent Bits Today logo overlay with no
@@ -71,7 +75,12 @@ complete or until an explicit user approval is required.
    additional details are found, keep the generated bilingual description as
    it is. Do not force extra context into the post. Keep the final bilingual
    copy within the configured platform length limit and retain the `---`
-   separator.
+   separator. Then run `finalize_description.py` so the description ends with
+   an ordered `Sources:` block. List the supplied X URL first, followed by each
+   web URL whose information was actually used during research, one URL per
+   line. Do not list unused search results. Deduplicate URLs and include the X
+   URL even when no additional context was found. The description plus source
+   block must remain within the configured platform length limit.
 6. Send the generated main image, every ordered secondary media image, and the
    enhanced bilingual description through `notify_telegram.py --stage preview
    --send`, using one `--secondary-image` argument per media image. Only after

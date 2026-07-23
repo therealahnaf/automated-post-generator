@@ -204,21 +204,9 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertEqual(tweet["thread_count"], 2)
         self.assertEqual(tweet["text_source"], "fxtwitter_v2")
 
-    def test_selects_highest_bitrate_mp4_video(self) -> None:
-        video = {
-            "formats": [
-                {"container": "application/x-mpegURL", "url": "https://cdn/a.m3u8"},
-                {"container": "video/mp4", "bitrate": 288000, "url": "https://cdn/low.mp4"},
-                {"container": "video/mp4", "bitrate": 2176000, "url": "https://cdn/high.mp4"},
-            ]
-        }
-
-        self.assertEqual(fetch_tweets.best_video_url(video), "https://cdn/high.mp4")
-
-    @patch("fetch_tweets.extract_video_frame")
     @patch("fetch_tweets.fetch_binary")
-    def test_downloads_quote_photo_and_thread_video_frame_in_order(
-        self, mock_fetch_binary, mock_extract_video_frame
+    def test_downloads_thread_and_quote_photos_but_ignores_videos(
+        self, mock_fetch_binary
     ) -> None:
         payload = io.BytesIO()
         Image.new("RGB", (320, 180), "blue").save(payload, format="JPEG")
@@ -245,31 +233,26 @@ class FetchTweetsTests(unittest.TestCase):
                                 {"container": "video/mp4", "url": "https://cdn/v.mp4"}
                             ],
                         }
-                    ]
+                    ],
+                    "photos": [
+                        {"type": "photo", "url": "https://cdn/thread.jpg"}
+                    ],
                 },
             },
         ]
 
         with tempfile.TemporaryDirectory() as directory:
-            frame_path = Path(directory) / "101-video-1-frame.jpg"
-            Image.new("RGB", (640, 360), "red").save(frame_path, format="JPEG")
-            mock_extract_video_frame.return_value = {
-                "kind": "video_frame",
-                "source_url": "https://cdn/v.mp4",
-                "local_path": str(frame_path),
-                "content_type": "image/jpeg",
-                "width": 640,
-                "height": 360,
-                "frame_seconds": 0.5,
-                "sha256": "hash",
-            }
             downloaded = fetch_tweets.download_tweet_media(
                 tweet, Path(directory), timeout=30
             )
 
-        self.assertEqual([item["kind"] for item in downloaded], ["photo", "video_frame"])
+        self.assertEqual([item["kind"] for item in downloaded], ["photo", "photo"])
         self.assertEqual([item["origin"] for item in downloaded], ["quote", "thread"])
         self.assertEqual([item["source_status_id"] for item in downloaded], ["90", "101"])
+        self.assertEqual(
+            [item["source_url"] for item in downloaded],
+            ["https://cdn/q.jpg", "https://cdn/thread.jpg"],
+        )
 
 
 if __name__ == "__main__":

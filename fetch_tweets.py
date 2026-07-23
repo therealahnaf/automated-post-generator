@@ -15,8 +15,6 @@ import io
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -49,7 +47,6 @@ STATUS_PATH = re.compile(r"^/([^/]+)/status/(\d+)(?:/.*)?$")
 MAX_TWEET_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_FORMAT_SUFFIXES = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 MAX_SECONDARY_IMAGES = 9
-DEFAULT_VIDEO_FRAME_SECONDS = 0.5
 
 
 def status_parts(value: str) -> tuple[str, str]:
@@ -185,106 +182,6 @@ def download_tweet_photos(
     return downloaded
 
 
-def extract_video_media(tweet: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return valid video media objects in API source order."""
-    media = tweet.get("media")
-    if not isinstance(media, dict):
-        return []
-    videos = media.get("videos")
-    if not isinstance(videos, list):
-        videos = [
-            item
-            for item in media.get("all") or []
-            if isinstance(item, dict) and item.get("type") in {"video", "gif"}
-        ]
-    return [video for video in videos if isinstance(video, dict)]
-
-
-def best_video_url(video: dict[str, Any]) -> str:
-    """Choose the highest-bitrate HTTPS MP4 variant from a video object."""
-    candidates: list[tuple[int, str]] = []
-    for variant in video.get("formats") or video.get("variants") or []:
-        if not isinstance(variant, dict):
-            continue
-        url = str(variant.get("url", "")).strip()
-        parsed = urlparse(url)
-        container = str(
-            variant.get("container") or variant.get("content_type") or ""
-        ).lower()
-        if parsed.scheme != "https" or not parsed.netloc:
-            continue
-        if "mp4" not in container and ".mp4" not in parsed.path.lower():
-            continue
-        try:
-            bitrate = int(variant.get("bitrate") or variant.get("bit_rate") or 0)
-        except (TypeError, ValueError):
-            bitrate = 0
-        candidates.append((bitrate, url))
-    direct_url = str(video.get("url", "")).strip()
-    direct_parsed = urlparse(direct_url)
-    if (
-        direct_parsed.scheme == "https"
-        and direct_parsed.netloc
-        and ".mp4" in direct_parsed.path.lower()
-    ):
-        candidates.append((0, direct_url))
-    if not candidates:
-        raise RuntimeError("Tweet video has no downloadable HTTPS MP4 variant.")
-    return max(candidates, key=lambda item: item[0])[1]
-
-
-def extract_video_frame(
-    video: dict[str, Any],
-    destination: Path,
-    *,
-    frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
-) -> dict[str, Any]:
-    """Extract a JPEG opening frame from the best video variant with FFmpeg."""
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError("FFmpeg is required to extract tweet video opening frames.")
-    source_url = best_video_url(video)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-ss",
-        f"{frame_seconds:g}",
-        "-i",
-        source_url,
-        "-frames:v",
-        "1",
-        "-q:v",
-        "2",
-        "-y",
-        str(destination),
-    ]
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
-        raise RuntimeError(f"Could not extract tweet video frame: {detail}") from exc
-    try:
-        with Image.open(destination) as image:
-            width, height = image.size
-            image.verify()
-    except (OSError, ValueError) as exc:
-        raise RuntimeError("FFmpeg did not produce a valid tweet video frame.") from exc
-    payload = destination.read_bytes()
-    return {
-        "kind": "video_frame",
-        "source_url": source_url,
-        "local_path": str(destination.resolve()),
-        "content_type": "image/jpeg",
-        "width": width,
-        "height": height,
-        "frame_seconds": frame_seconds,
-        "sha256": hashlib.sha256(payload).hexdigest(),
-    }
-
-
 def quoted_tweet(tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Return the nested quoted status across supported FxTwitter schemas."""
     for key in ("quote", "quoted_tweet", "quotedTweet"):
@@ -323,17 +220,15 @@ def download_tweet_media(
     media_dir: Path,
     *,
     timeout: float,
-    frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
     limit: int = MAX_SECONDARY_IMAGES,
 ) -> list[dict[str, Any]]:
-    """Download thread/quote photos and video frames in deterministic order."""
+    """Download thread and quoted-post photos in deterministic order."""
     if limit < 0:
         raise ValueError("Media limit cannot be negative.")
     media_dir.mkdir(parents=True, exist_ok=True)
     ordered_statuses = ordered_content_statuses(tweet)
     total_media = sum(
-        len(extract_photo_media(status)) + len(extract_video_media(status))
-        for _, status in ordered_statuses
+        len(extract_photo_media(status)) for _, status in ordered_statuses
     )
     downloaded: list[dict[str, Any]] = []
     downloaded_photos: list[dict[str, Any]] = []
@@ -376,23 +271,6 @@ def download_tweet_media(
             }
             downloaded.append(item)
             downloaded_photos.append(item)
-        for video_index, video in enumerate(extract_video_media(status), start=1):
-            if len(downloaded) >= limit:
-                break
-            destination = media_dir / f"{status_id}-video-{video_index}-frame.jpg"
-            item = extract_video_frame(
-                video,
-                destination,
-                frame_seconds=frame_seconds,
-            )
-            item.update(
-                {
-                    "origin": origin,
-                    "source_status_id": status_id,
-                    "position": len(downloaded) + 1,
-                }
-            )
-            downloaded.append(item)
     tweet["downloaded_media"] = downloaded
     tweet["downloaded_photos"] = downloaded_photos
     tweet["media_truncated"] = total_media > len(downloaded)
@@ -601,7 +479,6 @@ def fetch_tweets(
     full_text_api_base: str = DEFAULT_FULL_TEXT_API_BASE,
     timeout: float = 30.0,
     media_dir: Path | None = None,
-    video_frame_seconds: float = DEFAULT_VIDEO_FRAME_SECONDS,
     post_language: str = AUTO_LANGUAGE,
     headline_highlight: str = AUTO_HIGHLIGHT_STYLE,
 ) -> dict[str, Any]:
@@ -623,7 +500,6 @@ def fetch_tweets(
                 item,
                 media_dir,
                 timeout=timeout,
-                frame_seconds=video_frame_seconds,
             )
     return {
         "post_language": selected_language,
@@ -668,16 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--media-dir",
         type=Path,
-        help=(
-            "Download thread and quoted-post photos plus video opening frames "
-            "into this directory in source order."
-        ),
-    )
-    parser.add_argument(
-        "--video-frame-seconds",
-        type=float,
-        default=DEFAULT_VIDEO_FRAME_SECONDS,
-        help="Timestamp used for video opening frames (default: 0.5 seconds).",
+        help="Download thread and quoted-post photos in source order.",
     )
     parser.add_argument(
         "--api-base",
@@ -722,8 +589,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.timeout <= 0:
             raise ValueError("--timeout must be greater than zero.")
-        if args.video_frame_seconds < 0:
-            raise ValueError("--video-frame-seconds cannot be negative.")
         urls = [normalize_tweet_url(url) for url in args.urls]
         result = fetch_tweets(
             urls,
@@ -731,7 +596,6 @@ def main(argv: list[str] | None = None) -> int:
             full_text_api_base=args.full_text_api_base,
             timeout=args.timeout,
             media_dir=args.media_dir,
-            video_frame_seconds=args.video_frame_seconds,
             post_language=args.language,
             headline_highlight=args.highlight_style,
         )

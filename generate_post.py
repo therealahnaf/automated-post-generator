@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
 from post_language import (
@@ -45,6 +45,7 @@ BRAND_MINT = (194, 255, 225, 255)
 INK = (12, 17, 21, 255)
 WHITE = (250, 250, 248, 255)
 STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
+FEATURE_IMAGE_MIN_SIZE = (640, 480)
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class PostMetadata:
     image_quality: str
     style: str
     logo_source: str
+    feature_image_source: str | None
     created_at: str
 
 
@@ -477,6 +479,90 @@ def add_scrim(image: Image.Image) -> Image.Image:
     return Image.alpha_composite(image.convert("RGBA"), overlay)
 
 
+def find_first_tweet_photo(tweet_json: Path) -> Path | None:
+    """Return the first downloaded photo in persisted source order."""
+    payload = json.loads(tweet_json.read_text(encoding="utf-8"))
+    for item in payload.get("items", []):
+        photos = item.get("downloaded_photos")
+        if not isinstance(photos, list):
+            photos = [
+                media
+                for media in item.get("downloaded_media", [])
+                if media.get("kind") == "photo"
+            ]
+        for photo in photos:
+            raw_path = photo.get("local_path")
+            if not raw_path:
+                continue
+            candidate = Path(raw_path)
+            candidates = [candidate]
+            if not candidate.is_absolute():
+                candidates.insert(0, tweet_json.parent / candidate)
+            candidates.append(tweet_json.parent / "media" / candidate.name)
+            for resolved in candidates:
+                if resolved.is_file():
+                    return resolved
+    return None
+
+
+def feature_photo_meets_minimum(
+    feature_image_path: Path,
+    minimum_size: tuple[int, int] = FEATURE_IMAGE_MIN_SIZE,
+) -> bool:
+    """Return whether a photo is large enough for the primary inset."""
+    if not feature_image_path.is_file():
+        raise FileNotFoundError(f"Feature image not found: {feature_image_path}")
+    with Image.open(feature_image_path) as source:
+        width, height = ImageOps.exif_transpose(source).size
+    minimum_width, minimum_height = minimum_size
+    return width >= minimum_width and height >= minimum_height
+
+
+def paste_feature_photo(
+    canvas: Image.Image,
+    feature_image_path: Path,
+    *,
+    top: int = 550,
+    max_size: tuple[int, int] = (940, 620),
+    radius: int = 28,
+) -> None:
+    """Overlay a complete, uncropped tweet photo in a rounded editorial frame."""
+    if not feature_image_path.is_file():
+        raise FileNotFoundError(f"Feature image not found: {feature_image_path}")
+
+    with Image.open(feature_image_path) as source:
+        photo = ImageOps.exif_transpose(source).convert("RGBA")
+        photo.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+    x = (canvas.width - photo.width) // 2
+    y = min(top, canvas.height - 160 - photo.height)
+
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle(
+        (x - 10, y - 4, x + photo.width + 10, y + photo.height + 16),
+        radius=radius + 10,
+        fill=(0, 0, 0, 190),
+    )
+    canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
+
+    border = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(border).rounded_rectangle(
+        (x - 5, y - 5, x + photo.width + 5, y + photo.height + 5),
+        radius=radius + 5,
+        fill=BRAND_MINT,
+    )
+    canvas.alpha_composite(border)
+
+    mask = Image.new("L", photo.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, photo.width - 1, photo.height - 1),
+        radius=radius,
+        fill=255,
+    )
+    canvas.paste(photo, (x, y), mask)
+
+
 def draw_byline(
     draw: ImageDraw.ImageDraw,
     source: str,
@@ -792,6 +878,7 @@ def compose_post(
     style: str = "brand-block",
     logo_path: Path | None = DEFAULT_BRAND_LOGO,
     headline_highlight: str = "dual",
+    feature_image_path: Path | None = None,
 ) -> Image.Image:
     with Image.open(io.BytesIO(background_bytes)) as generated:
         background = ImageOps.fit(
@@ -801,6 +888,8 @@ def compose_post(
             centering=(0.5, 0.5),
         )
     canvas = add_scrim(background)
+    if feature_image_path is not None:
+        paste_feature_photo(canvas, feature_image_path)
     draw = ImageDraw.Draw(canvas)
 
     if style not in STYLE_CHOICES:
@@ -866,6 +955,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reuse a local background and skip the OpenAI image API call.",
     )
     parser.add_argument(
+        "--feature-image",
+        type=Path,
+        help=(
+            "Tweet photo to place uncropped in a rounded frame on the main post. "
+            "When omitted, the first downloaded photo in --tweet-json is used."
+        ),
+    )
+    parser.add_argument(
+        "--no-feature-image",
+        action="store_true",
+        help="Do not add a tweet photo to the main post.",
+    )
+    parser.add_argument(
         "--source",
         default=os.getenv("POST_SOURCE", DEFAULT_POST_SOURCE),
         help=f"Brand name rendered below the headline (default: POST_SOURCE or '{DEFAULT_POST_SOURCE}').",
@@ -925,6 +1027,20 @@ def main(argv: list[str] | None = None) -> int:
         headline_highlight = (
             read_headline_highlight(args.tweet_json) if args.tweet_json else "dual"
         )
+        feature_image_path = None
+        if not args.no_feature_image:
+            candidate = args.feature_image
+            if candidate is None and args.tweet_json:
+                candidate = find_first_tweet_photo(args.tweet_json)
+            if candidate is not None:
+                if feature_photo_meets_minimum(candidate):
+                    feature_image_path = candidate
+                else:
+                    print(
+                        "First tweet photo is below the 640x480 primary-inset "
+                        "minimum; keeping it as secondary media only.",
+                        file=sys.stderr,
+                    )
         if post_language == "bangla":
             require_api_key()
             print("Translating approved headline to Bangla...", file=sys.stderr)
@@ -961,6 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
             style=args.style,
             logo_path=args.logo,
             headline_highlight=headline_highlight,
+            feature_image_path=feature_image_path,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         post.save(args.output, format="PNG", optimize=True)
@@ -982,6 +1099,9 @@ def main(argv: list[str] | None = None) -> int:
             image_quality=args.image_quality,
             style=args.style,
             logo_source=str(args.logo.resolve()),
+            feature_image_source=(
+                str(feature_image_path.resolve()) if feature_image_path else None
+            ),
             created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         metadata_path = args.output.with_suffix(".json")
