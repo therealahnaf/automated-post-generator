@@ -77,7 +77,13 @@ def select_secondary_images(
     if primary_feature_image is None:
         return list(input_paths)
     primary_key = primary_feature_image.resolve()
-    return [path for path in input_paths if path.resolve() != primary_key]
+    selected = [path for path in input_paths if path.resolve() != primary_key]
+    if len(selected) == len(input_paths):
+        raise ValueError(
+            "Primary feature image from post metadata does not match any input "
+            f"image: {primary_key}"
+        )
+    return selected
 
 
 def save_image(image: Image.Image, destination: Path) -> None:
@@ -204,7 +210,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Generated primary-post JSON sidecar. If its feature_image_source "
-            "names one of the inputs, that image is excluded from the secondary set."
+            "is non-null, it must name an input and that image is excluded from "
+            "the secondary set."
         ),
     )
     parser.add_argument("--logo", type=Path, default=DEFAULT_LOGO)

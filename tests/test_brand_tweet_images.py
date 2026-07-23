@@ -99,6 +99,23 @@ class BrandTweetImagesTests(unittest.TestCase):
         self.assertIsNone(primary)
         self.assertEqual(selected, [first, second])
 
+    def test_stale_primary_metadata_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stale_primary = root / "old-first.jpg"
+            current_first = root / "new-first.jpg"
+            Image.new("RGB", (800, 600), "red").save(stale_primary)
+            Image.new("RGB", (800, 600), "blue").save(current_first)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "does not match any input image",
+            ):
+                brand_tweet_images.select_secondary_images(
+                    [current_first],
+                    stale_primary,
+                )
+
     def test_centers_entire_source_in_fixed_frame_without_upscaling(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

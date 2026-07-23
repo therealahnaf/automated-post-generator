@@ -226,6 +226,37 @@ class GeneratePostTests(unittest.TestCase):
         self.assertLessEqual(max(xs) - min(xs) + 1, 120)
         self.assertLessEqual(max(ys) - min(ys) + 1, 90)
 
+    def test_feature_eligibility_is_orientation_aware_and_rejects_strips(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            portrait = root / "portrait.jpg"
+            panorama = root / "panorama.jpg"
+            extreme_portrait = root / "extreme-portrait.jpg"
+            Image.new("RGB", (480, 640), "white").save(portrait)
+            Image.new("RGB", (4000, 500), "white").save(panorama)
+            Image.new("RGB", (640, 4000), "white").save(extreme_portrait)
+
+            self.assertTrue(generate_post.feature_photo_meets_minimum(portrait))
+            self.assertFalse(generate_post.feature_photo_meets_minimum(panorama))
+            self.assertFalse(
+                generate_post.feature_photo_meets_minimum(extreme_portrait)
+            )
+
+    def test_transparent_feature_pixels_reveal_background(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            photo_path = Path(temporary_directory) / "transparent.png"
+            photo = Image.new("RGBA", (800, 600), (255, 0, 0, 255))
+            ImageDraw.Draw(photo).rectangle(
+                (300, 200, 500, 400),
+                fill=(0, 255, 0, 0),
+            )
+            photo.save(photo_path)
+            canvas = Image.new("RGBA", (1080, 1350), (0, 0, 255, 255))
+
+            generate_post.paste_feature_photo(canvas, photo_path)
+
+        self.assertEqual(canvas.getpixel((540, 850)), (0, 0, 255, 255))
+
     def test_all_brand_styles_include_palette_and_bottom_right_logo(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))
         payload = io.BytesIO()

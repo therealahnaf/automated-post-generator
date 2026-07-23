@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
 try:
@@ -52,6 +52,8 @@ INK = (12, 17, 21, 255)
 WHITE = (250, 250, 248, 255)
 STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
 FEATURE_IMAGE_MIN_SIZE = (640, 480)
+FEATURE_IMAGE_MAX_RENDERED_SIZE = (940, 620)
+FEATURE_IMAGE_MIN_RENDERED_SIDE = 240
 
 
 @dataclass(frozen=True)
@@ -514,14 +516,22 @@ def find_first_tweet_photo(tweet_json: Path) -> Path | None:
 def feature_photo_meets_minimum(
     feature_image_path: Path,
     minimum_size: tuple[int, int] = FEATURE_IMAGE_MIN_SIZE,
+    max_rendered_size: tuple[int, int] = FEATURE_IMAGE_MAX_RENDERED_SIZE,
+    minimum_rendered_side: int = FEATURE_IMAGE_MIN_RENDERED_SIDE,
 ) -> bool:
-    """Return whether a photo is large enough for the primary inset."""
+    """Return whether a photo is large enough and useful in the primary inset."""
     if not feature_image_path.is_file():
         raise FileNotFoundError(f"Feature image not found: {feature_image_path}")
     with Image.open(feature_image_path) as source:
-        width, height = ImageOps.exif_transpose(source).size
-    minimum_width, minimum_height = minimum_size
-    return width >= minimum_width and height >= minimum_height
+        photo = ImageOps.exif_transpose(source)
+        width, height = photo.size
+        source_short, source_long = sorted((width, height))
+        minimum_short, minimum_long = sorted(minimum_size)
+        if source_short < minimum_short or source_long < minimum_long:
+            return False
+        rendered = photo.copy()
+        rendered.thumbnail(max_rendered_size, Image.Resampling.LANCZOS)
+    return min(rendered.size) >= minimum_rendered_side
 
 
 def paste_feature_photo(
@@ -529,7 +539,7 @@ def paste_feature_photo(
     feature_image_path: Path,
     *,
     top: int = 550,
-    max_size: tuple[int, int] = (940, 620),
+    max_size: tuple[int, int] = FEATURE_IMAGE_MAX_RENDERED_SIZE,
     radius: int = 28,
 ) -> None:
     """Overlay a complete, uncropped tweet photo in a rounded editorial frame."""
@@ -543,30 +553,33 @@ def paste_feature_photo(
     x = (canvas.width - photo.width) // 2
     y = min(top, canvas.height - 160 - photo.height)
 
-    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.rounded_rectangle(
-        (x - 10, y - 4, x + photo.width + 10, y + photo.height + 16),
-        radius=radius + 10,
-        fill=(0, 0, 0, 190),
+    rounded_mask = Image.new("L", photo.size, 0)
+    ImageDraw.Draw(rounded_mask).rounded_rectangle(
+        (0, 0, photo.width - 1, photo.height - 1),
+        radius=radius,
+        fill=255,
     )
-    canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
+    combined_alpha = ImageChops.multiply(photo.getchannel("A"), rounded_mask)
+
+    shadow_alpha = Image.new("L", canvas.size, 0)
+    shadow_alpha.paste(combined_alpha, (x, y + 6))
+    shadow_alpha = shadow_alpha.filter(ImageFilter.GaussianBlur(18))
+    shadow_alpha = shadow_alpha.point(lambda value: value * 190 // 255)
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    shadow.putalpha(shadow_alpha)
+    canvas.alpha_composite(shadow)
 
     border = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     ImageDraw.Draw(border).rounded_rectangle(
         (x - 5, y - 5, x + photo.width + 5, y + photo.height + 5),
         radius=radius + 5,
-        fill=BRAND_MINT,
+        outline=BRAND_MINT,
+        width=5,
     )
     canvas.alpha_composite(border)
 
-    mask = Image.new("L", photo.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, photo.width - 1, photo.height - 1),
-        radius=radius,
-        fill=255,
-    )
-    canvas.paste(photo, (x, y), mask)
+    photo.putalpha(combined_alpha)
+    canvas.alpha_composite(photo, (x, y))
 
 
 def draw_byline(

@@ -32,10 +32,11 @@ downloaded media; do not fetch or classify the story again.
    preset.
 5. The generated post is always primary. If the tweet has photos, place the
    first downloaded photo uncropped in a rounded-corner frame over the lower
-   portion of the same background only when it is at least 640x480 pixels.
-   Never upscale it. A smaller photo remains secondary only. Keep an inset
-   photo out of the secondary set so the carousel never repeats an image
-   already visible in the generated primary.
+   portion of the same background only when its orientation-independent source
+   dimensions are at least 640x480 pixels and its fitted inset retains a useful
+   minimum footprint. Never upscale it. A smaller or extreme-aspect-ratio photo
+   remains secondary only. Keep an inset photo out of the secondary set so the
+   carousel never repeats an image already visible in the generated primary.
 6. Run every downloaded photo through
    `tools/news/brand_tweet_images.py --post-metadata <primary-post.json>`.
    The primary post's JSON sidecar records `feature_image_source`; the branding
