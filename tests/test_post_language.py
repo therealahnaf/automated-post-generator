@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import post_language
+from tools.news import post_language
 
 
 class PostLanguageTests(unittest.TestCase):

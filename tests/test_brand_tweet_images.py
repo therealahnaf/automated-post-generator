@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-import brand_tweet_images
+from tools.news import brand_tweet_images
 
 
 class BrandTweetImagesTests(unittest.TestCase):

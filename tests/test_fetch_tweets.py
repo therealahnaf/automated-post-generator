@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-import fetch_tweets
+from tools.news import fetch_tweets
 
 
 class FetchTweetsTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertTrue(fetch_tweets.looks_possibly_truncated("News preview…"))
         self.assertFalse(fetch_tweets.looks_possibly_truncated("A complete post."))
 
-    @patch("fetch_tweets.urlopen")
+    @patch("tools.news.fetch_tweets.urlopen")
     def test_fetches_and_validates_tweet(self, mock_urlopen) -> None:
         payload = {
             "code": 200,
@@ -70,7 +70,7 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertEqual(tweet["text"], "A real tweet")
         self.assertEqual(tweet["full_text_recovery"], {"attempted": False})
 
-    @patch("fetch_tweets.urlopen")
+    @patch("tools.news.fetch_tweets.urlopen")
     def test_recovers_longer_text_from_vxtwitter(self, mock_urlopen) -> None:
         preview = "A" * 270
         full_text = preview + " with the missing long-post ending."
@@ -101,7 +101,7 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertTrue(tweet["full_text_recovery"]["succeeded"])
         self.assertEqual(tweet["raw_text"]["display_text_range"], [0, len(full_text)])
 
-    @patch("fetch_tweets.urlopen")
+    @patch("tools.news.fetch_tweets.urlopen")
     def test_rejects_mismatched_full_text_fallback_id(self, mock_urlopen) -> None:
         mock_urlopen.return_value = io.StringIO(
             json.dumps({"tweetID": "999", "text": "Wrong tweet"})
@@ -114,7 +114,7 @@ class FetchTweetsTests(unittest.TestCase):
                 timeout=30,
             )
 
-    @patch("fetch_tweets.urlopen")
+    @patch("tools.news.fetch_tweets.urlopen")
     def test_rejects_mismatched_tweet_id(self, mock_urlopen) -> None:
         payload = {
             "code": 200,
@@ -129,7 +129,7 @@ class FetchTweetsTests(unittest.TestCase):
 
     def test_result_declares_open_source_non_official_backend(self) -> None:
         with patch(
-            "fetch_tweets.fetch_thread",
+            "tools.news.fetch_tweets.fetch_thread",
             return_value={"id": "2079479742802141202", "text": "Tweet"},
         ):
             result = fetch_tweets.fetch_tweets(
@@ -149,7 +149,7 @@ class FetchTweetsTests(unittest.TestCase):
             "https://github.com/FxEmbed/FxEmbed",
         )
 
-    @patch("fetch_tweets.fetch_binary")
+    @patch("tools.news.fetch_tweets.fetch_binary")
     def test_downloads_tweet_photos_in_source_order(self, mock_fetch_binary) -> None:
         payload = io.BytesIO()
         Image.new("RGB", (320, 180), "blue").save(payload, format="JPEG")
@@ -186,7 +186,7 @@ class FetchTweetsTests(unittest.TestCase):
             ["https://cdn/1.jpg", "https://cdn/2.jpg"],
         )
 
-    @patch("fetch_tweets.urlopen")
+    @patch("tools.news.fetch_tweets.urlopen")
     def test_fetches_full_same_author_thread_with_v2(self, mock_urlopen) -> None:
         payload = {
             "code": 200,
@@ -204,7 +204,7 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertEqual(tweet["thread_count"], 2)
         self.assertEqual(tweet["text_source"], "fxtwitter_v2")
 
-    @patch("fetch_tweets.fetch_binary")
+    @patch("tools.news.fetch_tweets.fetch_binary")
     def test_downloads_thread_and_quote_photos_but_ignores_videos(
         self, mock_fetch_binary
     ) -> None:

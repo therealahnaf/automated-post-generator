@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-import publish_facebook
+from tools.news import publish_facebook
 
 
 class PublishFacebookTests(unittest.TestCase):

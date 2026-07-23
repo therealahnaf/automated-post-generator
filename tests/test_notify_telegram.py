@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-import notify_telegram
+from tools.news import notify_telegram
 
 
 class NotifyTelegramTests(unittest.TestCase):

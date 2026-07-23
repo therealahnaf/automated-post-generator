@@ -11,7 +11,7 @@ Environment=HOME=/root
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/root/automated-post-generator/.venv/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 UMask=0077
-ExecStart=/root/automated-post-generator/.venv/bin/python /root/automated-post-generator/telegram_codex_watcher.py --watch
+ExecStart=/root/automated-post-generator/.venv/bin/python /root/automated-post-generator/tools/news/telegram_codex_watcher.py --watch
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

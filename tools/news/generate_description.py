@@ -14,10 +14,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from post_language import POST_LANGUAGES, read_post_language
+try:
+    from .post_language import POST_LANGUAGES, read_post_language
+except ImportError:
+    from post_language import POST_LANGUAGES, read_post_language
 
 
-load_dotenv(Path(__file__).with_name(".env"))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 TEXT_GENERATION_MODEL = "gpt-5.6-luna"

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-import publish_instagram
+from tools.news import publish_instagram
 
 
 class PublishInstagramTests(unittest.TestCase):
@@ -98,7 +98,7 @@ class PublishInstagramTests(unittest.TestCase):
         )
         self.assertEqual(data["caption"], "Approved caption")
 
-    @patch("publish_instagram.time.sleep")
+    @patch("tools.news.publish_instagram.time.sleep")
     def test_waits_until_container_is_finished(self, mock_sleep) -> None:
         processing = Mock()
         processing.ok = True

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import telegram_codex_queue as queue
+from tools.news import telegram_codex_queue as queue
 
 
 class TelegramCodexQueueTests(unittest.TestCase):
@@ -15,10 +15,19 @@ class TelegramCodexQueueTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_prompt_has_exact_guarded_automation_instructions(self):
-        self.assertEqual(
-            queue.build_prompt("https://x.com/example/status/123"),
-            "Read AGENTS.md\n\nhttps://x.com/example/status/123\n\n"
-            "NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST",
+        prompt = queue.build_prompt("https://x.com/example/status/123")
+        self.assertTrue(prompt.startswith("Read AGENTS.md\n\n"))
+        self.assertIn(
+            "TELEGRAM REQUEST START\n"
+            "https://x.com/example/status/123\n"
+            "TELEGRAM REQUEST END",
+            prompt,
+        )
+        self.assertNotIn("classify it once", prompt)
+        self.assertTrue(
+            prompt.endswith(
+                "NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST"
+            )
         )
 
     def test_enqueue_is_deduplicated(self):

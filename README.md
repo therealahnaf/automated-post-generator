@@ -1,6 +1,6 @@
 # Bits Today post generator
 
-`generate_post.py` turns a tech-news sentence and an approved headline into a
+`tools/news/generate_post.py` turns a tech-news sentence and an approved headline into a
 1080×1350 social post:
 
 1. The operator supplies a reviewed headline with `--headline`.
@@ -13,6 +13,24 @@ programmatically by Pillow. The palette uses coral `#FF5757` and mint
 `#C2FFE1`; the current design has no bottom footer, extra badges, or
 AI-generated credit line. English headlines and bylines use bundled Roboto;
 Bangla headlines retain their Bengali-capable font.
+
+## Tool layout
+
+Post workflows are grouped by content type under `tools/`. The current news
+workflow lives in `tools/news/`; future post formats can use sibling directories
+without mixing their scripts into the news pipeline. Shared repository assets,
+fonts, credentials, policies, and tests remain at the repository root.
+`AGENTS.md` is the lightweight X-link router and shared approval/publishing
+contract. It dispatches validated stories to either
+[`tools/news/WORKFLOW.md`](tools/news/WORKFLOW.md) or
+[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md).
+
+The model-announcement workflow lives in `tools/models/`. It creates a centered
+`Meet <model name>` primary card and feature-focused secondary cards. Posts
+with photos create exactly one description segment per photo; posts without
+photos split the finalized English description into two or three cards that
+reuse the primary background. See
+[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md) for the complete flow.
 
 Three Pillow presets are available through `--style`:
 
@@ -34,7 +52,7 @@ Do not put the API key in this repository or pass it as a command-line argument.
 ## Run
 
 ```powershell
-python .\generate_post.py `
+python .\tools\news\generate_post.py `
   "NEW: China’s Z.AI begins operating a 1-gigawatt AI data center built entirely with domestic chips — enough power for roughly 750,000 homes." `
   --headline "China’s Z.AI Opens 1-Gigawatt Data Center Powered by Domestic Chips" `
   --style brand-block `
@@ -57,7 +75,7 @@ For headline or layout revisions, reuse the saved text-free background instead
 of paying for another image generation:
 
 ```powershell
-python .\generate_post.py `
+python .\tools\news\generate_post.py `
   "The source tweet text" `
   --headline "The revised headline" `
   --background-input .\output\post-background.png `
@@ -74,7 +92,7 @@ These tests do not call the API or spend credits.
 
 ## Fetch X/Twitter post data
 
-`fetch_tweets.py` accepts one or more status URLs and emits JSON through
+`tools/news/fetch_tweets.py` accepts one or more status URLs and emits JSON through
 [FxTwitter](https://github.com/FxEmbed/FxEmbed), a free MIT-licensed project.
 It does not use X's official API, an X developer account, Apify, or an API key.
 The fetcher uses FxTwitter v2's thread endpoint so the root post and every
@@ -90,7 +108,7 @@ block, a one-line red block, or the current two-line red-plus-cyan treatment.
 Both choices are stored in the JSON and reused instead of being rerolled.
 
 ```powershell
-python .\fetch_tweets.py `
+python .\tools\news\fetch_tweets.py `
   "https://x.com/Polymarket/status/2079479742802141202?s=20" `
   --media-dir .\output\polymarket-media `
   --output .\output\polymarket-tweet.json
@@ -102,14 +120,14 @@ the `FXTWITTER_API_BASE` environment variable.
 
 ## Brand downloaded tweet images
 
-`brand_tweet_images.py` creates publishing-ready 1080x1350 copies of downloaded
+`tools/news/brand_tweet_images.py` creates publishing-ready 1080x1350 copies of downloaded
 tweet media. It contains the complete source without cropping or unnecessary
 upscaling, lets a `#212121` frame fill the unused 4:5 canvas area, and places the
 Bits Today transparent logo in the bottom-right corner. Source files are not
 overwritten, and multiple inputs retain the order supplied on the command line.
 
 ```powershell
-python .\brand_tweet_images.py `
+python .\tools\news\brand_tweet_images.py `
   .\output\tweet-media\123-photo-1.jpg `
   .\output\tweet-media\123-photo-2.jpg `
   --output-dir .\output\tweet-media-branded
@@ -120,7 +138,7 @@ Telegram, Facebook, and Instagram stages.
 
 ## Generate a news-style description
 
-`generate_description.py` turns validated source text into a bilingual,
+`tools/news/generate_description.py` turns validated source text into a bilingual,
 high-stakes social description. The first model call writes the English news
 copy. A second model call translates and summarizes that copy into concise
 Bangla while preserving names, numbers, attribution, and uncertainty. The
@@ -144,7 +162,7 @@ but both prompts prohibit unsupported facts and completed truncated clauses.
 The combined output is capped at 2,200 characters for Instagram compatibility.
 
 ```powershell
-python .\generate_description.py `
+python .\tools\news\generate_description.py `
   --tweet-json .\output\polymarket-tweet.json `
   --output .\output\polymarket-description.txt
 ```
@@ -153,7 +171,7 @@ After web research, append the supplied X URL and each research URL actually
 used in the final copy. The X URL is read from the tweet JSON and stays first:
 
 ```powershell
-python .\finalize_description.py `
+python .\tools\news\finalize_description.py `
   --description-file .\output\polymarket-description.txt `
   --tweet-json .\output\polymarket-tweet.json `
   --source-url "https://example.com/research-used-in-the-copy" `
@@ -170,10 +188,11 @@ caption limit instead of silently truncating the description.
 2. Fetch and validate the post through the free open-source FxTwitter backend;
    its random English/Bangla selection is saved in the tweet JSON.
 3. The assistant writes a factual English hook headline from the extracted post.
-4. Run `generate_post.py` with that headline and `--tweet-json`. English renders
+4. Run `tools/news/generate_post.py` with that headline and `--tweet-json`. English renders
    unchanged. Bangla triggers one fixed-model translation call and renders the
    translated headline with a Bengali-capable font.
-5. Generate the English-plus-Bangla description with `generate_description.py`,
+5. Generate the English-plus-Bangla description with
+   `tools/news/generate_description.py`,
    send it and the complete ordered image set to Telegram, then show the same
    package for review. The generated graphic is first and ordered thread/quote
    photos follow.
@@ -191,14 +210,14 @@ discover your private chat until you open it in Telegram and send `/start`.
 After doing that, find the available chat ID with:
 
 ```powershell
-python .\notify_telegram.py --discover-chat
+python .\tools\news\notify_telegram.py --discover-chat
 ```
 
 Validate a package without sending it by omitting `--send`. To send the draft
 before requesting preview feedback:
 
 ```powershell
-python .\notify_telegram.py `
+python .\tools\news\notify_telegram.py `
   --image .\output\draft-post.png `
   --secondary-image .\output\tweet-photo-1.jpg `
   --description-file .\output\draft-description.txt `
@@ -213,11 +232,11 @@ then source images in order, then the full description as separate messages.
 
 ## Validate or publish to Facebook
 
-`publish_facebook.py` first confirms that the configured Page token belongs to
+`tools/news/publish_facebook.py` first confirms that the configured Page token belongs to
 the expected Page. Without `--publish`, it performs validation only:
 
 ```powershell
-python .\publish_facebook.py `
+python .\tools\news\publish_facebook.py `
   --image .\output\approved-post.png `
   --secondary-image .\output\tweet-photo-1.jpg `
   --message-file .\output\approved-description.txt
@@ -227,7 +246,7 @@ After the user has approved the exact latest preview image and description with 
 publishing requires both safety arguments:
 
 ```powershell
-python .\publish_facebook.py `
+python .\tools\news\publish_facebook.py `
   --image .\output\approved-post.png `
   --secondary-image .\output\tweet-photo-1.jpg `
   --message-file .\output\approved-description.txt `
@@ -250,7 +269,7 @@ Instagram carousel. The generated graphic remains the first carousel item.
 Without `--publish`, this validates the account and publishing quota only:
 
 ```powershell
-python .\publish_instagram.py `
+python .\tools\news\publish_instagram.py `
   --image-url "https://public.example/approved-post.png" `
   --secondary-image-url "https://public.example/tweet-photo-1.jpg" `
   --caption-file .\output\approved-description.txt
@@ -259,7 +278,7 @@ python .\publish_instagram.py `
 After explicit approval of the exact latest preview, publishing additionally requires:
 
 ```powershell
-python .\publish_instagram.py `
+python .\tools\news\publish_instagram.py `
   --image-url "https://public.example/approved-post.png" `
   --secondary-image-url "https://public.example/tweet-photo-1.jpg" `
   --caption-file .\output\approved-description.txt `
@@ -269,7 +288,7 @@ python .\publish_instagram.py `
 
 ## Telegram-to-Codex hourly queue (VPS)
 
-`telegram_codex_queue.py` polls the configured private Telegram chat, stores
+`tools/news/telegram_codex_queue.py` polls the configured private Telegram chat, stores
 new text messages in a durable SQLite FIFO queue, and runs one job per hour.
 Messages are deduplicated by both Telegram update ID and chat/message ID. The
 runner passes each prompt to `codex exec` over standard input with the required
@@ -278,7 +297,7 @@ runner passes each prompt to `codex exec` over standard input with the required
 Install or refresh the managed root crontab entry:
 
 ```bash
-./.venv/bin/python telegram_codex_queue.py --install-cron
+./.venv/bin/python tools/news/telegram_codex_queue.py --install-cron
 ```
 
 Installation deliberately skips all Telegram history already waiting at that
@@ -287,8 +306,8 @@ overlapping jobs; failures are not automatically retried because a job may have
 partially published before failing.
 
 ```bash
-./.venv/bin/python telegram_codex_queue.py --status
-./.venv/bin/python telegram_codex_queue.py --retry JOB_ID
+./.venv/bin/python tools/news/telegram_codex_queue.py --status
+./.venv/bin/python tools/news/telegram_codex_queue.py --retry JOB_ID
 ```
 
 Queue state and logs live under ignored `.automation/`. Set the optional
@@ -298,7 +317,7 @@ installation time.
 
 ## Telegram-to-Codex approval watcher (VPS)
 
-`telegram_codex_watcher.py` is a separate, always-running alternative to the
+`tools/news/telegram_codex_watcher.py` is a separate, always-running alternative to the
 hourly queue. It uses Telegram long polling, keeps each Codex session, and
 sends previews as replies to the originating Telegram request. Reply exactly
 `yes` to any message in the latest preview package to resume that same Codex
@@ -314,7 +333,7 @@ is marked failed and never retried automatically.
 Pause only the managed cron entry, then install the systemd service:
 
 ```bash
-./.venv/bin/python telegram_codex_watcher.py --pause-cron
+./.venv/bin/python tools/news/telegram_codex_watcher.py --pause-cron
 sudo install -m 0644 systemd/bitstoday-telegram-watcher.service \
   /etc/systemd/system/bitstoday-telegram-watcher.service
 sudo systemctl daemon-reload
@@ -324,10 +343,10 @@ sudo systemctl enable --now bitstoday-telegram-watcher.service
 Inspect the durable job state and live service logs with:
 
 ```bash
-./.venv/bin/python telegram_codex_watcher.py --status
+./.venv/bin/python tools/news/telegram_codex_watcher.py --status
 sudo systemctl status bitstoday-telegram-watcher.service
 sudo journalctl -u bitstoday-telegram-watcher.service -f
 ```
 
 The original hourly implementation remains available. Stop and disable the
-watcher, then run `telegram_codex_queue.py --install-cron` to restore it.
+watcher, then run `tools/news/telegram_codex_queue.py --install-cron` to restore it.

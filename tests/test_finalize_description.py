@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import finalize_description
+from tools.news import finalize_description
 
 
 class FinalizeDescriptionTests(unittest.TestCase):

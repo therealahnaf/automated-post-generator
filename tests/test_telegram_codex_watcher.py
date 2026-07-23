@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import telegram_codex_watcher as watcher
+from tools.news import telegram_codex_watcher as watcher
 
 
 class TelegramCodexWatcherTests(unittest.TestCase):
@@ -43,6 +43,13 @@ class TelegramCodexWatcherTests(unittest.TestCase):
     def test_initial_prompt_requires_preview_and_not_automatic_publish(self) -> None:
         prompt = watcher.build_initial_prompt(3, "https://x.com/example/status/1")
         self.assertTrue(prompt.startswith("Read AGENTS.md\n\n"))
+        self.assertIn(
+            "TELEGRAM REQUEST START\n"
+            "https://x.com/example/status/1\n"
+            "TELEGRAM REQUEST END",
+            prompt,
+        )
+        self.assertNotIn("classify it once", prompt)
         self.assertIn("Do not publish in\nthis turn", prompt)
         self.assertNotIn(
             "NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST",

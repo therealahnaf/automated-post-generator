@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append an ordered, deduplicated source list to a Bits Today description."""
+"""Append an ordered, deduplicated source list to a Bits Today news description."""
 
 from __future__ import annotations
 

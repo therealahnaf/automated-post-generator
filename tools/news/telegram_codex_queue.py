@@ -20,7 +20,8 @@ import requests
 from dotenv import load_dotenv
 
 
-REPO_DIR = Path(__file__).resolve().parent
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_DIR = SCRIPT_PATH.parents[2]
 PROMPT_PREFIX = "Read AGENTS.md"
 PROMPT_SUFFIX = "NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
@@ -265,7 +266,11 @@ def poll(config: Config, connection: sqlite3.Connection) -> int:
 
 
 def build_prompt(message: str) -> str:
-    return f"{PROMPT_PREFIX}\n\n{message.strip()}\n\n{PROMPT_SUFFIX}"
+    return (
+        f"{PROMPT_PREFIX}\n\n"
+        f"TELEGRAM REQUEST START\n{message.strip()}\nTELEGRAM REQUEST END\n\n"
+        f"{PROMPT_SUFFIX}"
+    )
 
 
 def fail_stale_jobs(connection: sqlite3.Connection, hours: int = 6) -> int:
@@ -451,7 +456,7 @@ def install_cron(config: Config) -> str:
         "-n",
         str(lock_path),
         str(config.python_bin),
-        str(REPO_DIR / "telegram_codex_queue.py"),
+        str(SCRIPT_PATH),
         "--run-once",
     ]
     command = " ".join(shlex.quote(part) for part in command_parts)

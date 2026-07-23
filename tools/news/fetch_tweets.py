@@ -26,17 +26,28 @@ from urllib.request import Request, urlopen
 from PIL import Image
 from dotenv import load_dotenv
 
-from post_language import (
-    AUTO_HIGHLIGHT_STYLE,
-    AUTO_LANGUAGE,
-    HEADLINE_HIGHLIGHT_STYLES,
-    POST_LANGUAGES,
-    choose_headline_highlight,
-    choose_post_language,
-)
+try:
+    from .post_language import (
+        AUTO_HIGHLIGHT_STYLE,
+        AUTO_LANGUAGE,
+        HEADLINE_HIGHLIGHT_STYLES,
+        POST_LANGUAGES,
+        choose_headline_highlight,
+        choose_post_language,
+    )
+except ImportError:
+    from post_language import (
+        AUTO_HIGHLIGHT_STYLE,
+        AUTO_LANGUAGE,
+        HEADLINE_HIGHLIGHT_STYLES,
+        POST_LANGUAGES,
+        choose_headline_highlight,
+        choose_post_language,
+    )
 
 
-load_dotenv(Path(__file__).with_name(".env"))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 DEFAULT_API_BASE = "https://api.fxtwitter.com"

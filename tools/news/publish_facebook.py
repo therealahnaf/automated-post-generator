@@ -18,7 +18,8 @@ import requests
 from dotenv import load_dotenv
 
 
-load_dotenv(Path(__file__).with_name(".env"))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 GRAPH_ROOT = "https://graph.facebook.com"

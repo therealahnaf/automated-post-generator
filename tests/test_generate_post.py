@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageFont
 
-import generate_post
+from tools.news import generate_post
 
 
 class GeneratePostTests(unittest.TestCase):

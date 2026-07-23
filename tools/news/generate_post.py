@@ -19,14 +19,22 @@ from typing import Any, TextIO
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
-from post_language import (
-    HEADLINE_HIGHLIGHT_STYLES,
-    read_headline_highlight,
-    read_post_language,
-)
+try:
+    from .post_language import (
+        HEADLINE_HIGHLIGHT_STYLES,
+        read_headline_highlight,
+        read_post_language,
+    )
+except ImportError:
+    from post_language import (
+        HEADLINE_HIGHLIGHT_STYLES,
+        read_headline_highlight,
+        read_post_language,
+    )
 
 
-load_dotenv(Path(__file__).with_name(".env"))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 CANVAS_SIZE = (1080, 1350)
@@ -35,11 +43,9 @@ DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
 TEXT_GENERATION_MODEL = "gpt-5.6-luna"
 DEFAULT_POST_SOURCE = "Bits Today"
-DEFAULT_BRAND_LOGO = Path(__file__).with_name("bitstodaylogo-trans.png")
-ROBOTO_REGULAR = Path(__file__).with_name("assets") / "fonts" / "Roboto-Variable.ttf"
-ROBOTO_ITALIC = (
-    Path(__file__).with_name("assets") / "fonts" / "Roboto-Italic-Variable.ttf"
-)
+DEFAULT_BRAND_LOGO = PROJECT_ROOT / "bitstodaylogo-trans.png"
+ROBOTO_REGULAR = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Variable.ttf"
+ROBOTO_ITALIC = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Italic-Variable.ttf"
 BRAND_CORAL = (255, 87, 87, 255)
 BRAND_MINT = (194, 255, 225, 255)
 INK = (12, 17, 21, 255)

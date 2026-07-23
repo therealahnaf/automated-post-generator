@@ -13,7 +13,8 @@ from PIL import Image, ImageColor, ImageOps
 
 
 DEFAULT_BORDER_COLOR = "#212121"
-DEFAULT_LOGO = Path(__file__).with_name("bitstodaylogo-trans.png")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_LOGO = PROJECT_ROOT / "bitstodaylogo-trans.png"
 DEFAULT_CANVAS_SIZE = (1080, 1350)
 SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 

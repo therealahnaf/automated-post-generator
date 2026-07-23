@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import generate_description
+from tools.news import generate_description
 
 
 class FakeResponses:

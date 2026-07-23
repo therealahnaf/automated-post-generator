@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import shutil
@@ -21,10 +20,23 @@ from typing import Any, Iterator
 import requests
 from dotenv import load_dotenv
 
-from notify_telegram import split_message
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # POSIX
+    msvcrt = None
+
+try:
+    from .notify_telegram import split_message
+except ImportError:
+    from notify_telegram import split_message
 
 
-REPO_DIR = Path(__file__).resolve().parent
+REPO_DIR = Path(__file__).resolve().parents[2]
 STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
@@ -355,7 +367,10 @@ def parse_message(
 
 def build_initial_prompt(job_id: int, request_text: str) -> str:
     return (
-        f"Read AGENTS.md\n\n{request_text.strip()}\n\n"
+        "Read AGENTS.md\n\n"
+        "TELEGRAM REQUEST START\n"
+        f"{request_text.strip()}\n"
+        "TELEGRAM REQUEST END\n\n"
         f"Telegram watcher job: {job_id}\n\n{WATCHER_PROMPT_SUFFIX}"
     )
 
@@ -970,11 +985,34 @@ def watcher_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open("a+", encoding="utf-8") as lock_file:
         path.chmod(0o600)
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError(
+                    "Another Telegram watcher process is already running"
+                ) from exc
+            yield
+            return
+
+        if msvcrt is None:
+            raise RuntimeError("No supported process-locking implementation is available")
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write("\0")
+            lock_file.flush()
+        lock_file.seek(0)
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError("Another Telegram watcher process is already running") from exc
-        yield
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise RuntimeError(
+                "Another Telegram watcher process is already running"
+            ) from exc
+        try:
+            yield
+        finally:
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def watch(config: Config, connection: sqlite3.Connection) -> None:
