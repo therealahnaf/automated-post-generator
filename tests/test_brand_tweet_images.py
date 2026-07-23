@@ -1,5 +1,8 @@
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -8,6 +11,94 @@ from tools.news import brand_tweet_images
 
 
 class BrandTweetImagesTests(unittest.TestCase):
+    def test_excludes_primary_feature_and_preserves_other_source_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = root / "first.jpg"
+            second = root / "second.png"
+            third = root / "third.webp"
+            for path, color in (
+                (first, "red"),
+                (second, "green"),
+                (third, "blue"),
+            ):
+                Image.new("RGB", (800, 600), color).save(path)
+
+            metadata_path = root / "post.json"
+            metadata_path.write_text(
+                json.dumps({"feature_image_source": str(first.resolve())}),
+                encoding="utf-8",
+            )
+
+            primary = brand_tweet_images.read_primary_feature_image(metadata_path)
+            selected = brand_tweet_images.select_secondary_images(
+                [first, second, third],
+                primary,
+            )
+
+        self.assertEqual(selected, [second, third])
+
+    def test_cli_skips_embedded_photo_and_brands_only_remaining_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = root / "first.jpg"
+            second = root / "second.jpg"
+            output_dir = root / "branded"
+            logo_path = root / "logo.png"
+            Image.new("RGB", (800, 600), "red").save(first)
+            Image.new("RGB", (800, 600), "blue").save(second)
+            Image.new("RGBA", (80, 80), "#FF5757").save(logo_path)
+            metadata_path = root / "post.json"
+            metadata_path.write_text(
+                json.dumps({"feature_image_source": str(first.resolve())}),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = brand_tweet_images.main(
+                    [
+                        str(first),
+                        str(second),
+                        "--post-metadata",
+                        str(metadata_path),
+                        "--output-dir",
+                        str(output_dir),
+                        "--logo",
+                        str(logo_path),
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+
+            self.assertEqual(result, 0)
+            self.assertEqual(payload["excluded_primary_image"], str(first.resolve()))
+            self.assertFalse((output_dir / "first-branded.jpg").exists())
+            self.assertTrue((output_dir / "second-branded.jpg").is_file())
+            self.assertEqual(
+                [Path(item["input"]) for item in payload["images"]],
+                [second.resolve()],
+            )
+
+    def test_null_primary_feature_keeps_all_images_secondary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            metadata_path = root / "post.json"
+            metadata_path.write_text(
+                json.dumps({"feature_image_source": None}),
+                encoding="utf-8",
+            )
+            first = root / "first.jpg"
+            second = root / "second.jpg"
+
+            primary = brand_tweet_images.read_primary_feature_image(metadata_path)
+            selected = brand_tweet_images.select_secondary_images(
+                [first, second],
+                primary,
+            )
+
+        self.assertIsNone(primary)
+        self.assertEqual(selected, [first, second])
+
     def test_centers_entire_source_in_fixed_frame_without_upscaling(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

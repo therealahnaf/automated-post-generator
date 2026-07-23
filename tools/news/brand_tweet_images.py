@@ -51,6 +51,35 @@ def output_suffix(input_path: Path) -> str:
     return suffix
 
 
+def read_primary_feature_image(post_metadata_path: Path) -> Path | None:
+    """Read the exact tweet photo embedded in the generated primary post."""
+    if not post_metadata_path.is_file():
+        raise FileNotFoundError(f"Post metadata not found: {post_metadata_path}")
+    payload = json.loads(post_metadata_path.read_text(encoding="utf-8"))
+    raw_path = payload.get("feature_image_source")
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError(
+            "Post metadata feature_image_source must be a non-empty path or null."
+        )
+    feature_image = Path(raw_path)
+    if not feature_image.is_absolute():
+        feature_image = post_metadata_path.parent / feature_image
+    return feature_image.resolve()
+
+
+def select_secondary_images(
+    input_paths: list[Path],
+    primary_feature_image: Path | None,
+) -> list[Path]:
+    """Preserve source order while excluding any photo used in the primary."""
+    if primary_feature_image is None:
+        return list(input_paths)
+    primary_key = primary_feature_image.resolve()
+    return [path for path in input_paths if path.resolve() != primary_key]
+
+
 def save_image(image: Image.Image, destination: Path) -> None:
     suffix = destination.suffix.lower()
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -170,6 +199,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Directory for branded copies; source files are never overwritten.",
     )
+    parser.add_argument(
+        "--post-metadata",
+        type=Path,
+        help=(
+            "Generated primary-post JSON sidecar. If its feature_image_source "
+            "names one of the inputs, that image is excluded from the secondary set."
+        ),
+    )
     parser.add_argument("--logo", type=Path, default=DEFAULT_LOGO)
     parser.add_argument("--border-color", default=DEFAULT_BORDER_COLOR)
     parser.add_argument(
@@ -185,8 +222,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        primary_feature_image = (
+            read_primary_feature_image(args.post_metadata)
+            if args.post_metadata
+            else None
+        )
+        secondary_images = select_secondary_images(
+            args.images,
+            primary_feature_image,
+        )
         results = []
-        for input_path in args.images:
+        for input_path in secondary_images:
             suffix = output_suffix(input_path)
             destination = args.output_dir / f"{input_path.stem}-branded{suffix}"
             results.append(
@@ -199,7 +245,19 @@ def main(argv: list[str] | None = None) -> int:
                     canvas_size=(args.canvas_width, args.canvas_height),
                 )
             )
-        print(json.dumps({"images": results}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "excluded_primary_image": (
+                        str(primary_feature_image)
+                        if primary_feature_image is not None
+                        else None
+                    ),
+                    "images": results,
+                },
+                indent=2,
+            )
+        )
         return 0
     except (FileNotFoundError, OSError, ValueError) as exc:
         print(f"Error: {exc}")

@@ -69,7 +69,9 @@ When `--tweet-json` contains downloaded photos, the first photo is automatically
 added uncropped to the main post in a rounded frame when it is at least 640x480.
 Photos are never enlarged; smaller photos remain secondary media only. Use
 `--feature-image` to choose a specific photo, or `--no-feature-image` to disable
-the inset.
+the inset. The generated JSON sidecar records the exact `feature_image_source`
+used so downstream carousel preparation can remove that image from the
+secondary set.
 
 For headline or layout revisions, reuse the saved text-free background instead
 of paying for another image generation:
@@ -130,11 +132,15 @@ overwritten, and multiple inputs retain the order supplied on the command line.
 python .\tools\news\brand_tweet_images.py `
   .\output\tweet-media\123-photo-1.jpg `
   .\output\tweet-media\123-photo-2.jpg `
+  --post-metadata .\output\post.json `
   --output-dir .\output\tweet-media-branded
 ```
 
 Use the resulting `*-branded` files as the ordered secondary images in the
-Telegram, Facebook, and Instagram stages.
+Telegram, Facebook, and Instagram stages. When `--post-metadata` identifies a
+tweet photo embedded in the generated primary, that photo is skipped and only
+the other source images are produced. If the primary contains no tweet photo,
+all supplied images remain secondary.
 
 ## Generate a news-style description
 

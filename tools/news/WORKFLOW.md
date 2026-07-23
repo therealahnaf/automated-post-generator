@@ -34,13 +34,18 @@ downloaded media; do not fetch or classify the story again.
    first downloaded photo uncropped in a rounded-corner frame over the lower
    portion of the same background only when it is at least 640x480 pixels.
    Never upscale it. A smaller photo remains secondary only. Keep an inset
-   photo in the secondary set as well.
+   photo out of the secondary set so the carousel never repeats an image
+   already visible in the generated primary.
 6. Run every downloaded photo through
-   `tools/news/brand_tweet_images.py`. Contain the full source without cropping
-   inside a 1080x1350 `#212121` frame that fills unused 4:5 space. Add the
-   transparent Bits Today logo at bottom-right without a background plate.
-   Place these branded images after the generated primary in original source
-   order, within the 10-image total.
+   `tools/news/brand_tweet_images.py --post-metadata <primary-post.json>`.
+   The primary post's JSON sidecar records `feature_image_source`; the branding
+   command must exclude that exact photo and retain all other photos in
+   original source order. If no photo was embedded because the first photo was
+   smaller than 640x480, exclude nothing. Contain every remaining source
+   without cropping inside a 1080x1350 `#212121` frame that fills unused 4:5
+   space. Add the transparent Bits Today logo at bottom-right without a
+   background plate. Place these branded images after the generated primary,
+   within the 10-image total.
 7. Generate the bilingual description with
    `tools/news/generate_description.py`. The first fixed `gpt-5.6-luna` call
    creates consequential but source-grounded English copy; the second
