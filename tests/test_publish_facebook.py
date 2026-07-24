@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+from PIL import Image
+
 from tools.news import publish_facebook
 
 
@@ -20,6 +22,21 @@ class PublishFacebookTests(unittest.TestCase):
             publish_facebook.require_publish_confirmation(True, "YES")
         publish_facebook.require_publish_confirmation(True, "yes")
         publish_facebook.require_publish_confirmation(False, None)
+
+    def test_validation_rejects_a_truncated_png(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "truncated.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            with self.assertRaisesRegex(ValueError, "complete decodable"):
+                publish_facebook.validate_image_paths(image_path, [])
+
+    def test_validation_accepts_a_complete_png(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "complete.png"
+            Image.new("RGB", (8, 8), "white").save(image_path)
+            self.assertEqual(
+                publish_facebook.validate_image_paths(image_path, []), [image_path]
+            )
 
     def test_verify_page_rejects_token_for_another_page(self) -> None:
         response = Mock()

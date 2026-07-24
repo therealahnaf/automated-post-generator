@@ -318,6 +318,15 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         )
         self.assertEqual(watcher.parse_session_id(output), "session-42")
 
+    def test_latest_progress_failure_only_uses_the_latest_event(self) -> None:
+        job_id = self.insert_job()
+        watcher.add_progress_event(self.connection, job_id, "failed", "Facebook failed")
+        self.assertEqual(
+            watcher.latest_progress_failure(self.connection, job_id), "Facebook failed"
+        )
+        watcher.add_progress_event(self.connection, job_id, "completed")
+        self.assertIsNone(watcher.latest_progress_failure(self.connection, job_id))
+
     def test_codex_command_prefix_explicitly_pins_model_and_effort(self) -> None:
         self.assertEqual(
             watcher.codex_command_prefix(self.config),

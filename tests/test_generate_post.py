@@ -12,6 +12,14 @@ from tools.news import generate_post
 
 
 class GeneratePostTests(unittest.TestCase):
+    def test_save_png_atomic_writes_a_complete_image(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "post.png"
+            generate_post.save_png_atomic(Image.new("RGB", (8, 8), "white"), output_path)
+            with Image.open(output_path) as rendered:
+                rendered.load()
+                self.assertEqual(rendered.size, (8, 8))
+
     def test_english_brand_font_is_roboto(self) -> None:
         font = generate_post.load_roboto_font(size=48, bold=True)
         self.assertEqual(font.getname()[0], "Roboto")

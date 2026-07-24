@@ -16,6 +16,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from PIL import Image
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -134,6 +135,15 @@ def validate_image_paths(primary: Path, secondary: list[Path]) -> list[Path]:
         if not image.is_file():
             raise FileNotFoundError(f"Image not found: {image}")
         image_mime_type(image)
+        try:
+            with Image.open(image) as decoded:
+                decoded.verify()
+            with Image.open(image) as decoded:
+                decoded.load()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise ValueError(
+                f"Facebook image is not a complete decodable image: {image}"
+            ) from exc
     return images
 
 

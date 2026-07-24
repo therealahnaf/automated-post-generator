@@ -81,6 +81,17 @@ def normalize_news_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def save_png_atomic(image: Image.Image, output_path: Path) -> None:
+    """Save a rendered post without exposing a partially written PNG."""
+    temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
+    try:
+        image.save(temporary_path, format="PNG", optimize=True)
+        temporary_path.replace(output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
 def require_api_key() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         raise RuntimeError(
@@ -1101,7 +1112,7 @@ def main(argv: list[str] | None = None) -> int:
             feature_image_path=feature_image_path,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        post.save(args.output, format="PNG", optimize=True)
+        save_png_atomic(post, args.output)
 
         if args.keep_background:
             background_path = args.output.with_name(f"{args.output.stem}-background.png")

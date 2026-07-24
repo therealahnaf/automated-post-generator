@@ -785,6 +785,22 @@ def mark_failed(
     connection.commit()
 
 
+def latest_progress_failure(
+    connection: sqlite3.Connection, job_id: int
+) -> str | None:
+    row = connection.execute(
+        """
+        SELECT stage, detail FROM job_progress_events
+        WHERE job_id = ? ORDER BY id DESC LIMIT 1
+        """,
+        (job_id,),
+    ).fetchone()
+    if row is None or row["stage"] != "failed":
+        return None
+    detail = str(row["detail"] or "").strip()
+    return detail or "Codex reported that the workflow failed"
+
+
 def add_progress_event(
     connection: sqlite3.Connection,
     job_id: int,
@@ -1269,6 +1285,12 @@ def process_resume(
         error = "Codex accepted the revision but did not deliver a new Telegram preview"
         mark_failed(connection, int(job["id"]), error)
         notify_failure(session, config, int(job["id"]), message.message_id, error)
+        return
+
+    reported_failure = latest_progress_failure(connection, int(job["id"]))
+    if reported_failure:
+        error = f"Codex reported a publishing failure: {reported_failure}"
+        mark_failed(connection, int(job["id"]), error)
         return
 
     final_output = ""
