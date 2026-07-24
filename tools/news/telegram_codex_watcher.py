@@ -43,6 +43,8 @@ CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
 WORKFLOW_TYPES = ("news", "model", "reel", "auto")
+CODEX_MODEL = "gpt-5.6-terra"
+CODEX_MODEL_REASONING_EFFORT = "medium"
 WORKFLOW_LABELS = {
     "news": "News",
     "model": "Model Release",
@@ -577,6 +579,20 @@ def parse_session_id(path: Path) -> str | None:
     return None
 
 
+def codex_command_prefix(config: Config) -> list[str]:
+    """Build the common Codex command with the watcher model explicitly pinned."""
+    return [
+        str(config.codex_bin),
+        "--search",
+        "--ask-for-approval",
+        "never",
+        "--model",
+        CODEX_MODEL,
+        "--config",
+        f'model_reasoning_effort="{CODEX_MODEL_REASONING_EFFORT}"',
+    ]
+
+
 def invoke_codex(
     config: Config,
     job: sqlite3.Row,
@@ -598,10 +614,7 @@ def invoke_codex(
 
     if resume:
         command = [
-            str(config.codex_bin),
-            "--search",
-            "--ask-for-approval",
-            "never",
+            *codex_command_prefix(config),
             "--sandbox",
             "danger-full-access",
             "exec",
@@ -614,10 +627,7 @@ def invoke_codex(
         ]
     else:
         command = [
-            str(config.codex_bin),
-            "--search",
-            "--ask-for-approval",
-            "never",
+            *codex_command_prefix(config),
             "exec",
             "--sandbox",
             "danger-full-access",

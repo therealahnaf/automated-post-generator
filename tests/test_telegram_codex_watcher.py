@@ -265,6 +265,21 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         )
         self.assertEqual(watcher.parse_session_id(output), "session-42")
 
+    def test_codex_command_prefix_explicitly_pins_model_and_effort(self) -> None:
+        self.assertEqual(
+            watcher.codex_command_prefix(self.config),
+            [
+                str(self.config.codex_bin),
+                "--search",
+                "--ask-for-approval",
+                "never",
+                "--model",
+                "gpt-5.6-terra",
+                "--config",
+                'model_reasoning_effort="medium"',
+            ],
+        )
+
     def test_managed_cron_removal_preserves_other_entries(self) -> None:
         crontab = "\n".join(
             [
