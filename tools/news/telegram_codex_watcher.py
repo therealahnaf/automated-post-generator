@@ -42,12 +42,13 @@ STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
-WORKFLOW_TYPES = ("news", "model", "reel", "auto")
+WORKFLOW_TYPES = ("news", "model", "product", "reel", "auto")
 CODEX_MODEL = "gpt-5.6-terra"
 CODEX_MODEL_REASONING_EFFORT = "medium"
 WORKFLOW_LABELS = {
     "news": "News",
     "model": "Model Release",
+    "product": "Product Release",
     "reel": "Reel",
     "auto": "Auto Detect",
 }
@@ -449,9 +450,10 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
                 {"text": "Model Release", "callback_data": f"workflow:{job_id}:model"},
             ],
             [
+                {"text": "Product Release", "callback_data": f"workflow:{job_id}:product"},
                 {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
-                {"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"},
             ],
+            [{"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"}],
             [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
         ]
     }
@@ -537,7 +539,7 @@ def build_initial_prompt(
     if workflow_type not in WORKFLOW_TYPES:
         raise ValueError(f"Unsupported workflow type: {workflow_type}")
     route_instruction = (
-        "Run the normal one-time news/model classification from AGENTS.md."
+        "Run the normal one-time news/model/product classification from AGENTS.md."
         if workflow_type == "auto"
         else (
             f"The user manually selected workflow_type `{workflow_type}`. This "
@@ -1271,7 +1273,10 @@ def handle_update(
         return
     callback = parse_callback(update, config)
     if callback is not None:
-        match = re.fullmatch(r"workflow:(\d+):(news|model|reel|auto|cancel)", callback.data)
+        match = re.fullmatch(
+            r"workflow:(\d+):(news|model|product|reel|auto|cancel)",
+            callback.data,
+        )
         if match is None:
             record_event(connection, callback, "ignored_callback", None)
             answer_callback(session, config, callback.callback_id, "This button is not recognized.")
@@ -1337,7 +1342,7 @@ def handle_update(
         return
     if message.text.startswith("/"):
         command_match = re.match(
-            r"^/(news|model|reel|auto)(?:@\w+)?\s+(.+)$",
+            r"^/(news|model|product|reel|auto)(?:@\w+)?\s+(.+)$",
             message.text,
             re.IGNORECASE | re.DOTALL,
         )
@@ -1346,7 +1351,8 @@ def handle_update(
             send_text(
                 session,
                 config,
-                "Send an X status URL, or use /news, /model, /reel, or /auto followed by the URL.",
+                "Send an X status URL, or use /news, /model, /product, /reel, "
+                "or /auto followed by the URL.",
                 reply_to_message_id=message.message_id,
             )
             return
@@ -1471,7 +1477,7 @@ def handle_update(
             (
                 f"Bits Today · Job {job_id}\n\n"
                 "Choose the workflow for this X post. Auto Detect uses the existing "
-                "news/model classifier."
+                "news/model/product classifier."
             ),
             reply_to_message_id=message.message_id,
             reply_markup=workflow_keyboard(job_id),

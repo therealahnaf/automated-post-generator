@@ -7,7 +7,8 @@ complete or an explicit approval is required.
 ## Route the request
 
 1. If the Telegram watcher supplied a trusted manual `workflow_type` of
-   `news`, `model`, or `reel`, preserve it exactly and do not classify. If it
+   `news`, `model`, `product`, or `reel`, preserve it exactly and do not
+   classify. If it
    supplied `auto`, perform the one-time classification below. Interactive
    requests without a trusted selection also use that classifier.
 2. Report milestones to the watcher's single edited dashboard with
@@ -29,20 +30,27 @@ complete or an explicit approval is required.
    - Select `model` only when the source directly announces, releases,
      introduces, open-sources, or makes available a specifically named AI/ML
      model, model family, model version, or model checkpoint.
+   - Select `product` when the source directly announces, releases, introduces,
+     launches, or makes available a specifically named technology product,
+     application, service, device, developer tool, platform, or major product
+     version. A product powered by an existing model is still `product`.
+     Specifically named AI/ML model releases remain `model`, which takes
+     precedence.
    - Select `news` for everything else, including company news, funding,
      infrastructure, policy, lawsuits, acquisitions, research commentary,
-     benchmarks without a release, and products that merely use an existing
-     model.
+     benchmarks without a release, product updates without a named launch, and
+     commentary about existing products or models.
    - If genuinely ambiguous, select `news`. Never invent a model name or ask
      for classification during an unattended Telegram job.
    - Select `reel` only through a trusted manual selection; Auto Detect never
      changes a video tweet into a reel without that selection.
-5. Persist the decision as `workflow_type` (`model`, `news`, or `reel`) in the fetched
-   tweet JSON. Never reclassify the story during revisions, approval, or
-   publishing.
+5. Persist the decision as `workflow_type` (`model`, `product`, `news`, or
+   `reel`) in the fetched tweet JSON. Never reclassify the story during
+   revisions, approval, or publishing.
 6. Dispatch exactly one workflow:
    - For `news`, read and follow `tools/news/WORKFLOW.md`.
    - For `model`, read and follow `tools/models/WORKFLOW.md`.
+   - For `product`, read and follow `tools/products/WORKFLOW.md`.
    - For `reel`, read and follow `tools/reels/WORKFLOW.md`.
 
 The selected workflow owns its copy, research, image generation, layout, and

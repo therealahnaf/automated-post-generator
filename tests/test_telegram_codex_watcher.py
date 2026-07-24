@@ -92,6 +92,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             [
                 "workflow:42:news",
                 "workflow:42:model",
+                "workflow:42:product",
                 "workflow:42:reel",
                 "workflow:42:auto",
                 "workflow:42:cancel",

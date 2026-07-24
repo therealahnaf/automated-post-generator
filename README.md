@@ -23,8 +23,9 @@ fonts, credentials, policies, and tests remain at the repository root.
 `AGENTS.md` is the lightweight X-link router and shared approval/publishing
 contract. It dispatches validated stories to either
 [`tools/news/WORKFLOW.md`](tools/news/WORKFLOW.md) or
-[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md), and trusted manual reel
-requests to [`tools/reels/WORKFLOW.md`](tools/reels/WORKFLOW.md).
+[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md),
+[`tools/products/WORKFLOW.md`](tools/products/WORKFLOW.md), and trusted manual
+reel requests to [`tools/reels/WORKFLOW.md`](tools/reels/WORKFLOW.md).
 
 The model-announcement workflow lives in `tools/models/`. It creates a centered
 primary card with a large `Meet`, the model name, and `by <company name>`,
@@ -41,6 +42,11 @@ outro. `tools/reels/generate_reel.py` renders it; the dedicated Facebook and
 Instagram reel publishers retain the same exact-approval safeguards. Instagram
 fetches the approved local MP4 from a stable, content-hashed HTTPS endpoint
 rather than consuming Facebook's separately transcoded CDN copy.
+
+The product-release workflow lives in `tools/products/`. Its primary card uses
+`You Should Know About`, the product name, a one- or two-line functional gist,
+and `by <company name>`. Secondary cards follow the model workflow's ordered
+photo and no-media summary behavior.
 
 Three Pillow presets are available through `--style`:
 
@@ -336,10 +342,11 @@ installation time.
 `tools/news/telegram_codex_watcher.py` is a separate, always-running alternative to the
 hourly queue. It uses Telegram long polling, keeps each Codex session, and
 sends previews as replies to the originating Telegram request. Sending an X
-status URL first presents `News`, `Model Release`, `Reel`, `Auto Detect`, and
-`Cancel` inline buttons. `/news URL`, `/model URL`, `/reel URL`, and `/auto URL`
-are direct-selection shortcuts. Manual selections are authoritative; Auto
-Detect runs the news/model classifier.
+status URL first presents `News`, `Model Release`, `Product Release`, `Reel`,
+`Auto Detect`, and `Cancel` inline buttons. `/news URL`, `/model URL`,
+`/product URL`, `/reel URL`, and `/auto URL` are direct-selection shortcuts.
+Manual selections are authoritative; Auto Detect runs the news/model/product
+classifier.
 
 The selector message becomes one edited progress dashboard for source fetching,
 media discovery, headline, research, bilingual description, generated items,
