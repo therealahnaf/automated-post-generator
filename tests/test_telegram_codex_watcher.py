@@ -394,6 +394,31 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         watcher.add_progress_event(self.connection, job_id, "completed")
         self.assertIsNone(watcher.latest_progress_failure(self.connection, job_id))
 
+    def test_mark_failed_preserves_final_output_and_deactivates_preview(self) -> None:
+        job_id = self.insert_job()
+        self.connection.execute(
+            """
+            INSERT INTO preview_messages(message_id, job_id, turn_number, active, created_at)
+            VALUES (999, ?, 1, 1, ?)
+            """,
+            (job_id, watcher.utc_now()),
+        )
+        self.connection.commit()
+        watcher.mark_failed(
+            self.connection,
+            job_id,
+            "Instagram timed out",
+            final_output="Facebook succeeded; Instagram failed.",
+        )
+        job = self.connection.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        preview = self.connection.execute(
+            "SELECT * FROM preview_messages WHERE message_id = 999"
+        ).fetchone()
+        self.assertEqual(job["final_output"], "Facebook succeeded; Instagram failed.")
+        self.assertEqual(preview["active"], 0)
+
     def test_codex_command_prefix_explicitly_pins_model_and_effort(self) -> None:
         self.assertEqual(
             watcher.codex_command_prefix(self.config),

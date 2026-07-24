@@ -788,15 +788,22 @@ def add_active_preview_message(
 
 
 def mark_failed(
-    connection: sqlite3.Connection, job_id: int, error: str
+    connection: sqlite3.Connection,
+    job_id: int,
+    error: str,
+    *,
+    final_output: str | None = None,
 ) -> None:
     connection.execute(
         """
-        UPDATE jobs
-        SET status = 'failed', updated_at = ?, finished_at = ?, last_error = ?
+        UPDATE jobs SET status = 'failed', updated_at = ?, finished_at = ?,
+            last_error = ?, final_output = COALESCE(?, final_output)
         WHERE id = ?
         """,
-        (utc_now(), utc_now(), error, job_id),
+        (utc_now(), utc_now(), error, final_output, job_id),
+    )
+    connection.execute(
+        "UPDATE preview_messages SET active = 0 WHERE job_id = ?", (job_id,)
     )
     connection.commit()
 
@@ -815,6 +822,15 @@ def latest_progress_failure(
         return None
     detail = str(row["detail"] or "").strip()
     return detail or "Codex reported that the workflow failed"
+
+
+def read_final_output(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
 
 
 def add_progress_event(
@@ -1318,17 +1334,28 @@ def process_claimed_resume(
     reported_failure = latest_progress_failure(connection, job_id)
     if reported_failure:
         error = f"Codex reported a publishing failure: {reported_failure}"
-        mark_failed(connection, job_id, error)
+        final_output = read_final_output(result.final_output_path)
+        mark_failed(
+            connection,
+            job_id,
+            error,
+            final_output=final_output or None,
+        )
+        try:
+            send_text(
+                session,
+                config,
+                final_output or error,
+                reply_to_message_id=message.message_id,
+            )
+        except RuntimeError as exc:
+            print(
+                f"Could not send partial-result notice for job {job_id}: {exc}",
+                file=sys.stderr,
+            )
         return
 
-    final_output = ""
-    if result.final_output_path.is_file():
-        try:
-            final_output = result.final_output_path.read_text(
-                encoding="utf-8", errors="replace"
-            ).strip()
-        except OSError as exc:
-            print(f"Could not read final output for job {job_id}: {exc}", file=sys.stderr)
+    final_output = read_final_output(result.final_output_path)
     connection.execute(
         """
         UPDATE jobs

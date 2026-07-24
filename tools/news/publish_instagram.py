@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,9 @@ DEFAULT_GRAPH_VERSION = "v25.0"
 GRAPH_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
 MAX_CAPTION_CHARACTERS = 2200
 MAX_CAROUSEL_ITEMS = 10
+CONTAINER_CREATE_TIMEOUT_SECONDS = 180
+PUBLISH_TIMEOUT_SECONDS = 180
+DEFAULT_RECEIPT_DIR = PROJECT_ROOT / ".automation/instagram-publish"
 
 
 @dataclass(frozen=True)
@@ -73,7 +77,16 @@ def parse_graph_response(response: requests.Response) -> dict[str, Any]:
         error = payload.get("error") or {}
         code = error.get("code", response.status_code)
         message = error.get("message", "Unknown Instagram API error")
-        raise RuntimeError(f"Instagram API error {code}: {message}")
+        details = [f"Instagram API error {code}: {message}"]
+        if error.get("error_subcode") is not None:
+            details.append(f"subcode {error['error_subcode']}")
+        if error.get("is_transient") is not None:
+            details.append(f"transient={str(error['is_transient']).lower()}")
+        if error.get("error_user_title"):
+            details.append(str(error["error_user_title"]))
+        if error.get("error_user_msg"):
+            details.append(str(error["error_user_msg"]))
+        raise RuntimeError("; ".join(details))
     return payload
 
 
@@ -154,7 +167,7 @@ def create_image_container(
         graph_url(config, config.user_id, "media"),
         data={"image_url": image_url, "caption": caption},
         headers=bearer_headers(config),
-        timeout=(10, 60),
+        timeout=(10, CONTAINER_CREATE_TIMEOUT_SECONDS),
     )
     payload = parse_graph_response(response)
     container_id = str(payload.get("id", ""))
@@ -172,7 +185,7 @@ def create_carousel_item_container(
         graph_url(config, config.user_id, "media"),
         data={"image_url": image_url, "is_carousel_item": "true"},
         headers=bearer_headers(config),
-        timeout=(10, 60),
+        timeout=(10, CONTAINER_CREATE_TIMEOUT_SECONDS),
     )
     payload = parse_graph_response(response)
     container_id = str(payload.get("id", ""))
@@ -199,7 +212,7 @@ def create_carousel_container(
             "caption": caption,
         },
         headers=bearer_headers(config),
-        timeout=(10, 60),
+        timeout=(10, CONTAINER_CREATE_TIMEOUT_SECONDS),
     )
     payload = parse_graph_response(response)
     container_id = str(payload.get("id", ""))
@@ -247,7 +260,7 @@ def publish_container(
         graph_url(config, config.user_id, "media_publish"),
         data={"creation_id": container_id},
         headers=bearer_headers(config),
-        timeout=(10, 60),
+        timeout=(10, PUBLISH_TIMEOUT_SECONDS),
     )
     payload = parse_graph_response(response)
     media_id = str(payload.get("id", ""))
@@ -283,6 +296,91 @@ def read_caption(args: argparse.Namespace) -> str:
     return validate_caption(args.caption or "")
 
 
+def publish_fingerprint(image_urls: list[str], caption: str) -> str:
+    payload = json.dumps(
+        {"image_urls": image_urls, "caption": caption},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def default_receipt_path(fingerprint: str) -> Path:
+    job_id = os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip()
+    stem = f"job-{job_id}" if job_id.isdigit() else fingerprint
+    return DEFAULT_RECEIPT_DIR / f"{stem}.json"
+
+
+def load_receipt(path: Path, fingerprint: str) -> dict[str, Any]:
+    if not path.is_file():
+        return {
+            "version": 1,
+            "fingerprint": fingerprint,
+            "carousel_item_ids": [],
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("fingerprint") != fingerprint:
+        raise RuntimeError(
+            f"Instagram recovery receipt belongs to different content: {path}"
+        )
+    if not isinstance(payload.get("carousel_item_ids"), list):
+        raise RuntimeError(f"Instagram recovery receipt is malformed: {path}")
+    return payload
+
+
+def save_receipt(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def ensure_carousel_parent(
+    session: requests.Session,
+    config: InstagramConfig,
+    image_urls: list[str],
+    child_ids: list[str],
+    caption: str,
+    receipt: dict[str, Any],
+    receipt_path: Path,
+) -> str:
+    container_id = str(receipt.get("container_id") or "")
+    if container_id:
+        try:
+            wait_for_container(session, config, container_id)
+            return container_id
+        except RuntimeError as exc:
+            if "status ERROR" not in str(exc) and "status EXPIRED" not in str(exc):
+                raise
+            child_ids = []
+            receipt["carousel_item_ids"] = child_ids
+            receipt.pop("container_id", None)
+            receipt.pop("media_id", None)
+            save_receipt(receipt_path, receipt)
+            for image_url in image_urls:
+                child_id = create_carousel_item_container(
+                    session, config, image_url
+                )
+                child_ids.append(child_id)
+                receipt["carousel_item_ids"] = child_ids
+                save_receipt(receipt_path, receipt)
+            wait_for_container(session, config, child_ids[-1])
+    container_id = create_carousel_container(session, config, child_ids, caption)
+    receipt["container_id"] = container_id
+    save_receipt(receipt_path, receipt)
+    wait_for_container(session, config, container_id)
+    return container_id
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -316,6 +414,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm",
         help="Must be the exact word 'yes' when --publish is supplied.",
     )
+    parser.add_argument(
+        "--receipt-file",
+        type=Path,
+        help=(
+            "Persist Instagram container IDs for timeout-safe resume. Defaults "
+            "to a job-specific receipt for watcher jobs."
+        ),
+    )
     return parser
 
 
@@ -327,6 +433,9 @@ def main(argv: list[str] | None = None) -> int:
             args.image_url, args.secondary_image_url
         )
         caption = read_caption(args)
+        fingerprint = publish_fingerprint(image_urls, caption)
+        receipt_path = args.receipt_file or default_receipt_path(fingerprint)
+        receipt = load_receipt(receipt_path, fingerprint)
         config = load_config()
         with requests.Session() as session:
             account = verify_account(session, config)
@@ -346,24 +455,51 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if len(image_urls) == 1:
-                container_id = create_image_container(
-                    session, config, image_urls[0], caption
-                )
+                container_id = str(receipt.get("container_id") or "")
+                if not container_id:
+                    container_id = create_image_container(
+                        session, config, image_urls[0], caption
+                    )
+                    receipt["container_id"] = container_id
+                    save_receipt(receipt_path, receipt)
                 carousel_item_ids: list[str] = []
             else:
-                carousel_item_ids = []
-                for image_url in image_urls:
-                    child_id = create_carousel_item_container(
-                        session, config, image_url
+                carousel_item_ids = [
+                    str(value) for value in receipt.get("carousel_item_ids", [])
+                ]
+                if len(carousel_item_ids) > len(image_urls):
+                    raise RuntimeError(
+                        f"Instagram recovery receipt has too many child IDs: {receipt_path}"
                     )
-                    wait_for_container(session, config, child_id)
-                    carousel_item_ids.append(child_id)
-                container_id = create_carousel_container(
-                    session, config, carousel_item_ids, caption
+                if not receipt.get("container_id"):
+                    for image_url in image_urls[len(carousel_item_ids) :]:
+                        child_id = create_carousel_item_container(
+                            session, config, image_url
+                        )
+                        carousel_item_ids.append(child_id)
+                        receipt["carousel_item_ids"] = carousel_item_ids
+                        save_receipt(receipt_path, receipt)
+                    wait_for_container(session, config, carousel_item_ids[-1])
+                container_id = ensure_carousel_parent(
+                    session,
+                    config,
+                    image_urls,
+                    carousel_item_ids,
+                    caption,
+                    receipt,
+                    receipt_path,
                 )
-            wait_for_container(session, config, container_id)
-            media_id = publish_container(session, config, container_id)
+            if len(image_urls) == 1:
+                wait_for_container(session, config, container_id)
+            media_id = str(receipt.get("media_id") or "")
+            if not media_id:
+                media_id = publish_container(session, config, container_id)
+                receipt["media_id"] = media_id
+                save_receipt(receipt_path, receipt)
             media = get_media_details(session, config, media_id)
+            receipt["permalink"] = media.get("permalink")
+            receipt["status"] = "published"
+            save_receipt(receipt_path, receipt)
             print(
                 json.dumps(
                     {
@@ -373,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
                         "instagram_carousel_item_ids": carousel_item_ids,
                         "instagram_media_id": media_id,
                         "instagram_permalink": media.get("permalink"),
+                        "instagram_receipt_file": str(receipt_path.resolve()),
                     },
                     indent=2,
                 )
@@ -380,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        if "receipt_path" in locals():
+            print(f"Recovery receipt: {receipt_path.resolve()}", file=sys.stderr)
         return 1
 
 

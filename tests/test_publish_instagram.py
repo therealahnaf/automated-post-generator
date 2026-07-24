@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tools.news import publish_instagram
@@ -17,6 +20,23 @@ class PublishInstagramTests(unittest.TestCase):
             publish_instagram.require_publish_confirmation(True, "YES")
         publish_instagram.require_publish_confirmation(True, "yes")
         publish_instagram.require_publish_confirmation(False, None)
+
+    def test_graph_error_preserves_recovery_details(self) -> None:
+        response = Mock()
+        response.ok = False
+        response.status_code = 400
+        response.json.return_value = {
+            "error": {
+                "code": 4,
+                "error_subcode": 2207051,
+                "is_transient": True,
+                "message": "Application request limit reached",
+            }
+        }
+        with self.assertRaisesRegex(
+            RuntimeError, "subcode 2207051; transient=true"
+        ):
+            publish_instagram.parse_graph_response(response)
 
     def test_requires_public_https_image_url(self) -> None:
         with self.assertRaisesRegex(ValueError, "publicly reachable HTTPS"):
@@ -53,6 +73,10 @@ class PublishInstagramTests(unittest.TestCase):
             "Bearer secret-instagram-token",
         )
         self.assertNotIn("access_token", call.kwargs["data"])
+        self.assertEqual(
+            call.kwargs["timeout"],
+            (10, publish_instagram.CONTAINER_CREATE_TIMEOUT_SECONDS),
+        )
 
     def test_carousel_item_uses_public_url_without_caption(self) -> None:
         response = Mock()
@@ -73,6 +97,77 @@ class PublishInstagramTests(unittest.TestCase):
         self.assertEqual(data["image_url"], "https://example.com/source.jpg")
         self.assertEqual(data["is_carousel_item"], "true")
         self.assertNotIn("caption", data)
+
+    def test_recovery_receipt_round_trip_and_content_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "receipt.json"
+            payload = {
+                "version": 1,
+                "fingerprint": "expected",
+                "carousel_item_ids": ["child-1"],
+            }
+            publish_instagram.save_receipt(receipt_path, payload)
+            self.assertEqual(
+                publish_instagram.load_receipt(receipt_path, "expected"), payload
+            )
+            with self.assertRaisesRegex(RuntimeError, "different content"):
+                publish_instagram.load_receipt(receipt_path, "different")
+            self.assertEqual(json.loads(receipt_path.read_text()), payload)
+
+    def test_publish_fingerprint_is_stable_and_order_sensitive(self) -> None:
+        first = publish_instagram.publish_fingerprint(
+            ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+            "caption",
+        )
+        same = publish_instagram.publish_fingerprint(
+            ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+            "caption",
+        )
+        reversed_order = publish_instagram.publish_fingerprint(
+            ["https://example.com/2.jpg", "https://example.com/1.jpg"],
+            "caption",
+        )
+        self.assertEqual(first, same)
+        self.assertNotEqual(first, reversed_order)
+
+    @patch("tools.news.publish_instagram.wait_for_container")
+    @patch("tools.news.publish_instagram.create_carousel_item_container")
+    @patch("tools.news.publish_instagram.create_carousel_container")
+    def test_terminal_parent_is_recreated_from_saved_children(
+        self, mock_create_parent, mock_create_child, mock_wait
+    ) -> None:
+        mock_wait.side_effect = [
+            RuntimeError("Instagram container failed with status ERROR: ERROR"),
+            {"status_code": "FINISHED"},
+            {"status_code": "FINISHED"},
+        ]
+        mock_create_child.side_effect = ["replacement-child-1", "replacement-child-2"]
+        mock_create_parent.return_value = "replacement-parent"
+        receipt = {
+            "fingerprint": "expected",
+            "carousel_item_ids": ["child-1", "child-2"],
+            "container_id": "failed-parent",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "receipt.json"
+            result = publish_instagram.ensure_carousel_parent(
+                Mock(),
+                self.config,
+                ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+                ["child-1", "child-2"],
+                "Approved caption",
+                receipt,
+                receipt_path,
+            )
+            stored = json.loads(receipt_path.read_text())
+
+        self.assertEqual(result, "replacement-parent")
+        self.assertEqual(stored["container_id"], "replacement-parent")
+        self.assertEqual(
+            stored["carousel_item_ids"],
+            ["replacement-child-1", "replacement-child-2"],
+        )
+        mock_create_parent.assert_called_once()
 
     def test_carousel_parent_preserves_child_order_and_caption(self) -> None:
         response = Mock()

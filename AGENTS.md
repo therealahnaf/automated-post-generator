@@ -86,7 +86,11 @@ All workflows must finish through this same delivery path:
 6. Pass the returned Facebook-hosted image URLs in the same order to
    `tools/news/publish_instagram.py`: the first through `--image-url` and the
    remainder through repeated `--secondary-image-url`. Preserve single-image
-   behavior when no secondary images exist.
+   behavior when no secondary images exist. The publisher automatically writes
+   a recovery receipt containing every returned container ID; after a timeout,
+   rerun the identical command so it resumes from that receipt. Never report
+   `instagram_done` or `completed` unless the command returns a published media
+   ID and permalink.
    For reels, publish Facebook first with
    `tools/reels/publish_facebook_reel.py --video`, then stage the same approved
    local MP4 at the configured stable HTTPS media host and publish it with
