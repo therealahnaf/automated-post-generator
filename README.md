@@ -37,7 +37,9 @@ The reel workflow converts an X video into a maximum 59.5-second 1080x1920
 H.264/AAC post. It contains the source video over a blurred moving fill, applies
 the news headline treatment, and ends with the live-video coral/mint type-out
 outro. `tools/reels/generate_reel.py` renders it; the dedicated Facebook and
-Instagram reel publishers retain the same exact-approval safeguards.
+Instagram reel publishers retain the same exact-approval safeguards. Instagram
+fetches the approved local MP4 from a stable, content-hashed HTTPS endpoint
+rather than consuming Facebook's separately transcoded CDN copy.
 
 Three Pillow presets are available through `--style`:
 

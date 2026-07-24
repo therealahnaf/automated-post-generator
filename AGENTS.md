@@ -76,10 +76,11 @@ All workflows must finish through this same delivery path:
    remainder through repeated `--secondary-image-url`. Preserve single-image
    behavior when no secondary images exist.
    For reels, publish Facebook first with
-   `tools/reels/publish_facebook_reel.py --video`, then pass its returned
-   `facebook_video_url` to
-   `tools/reels/publish_instagram_reel.py --video-url`. Both commands require
-   `--publish --confirm yes`.
+   `tools/reels/publish_facebook_reel.py --video`, then stage the same approved
+   local MP4 at the configured stable HTTPS media host and publish it with
+   `tools/reels/publish_instagram_reel.py --video`. Do not pass Facebook's
+   transcoded CDN source to Instagram. Both commands require `--publish
+   --confirm yes`.
 7. Return both platform post IDs or URLs. If one platform succeeds and the
    other fails, report the partial result accurately and do not create a
    duplicate post.

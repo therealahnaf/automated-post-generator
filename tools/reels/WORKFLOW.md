@@ -42,11 +42,12 @@ tweet JSON and never reclassify it during revisions or publishing.
 6. Follow the shared Telegram preview and exact `yes` approval contract in
    `AGENTS.md`. Preview with `tools/news/notify_telegram.py --video`.
 7. After approval, publish Facebook first with
-   `tools/reels/publish_facebook_reel.py`. Pass the returned public
-   `facebook_video_url` to `tools/reels/publish_instagram_reel.py`. If Meta does
-   not expose a public source URL, stop after the successful Facebook publish
-   and report that Instagram still needs a publicly reachable HTTPS MP4. Never
-   duplicate the Facebook Reel if Instagram fails; report the partial result.
+   `tools/reels/publish_facebook_reel.py`. Then pass the same approved local MP4
+   to `tools/reels/publish_instagram_reel.py --video`, which must stage it at
+   the configured stable HTTPS media host before Instagram fetches it. Do not
+   feed Instagram Facebook's transcoded CDN source. Never duplicate the
+   Facebook Reel if Instagram fails; preserve the Instagram container ID in
+   the error and report the partial result.
 
 Never store tokens in source, output metadata, shell scripts, or command
 arguments.
