@@ -2,7 +2,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -152,6 +152,32 @@ class PublishFacebookTests(unittest.TestCase):
         self.assertEqual(
             call.kwargs["data"]["attached_media[2]"],
             '{"media_fbid":"tweet-photo-2"}',
+        )
+
+    def test_host_only_images_returns_unpublished_urls_in_order(self) -> None:
+        images = [Path("first.png"), Path("second.png")]
+        with patch.object(
+            publish_facebook,
+            "upload_unpublished_photo",
+            side_effect=["photo-1", "photo-2"],
+        ), patch.object(
+            publish_facebook,
+            "get_photo_details",
+            side_effect=[
+                {"largest_image_url": "https://cdn/first.png"},
+                {"largest_image_url": "https://cdn/second.png"},
+            ],
+        ):
+            photo_ids, _, urls = publish_facebook.host_unpublished_images(
+                Mock(),
+                self.config,
+                images,
+            )
+
+        self.assertEqual(photo_ids, ["photo-1", "photo-2"])
+        self.assertEqual(
+            urls,
+            ["https://cdn/first.png", "https://cdn/second.png"],
         )
 
 

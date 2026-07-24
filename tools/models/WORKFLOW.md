@@ -4,7 +4,8 @@ Use this workflow for posts announcing or introducing an AI model.
 
 1. Reuse the fetched tweet JSON created by the `AGENTS.md` workflow router and
    require its persisted `workflow_type` to be `model`. Do not fetch or
-   reclassify the story again. Preserve its authoritative `post_language`.
+   reclassify the story again. Preserve its authoritative Facebook and
+   Instagram language selections.
    Photos are downloaded by the router; videos and video frames are ignored.
 2. Generate the bilingual long-form caption through
    `tools/models/generate_description.py`. Research the announcement on the
@@ -38,10 +39,15 @@ Use this workflow for posts announcing or introducing an AI model.
    of the two or three description segments. Every summary card must reuse the
    exact generated primary background with its segment centered. Do not
    generate additional backgrounds.
-6. Render and inspect the complete package, then follow the shared Telegram
-   preview, revision, exact `yes` approval, Facebook, and Instagram contract in
-   `AGENTS.md`. Send and publish the generated primary first, followed by every
-   secondary card in order.
+6. If either platform selects Bangla, run
+   `tools/news/translate_carousel_copy.py` once and reuse that translated copy
+   JSON for every Bangla platform. Render each distinct platform package with
+   `tools/models/generate_post.py --platform <platform>`; the renderer
+   translates `Meet` and `by`, while the translated copy supplies every
+   text-bearing secondary card. Preserve model and company names, and reuse the
+   same background and source images across variants. Then follow the shared
+   Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
+   contract in `AGENTS.md`.
 
 Never store tokens in source, output metadata, or command arguments. Read them
 from the repository-root `.env` or an authenticated session.

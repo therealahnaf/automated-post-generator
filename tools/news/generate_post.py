@@ -23,12 +23,14 @@ try:
     from .post_language import (
         HEADLINE_HIGHLIGHT_STYLES,
         read_headline_highlight,
+        read_platform_language,
         read_post_language,
     )
 except ImportError:
     from post_language import (
         HEADLINE_HIGHLIGHT_STYLES,
         read_headline_highlight,
+        read_platform_language,
         read_post_language,
     )
 
@@ -62,6 +64,7 @@ class PostMetadata:
     title: str
     english_title: str
     post_language: str
+    platform: str | None
     headline_highlight: str
     image_prompt: str
     background_source: str
@@ -980,6 +983,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Read the persisted post_language selected by fetch_tweets.py.",
     )
+    parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram"),
+        help="Render using that platform's persisted language selection.",
+    )
     parser.add_argument("--output", type=Path, default=Path("output/post.png"))
     parser.add_argument(
         "--background-input",
@@ -1053,9 +1061,13 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("The headline cannot be empty.")
         image_prompt = build_image_prompt(source_text, title)
         english_title = title
-        post_language = (
-            read_post_language(args.tweet_json) if args.tweet_json else "english"
-        )
+        post_language = "english"
+        if args.tweet_json:
+            post_language = (
+                read_platform_language(args.tweet_json, args.platform)
+                if args.platform
+                else read_post_language(args.tweet_json)
+            )
         headline_highlight = (
             read_headline_highlight(args.tweet_json) if args.tweet_json else "dual"
         )
@@ -1123,6 +1135,7 @@ def main(argv: list[str] | None = None) -> int:
             title=title,
             english_title=english_title,
             post_language=post_language,
+            platform=args.platform,
             headline_highlight=headline_highlight,
             image_prompt=image_prompt,
             background_source=background_source,

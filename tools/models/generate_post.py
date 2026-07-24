@@ -28,6 +28,7 @@ from tools.models.generate_copy import (
 )
 from tools.news import generate_description as news_description
 from tools.news import generate_post as news_post
+from tools.news.post_language import read_platform_language
 
 
 CANVAS_SIZE = news_post.CANVAS_SIZE
@@ -73,6 +74,8 @@ class ModelPostMetadata:
     source_images: list[str]
     background_source: str
     primary_style: str
+    platform: str | None
+    post_language: str
     created_at: str
 
 
@@ -162,12 +165,29 @@ def wrap_centered(
     minimum_size: int,
 ) -> tuple[Any, list[str], int]:
     for size in range(start_size, minimum_size - 1, -2):
-        font = news_post.load_roboto_font(size=size, bold=True)
+        font = load_text_font(text, size=size, bold=True)
         lines = news_post.wrap_headline(draw, text, font, max_width)
         line_height = size + 18
         if len(lines) <= max_lines:
             return font, lines, line_height
     raise ValueError("Text is too long for the model card.")
+
+
+def load_text_font(
+    text: str,
+    *,
+    size: int,
+    bold: bool = True,
+    italic: bool = False,
+) -> ImageFont.FreeTypeFont:
+    if news_post.contains_bangla_text(text):
+        path, index = news_post.find_bangla_font(bold=bold)
+        return news_post.load_font(path, size=size, index=index)
+    return news_post.load_roboto_font(
+        size=size,
+        bold=bold,
+        italic=italic,
+    )
 
 
 def load_signal_font(variant: str, size: int) -> ImageFont.FreeTypeFont:
@@ -197,10 +217,11 @@ def fit_company_credit(
     company_name: str,
     *,
     max_width: int = 900,
+    prefix: str = "by",
 ) -> tuple[ImageFont.FreeTypeFont, str]:
-    credit = f"by {normalize_company_name(company_name)}"
+    credit = f"{prefix} {normalize_company_name(company_name)}"
     for size in range(44, 25, -2):
-        font = news_post.load_roboto_font(size=size, bold=True)
+        font = load_text_font(credit, size=size, bold=True)
         if news_post.text_width(draw, credit, font) <= max_width:
             return font, credit
     raise ValueError("Company name is too long for the model-launch credit.")
@@ -213,11 +234,13 @@ def draw_company_credit(
     y: int,
     centered: bool = True,
     x: int = 0,
+    prefix: str = "by",
 ) -> None:
     font, credit = fit_company_credit(
         draw,
         company_name,
         max_width=900 if centered else CANVAS_SIZE[0] - x - 70,
+        prefix=prefix,
     )
     if centered:
         x = (CANVAS_SIZE[0] - news_post.text_width(draw, credit, font)) // 2
@@ -276,9 +299,9 @@ def draw_launch_label(
     model_name: str,
     *,
     center_y: int,
+    label: str = "Meet",
 ) -> None:
-    label_font = news_post.load_roboto_font(size=38, bold=True)
-    label = "Meet"
+    label_font = load_text_font(label, size=38, bold=True)
     label_width = news_post.text_width(draw, label, label_font)
     model_font, lines, line_height = wrap_centered(
         draw,
@@ -329,6 +352,7 @@ def draw_glass_frame(
     model_name: str,
     *,
     center_y: int,
+    label: str = "Meet",
 ) -> None:
     frame = (76, center_y - 225, CANVAS_SIZE[0] - 76, center_y + 225)
     draw.rounded_rectangle(
@@ -343,8 +367,7 @@ def draw_glass_frame(
         fill=news_post.BRAND_CORAL,
         width=8,
     )
-    label_font = news_post.load_roboto_font(size=42, bold=True)
-    label = "Meet"
+    label_font = load_text_font(label, size=42, bold=True)
     label_width = news_post.text_width(draw, label, label_font)
     draw.text(
         ((CANVAS_SIZE[0] - label_width) // 2, frame[1] + 54),
@@ -380,22 +403,24 @@ def draw_signal_stack(
     *,
     center_y: int,
     font_variant: str = "industrial",
+    label: str = "Meet",
+    company_prefix: str = "by",
 ) -> None:
     model_font, lines, line_height = wrap_signal_name(
         draw,
         model_name,
         variant=font_variant,
     )
-    label_font = news_post.load_roboto_font(size=82, bold=True, italic=True)
+    label_font = load_text_font(label, size=82, bold=True, italic=True)
     label_height = 108
     company_height = 70
     total_height = label_height + len(lines) * line_height + company_height
     top = center_y - total_height // 2
     if font_variant == "condensed":
-        label_width = news_post.text_width(draw, "Meet", label_font)
+        label_width = news_post.text_width(draw, label, label_font)
         draw.text(
             ((CANVAS_SIZE[0] - label_width) // 2, top),
-            "Meet",
+            label,
             font=label_font,
             fill=news_post.BRAND_CORAL,
             stroke_width=1,
@@ -414,7 +439,12 @@ def draw_signal_stack(
                 stroke_fill=(0, 0, 0, 145),
             )
             top += line_height
-        draw_company_credit(draw, company_name, y=top + 32)
+        draw_company_credit(
+            draw,
+            company_name,
+            y=top + 32,
+            prefix=company_prefix,
+        )
         return
 
     x = 154
@@ -431,7 +461,7 @@ def draw_signal_stack(
     )
     draw.text(
         (x, top),
-        "Meet",
+        label,
         font=label_font,
         fill=news_post.BRAND_CORAL,
         stroke_width=1,
@@ -455,6 +485,7 @@ def draw_signal_stack(
         y=top + 32,
         centered=False,
         x=x,
+        prefix=company_prefix,
     )
 
 
@@ -532,14 +563,22 @@ def compose_primary(
     company_name: str,
     post_date: date,
     style: str = "signal-stack-condensed",
+    language: str = "english",
 ) -> Image.Image:
     canvas = news_post.add_scrim(open_background(background_bytes))
     if style not in PRIMARY_STYLE_CHOICES:
         raise ValueError(f"Unknown primary style: {style}")
     draw = ImageDraw.Draw(canvas)
+    label = "পরিচিত হোন" if language == "bangla" else "Meet"
+    company_prefix = "তৈরি করেছে" if language == "bangla" else "by"
     if style == "brand-block":
-        draw_centered_blocks(draw, build_headline(model_name), center_y=650)
-        draw_company_credit(draw, company_name, y=845)
+        draw_centered_blocks(draw, f"{label} {model_name}", center_y=650)
+        draw_company_credit(
+            draw,
+            company_name,
+            y=845,
+            prefix=company_prefix,
+        )
     else:
         if style.startswith("signal-stack"):
             variant = {
@@ -554,13 +593,20 @@ def compose_primary(
                 company_name,
                 center_y=650,
                 font_variant=variant,
+                label=label,
+                company_prefix=company_prefix,
             )
         else:
             {
                 "launch-label": draw_launch_label,
                 "glass-frame": draw_glass_frame,
-            }[style](draw, model_name, center_y=650)
-            draw_company_credit(draw, company_name, y=850)
+            }[style](draw, model_name, center_y=650, label=label)
+            draw_company_credit(
+                draw,
+                company_name,
+                y=850,
+                prefix=company_prefix,
+            )
     add_brand_chrome(canvas, post_date)
     return canvas.convert("RGB")
 
@@ -649,6 +695,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Render a Bits Today model-announcement carousel."
     )
     parser.add_argument("--tweet-json", type=Path, required=True)
+    parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram"),
+        help="Render using that platform's persisted language.",
+    )
     parser.add_argument("--copy-json", type=Path)
     parser.add_argument("--model-name")
     parser.add_argument("--company-name")
@@ -692,6 +743,11 @@ def main(argv: list[str] | None = None) -> int:
     configure_utf8(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
+        language = (
+            read_platform_language(args.tweet_json, args.platform)
+            if args.platform
+            else "english"
+        )
         if args.copy_json:
             if args.model_name or args.company_name or args.short_description:
                 raise ValueError(
@@ -758,6 +814,7 @@ def main(argv: list[str] | None = None) -> int:
             company_name,
             args.date,
             style=args.primary_style,
+            language=language,
         ).save(
             primary_path,
             format="PNG",
@@ -802,6 +859,8 @@ def main(argv: list[str] | None = None) -> int:
             source_images=[str(path.resolve()) for path in source_images],
             background_source=background_source,
             primary_style=args.primary_style,
+            platform=args.platform,
+            post_language=language,
             created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         metadata_path = args.output_dir / "post.json"

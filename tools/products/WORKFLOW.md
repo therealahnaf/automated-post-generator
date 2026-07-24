@@ -6,8 +6,9 @@ Use this workflow only after the `AGENTS.md` router has persisted
 
 1. Confirm the fetched JSON contains the requested tweet ID and non-empty text.
    Preserve the complete same-author thread, nested quoted-post text, ordered
-   photos, persisted language, and highlight choices. The Telegram-selected
-   `post_language` is authoritative and must not be rerolled.
+   photos, persisted platform languages, and highlight choices. Both
+   Telegram-selected platform languages are authoritative and must not be
+   rerolled.
 2. Generate the bilingual long-form caption through
    `tools/products/generate_description.py`. Research the announcement on the
    internet, enhance the caption only with useful sourced details, keep both
@@ -51,9 +52,14 @@ Use this workflow only after the `AGENTS.md` router has persisted
 7. With no photos, create one secondary summary card for each of the two or
    three description segments. Reuse the exact primary background; do not
    generate additional backgrounds.
-8. Render and inspect the complete package, then follow the shared Telegram
-   preview, revision, exact `yes` approval, Facebook, and Instagram contract in
-   `AGENTS.md`. Send and publish the generated primary first, followed by every
-   secondary card in order.
+8. If either platform selects Bangla, run
+   `tools/news/translate_carousel_copy.py` once and reuse that translated copy
+   JSON for every Bangla platform. Render each distinct package with
+   `tools/products/generate_post.py --platform <platform>`; the renderer
+   translates `You Should Know About` and `by`, while the translated copy
+   supplies the functional intro and every text-bearing secondary card.
+   Preserve product and company names and reuse the same background and source
+   images across variants. Then follow the shared Telegram preview, revision,
+   exact `yes` approval, Facebook, and Instagram contract in `AGENTS.md`.
 
 Never store tokens in source, output metadata, or command arguments.

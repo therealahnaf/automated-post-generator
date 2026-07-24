@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 POST_LANGUAGES = ("english", "bangla")
+SOCIAL_PLATFORMS = ("facebook", "instagram")
 AUTO_LANGUAGE = "auto"
 HEADLINE_HIGHLIGHT_STYLES = ("cyan", "red", "dual")
 AUTO_HIGHLIGHT_STYLE = "auto"
@@ -38,6 +39,34 @@ def read_post_language(path: Path, *, default: str = "english") -> str:
     if not isinstance(value, str) or value.lower() not in POST_LANGUAGES:
         raise ValueError(f"Invalid post_language in {path}: {value!r}")
     return value.lower()
+
+
+def read_platform_languages(
+    path: Path,
+    *,
+    default: str = "english",
+) -> dict[str, str]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    legacy = document.get("post_language", default)
+    platform_values = document.get("platform_languages")
+    if not isinstance(platform_values, dict):
+        platform_values = {}
+    result: dict[str, str] = {}
+    for platform in SOCIAL_PLATFORMS:
+        value = platform_values.get(platform, legacy)
+        if not isinstance(value, str) or value.lower() not in POST_LANGUAGES:
+            raise ValueError(
+                f"Invalid {platform} language in {path}: {value!r}"
+            )
+        result[platform] = value.lower()
+    return result
+
+
+def read_platform_language(path: Path, platform: str) -> str:
+    platform = platform.strip().lower()
+    if platform not in SOCIAL_PLATFORMS:
+        raise ValueError(f"Unsupported social platform: {platform}")
+    return read_platform_languages(path)[platform]
 
 
 def choose_headline_highlight(

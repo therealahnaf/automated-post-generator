@@ -15,9 +15,13 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:
-    from .post_language import POST_LANGUAGES, read_post_language
+    from .post_language import (
+        POST_LANGUAGES,
+        read_platform_language,
+        read_post_language,
+    )
 except ImportError:
-    from post_language import POST_LANGUAGES, read_post_language
+    from post_language import POST_LANGUAGES, read_platform_language, read_post_language
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -474,6 +478,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Read the first tweet text from fetch_tweets.py JSON output.",
     )
+    parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram"),
+        help="Order the bilingual output using that platform's selected language.",
+    )
     parser.add_argument("--output", type=Path, help="Write the description to a file.")
     parser.add_argument(
         "--max-output-tokens",
@@ -512,6 +521,9 @@ def read_source(args: argparse.Namespace) -> str:
 
 def resolve_primary_language(args: argparse.Namespace) -> str:
     if args.tweet_json:
+        platform = getattr(args, "platform", None)
+        if platform:
+            return read_platform_language(args.tweet_json, platform)
         return read_post_language(args.tweet_json)
     return "english"
 

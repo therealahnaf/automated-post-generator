@@ -25,6 +25,39 @@ class PostLanguageTests(unittest.TestCase):
             path.write_text(json.dumps({"post_language": "bangla"}), encoding="utf-8")
             self.assertEqual(post_language.read_post_language(path), "bangla")
 
+    def test_reads_independent_platform_languages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "post_language": "english",
+                        "platform_languages": {
+                            "facebook": "bangla",
+                            "instagram": "english",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                post_language.read_platform_languages(path),
+                {"facebook": "bangla", "instagram": "english"},
+            )
+            self.assertEqual(
+                post_language.read_platform_language(path, "facebook"),
+                "bangla",
+            )
+
+    def test_platform_languages_fall_back_to_legacy_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(json.dumps({"post_language": "bangla"}), encoding="utf-8")
+            self.assertEqual(
+                post_language.read_platform_languages(path),
+                {"facebook": "bangla", "instagram": "bangla"},
+            )
+
     def test_auto_highlight_choice_uses_supported_styles(self) -> None:
         selected = post_language.choose_headline_highlight(
             "auto", chooser=lambda choices: choices[0]

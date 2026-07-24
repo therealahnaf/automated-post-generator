@@ -230,6 +230,30 @@ def get_post_details(
     return parse_graph_response(response)
 
 
+def host_unpublished_images(
+    session: requests.Session,
+    config: FacebookConfig,
+    images: list[Path],
+) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+    photo_ids = [
+        upload_unpublished_photo(session, config, image)
+        for image in images
+    ]
+    photo_details = [
+        get_photo_details(session, config, photo_id)
+        for photo_id in photo_ids
+    ]
+    image_urls = [
+        str(details.get("largest_image_url") or "")
+        for details in photo_details
+    ]
+    if len(image_urls) != len(images) or not all(image_urls):
+        raise RuntimeError(
+            "Facebook hosted the media but did not return every image URL."
+        )
+    return photo_ids, photo_details, image_urls
+
+
 def require_publish_confirmation(publish: bool, confirmation: str | None) -> None:
     if publish and confirmation != "yes":
         raise RuntimeError(
@@ -274,7 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
             "desired carousel order (maximum 10 images total)."
         ),
     )
-    message_group = parser.add_mutually_exclusive_group(required=True)
+    message_group = parser.add_mutually_exclusive_group()
     message_group.add_argument("--message", help="Facebook post description.")
     message_group.add_argument(
         "--message-file",
@@ -290,6 +314,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm",
         help="Must be the exact word 'yes' when --publish is supplied.",
     )
+    parser.add_argument(
+        "--host-only",
+        action="store_true",
+        help=(
+            "Upload images as unpublished Page photos and return hosted URLs "
+            "without creating a Facebook feed post."
+        ),
+    )
     return parser
 
 
@@ -298,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         require_publish_confirmation(args.publish, args.confirm)
         images = validate_image_paths(args.image, args.secondary_image)
-        message = read_message(args)
+        message = "" if args.host_only else read_message(args)
         config = load_config()
         with requests.Session() as session:
             page = verify_page(session, config)
@@ -314,6 +346,27 @@ def main(argv: list[str] | None = None) -> int:
             }
             if not args.publish:
                 print(json.dumps({"status": "validated_not_published", **common}, indent=2))
+                return 0
+
+            if args.host_only:
+                photo_ids, photo_details, image_urls = host_unpublished_images(
+                    session,
+                    config,
+                    images,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "status": "hosted_not_published",
+                            **common,
+                            "facebook_photo_id": photo_ids[0],
+                            "facebook_photo_ids": photo_ids,
+                            "facebook_image_url": image_urls[0],
+                            "facebook_image_urls": image_urls,
+                        },
+                        indent=2,
+                    )
+                )
                 return 0
 
             if len(images) == 1:

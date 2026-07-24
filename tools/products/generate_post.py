@@ -22,6 +22,7 @@ from tools.models import generate_copy as model_copy
 from tools.models import generate_post as model_post
 from tools.news import generate_description as news_description
 from tools.news import generate_post as news_post
+from tools.news.post_language import read_platform_language
 from tools.products.generate_copy import (
     MAX_INTRO_HEADLINE_CHARACTERS,
     build_headline,
@@ -46,6 +47,8 @@ class ProductPostMetadata:
     source_images: list[str]
     background_source: str
     primary_style: str
+    platform: str | None
+    post_language: str
     created_at: str
 
 
@@ -89,10 +92,15 @@ Constraints: no text, no letters, no numbers, no logos, no trademarks, no waterm
 """.strip()
 
 
-def fit_kicker(draw: ImageDraw.ImageDraw):
-    text = "You Should Know About"
+def fit_kicker(draw: ImageDraw.ImageDraw, language: str = "english"):
+    text = "আপনার জানা উচিত" if language == "bangla" else "You Should Know About"
     for size in range(66, 43, -2):
-        font = news_post.load_roboto_font(size=size, bold=True, italic=True)
+        font = model_post.load_text_font(
+            text,
+            size=size,
+            bold=True,
+            italic=True,
+        )
         if news_post.text_width(draw, text, font) <= 920:
             return font, text
     raise ValueError("Product kicker could not fit the primary card.")
@@ -104,7 +112,11 @@ def wrap_intro(
 ) -> tuple[Any, list[str], int]:
     intro_headline = normalize_intro_headline(intro_headline)
     for size in range(50, 31, -2):
-        font = news_post.load_roboto_font(size=size, bold=True)
+        font = model_post.load_text_font(
+            intro_headline,
+            size=size,
+            bold=True,
+        )
         lines = news_post.wrap_headline(draw, intro_headline, font, 880)
         if len(lines) <= 2:
             return font, lines, size + 16
@@ -117,19 +129,24 @@ def compose_primary(
     company_name: str,
     intro_headline: str,
     post_date: date,
+    language: str = "english",
 ) -> Image.Image:
     product_name = normalize_product_name(product_name)
     company_name = normalize_company_name(company_name)
     canvas = news_post.add_scrim(model_post.open_background(background_bytes))
     draw = ImageDraw.Draw(canvas)
-    kicker_font, kicker = fit_kicker(draw)
+    kicker_font, kicker = fit_kicker(draw, language)
     product_font, product_lines, product_line_height = model_post.wrap_signal_name(
         draw,
         product_name,
         variant="condensed",
     )
     intro_font, intro_lines, intro_line_height = wrap_intro(draw, intro_headline)
-    company_font, company_credit = model_post.fit_company_credit(draw, company_name)
+    company_font, company_credit = model_post.fit_company_credit(
+        draw,
+        company_name,
+        prefix="তৈরি করেছে" if language == "bangla" else "by",
+    )
 
     kicker_height = kicker_font.size + 18
     total_height = (
@@ -203,6 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Render a Bits Today product-release carousel."
     )
     parser.add_argument("--tweet-json", type=Path, required=True)
+    parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram"),
+        help="Render using that platform's persisted language.",
+    )
     parser.add_argument("--copy-json", type=Path)
     parser.add_argument("--product-name")
     parser.add_argument("--company-name")
@@ -238,6 +260,11 @@ def main(argv: list[str] | None = None) -> int:
     configure_utf8(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
+        language = (
+            read_platform_language(args.tweet_json, args.platform)
+            if args.platform
+            else "english"
+        )
         if args.copy_json:
             if (
                 args.product_name
@@ -316,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
             company_name,
             intro_headline,
             args.date,
+            language=language,
         ).save(primary_path, format="PNG", optimize=True)
 
         secondary_paths: list[Path] = []
@@ -355,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
             source_images=[str(path.resolve()) for path in source_images],
             background_source=background_source,
             primary_style="product-knowledge-stack",
+            platform=args.platform,
+            post_language=language,
             created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         metadata_path = args.output_dir / "post.json"

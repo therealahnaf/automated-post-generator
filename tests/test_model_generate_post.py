@@ -32,6 +32,16 @@ class ModelGeneratePostTests(unittest.TestCase):
         self.assertIn(generate_post.news_post.BRAND_CORAL[:3], values)
         self.assertIn(generate_post.news_post.BRAND_MINT[:3], values)
 
+    def test_primary_renders_bangla_platform_labels(self) -> None:
+        result = generate_post.compose_primary(
+            self.background_bytes,
+            "Gemini 3.6 Flash",
+            "Google DeepMind",
+            date(2026, 7, 23),
+            language="bangla",
+        )
+        self.assertEqual(result.size, (1080, 1350))
+
     def test_primary_style_options_render_in_center_region(self) -> None:
         for style in (
             "launch-label",

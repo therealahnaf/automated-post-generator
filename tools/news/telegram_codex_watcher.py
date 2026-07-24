@@ -205,6 +205,8 @@ def connect_database(path: Path) -> sqlite3.Connection:
             final_output TEXT,
             workflow_type TEXT,
             post_language TEXT,
+            facebook_language TEXT,
+            instagram_language TEXT,
             selector_message_id INTEGER,
             progress_message_id INTEGER,
             UNIQUE(chat_id, source_message_id)
@@ -251,6 +253,8 @@ def connect_database(path: Path) -> sqlite3.Connection:
     for name, definition in (
         ("workflow_type", "TEXT"),
         ("post_language", "TEXT"),
+        ("facebook_language", "TEXT"),
+        ("instagram_language", "TEXT"),
         ("selector_message_id", "INTEGER"),
         ("progress_message_id", "INTEGER"),
     ):
@@ -268,6 +272,14 @@ def connect_database(path: Path) -> sqlite3.Connection:
                     """
                     UPDATE jobs SET post_language = 'english'
                     WHERE post_language IS NULL
+                    """
+                )
+            if name in {"facebook_language", "instagram_language"}:
+                connection.execute(
+                    f"""
+                    UPDATE jobs
+                    SET {name} = COALESCE(post_language, 'english')
+                    WHERE {name} IS NULL AND post_language IS NOT NULL
                     """
                 )
     connection.commit()
@@ -478,14 +490,47 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
     }
 
 
-def language_keyboard(job_id: int) -> dict[str, Any]:
+def platform_language_keyboard(job_id: int, platform: str) -> dict[str, Any]:
+    if platform not in {"facebook", "instagram"}:
+        raise ValueError(f"Unsupported platform: {platform}")
     return {
         "inline_keyboard": [
             [
-                {"text": "English", "callback_data": f"language:{job_id}:english"},
-                {"text": "বাংলা", "callback_data": f"language:{job_id}:bangla"},
+                {
+                    "text": "English",
+                    "callback_data": f"{platform}_language:{job_id}:english",
+                },
+                {
+                    "text": "বাংলা",
+                    "callback_data": f"{platform}_language:{job_id}:bangla",
+                },
             ],
-            [{"text": "Cancel", "callback_data": f"language:{job_id}:cancel"}],
+            [
+                {
+                    "text": "Cancel",
+                    "callback_data": f"{platform}_language:{job_id}:cancel",
+                }
+            ],
+        ]
+    }
+
+
+def language_keyboard(job_id: int) -> dict[str, Any]:
+    """Compatibility alias for the first, Facebook language selector."""
+    return platform_language_keyboard(job_id, "facebook")
+
+
+def preview_cancel_keyboard(job_id: int, turn_number: int) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Cancel",
+                    "callback_data": (
+                        f"preview_cancel:{job_id}:{turn_number}"
+                    ),
+                }
+            ]
         ]
     }
 
@@ -568,12 +613,16 @@ def build_initial_prompt(
     job_id: int,
     request_text: str,
     workflow_type: str = "auto",
-    post_language: str = "english",
+    facebook_language: str = "english",
+    instagram_language: str | None = None,
 ) -> str:
+    instagram_language = instagram_language or facebook_language
     if workflow_type not in WORKFLOW_TYPES:
         raise ValueError(f"Unsupported workflow type: {workflow_type}")
-    if post_language not in POST_LANGUAGES:
-        raise ValueError(f"Unsupported post language: {post_language}")
+    if facebook_language not in POST_LANGUAGES:
+        raise ValueError(f"Unsupported Facebook language: {facebook_language}")
+    if instagram_language not in POST_LANGUAGES:
+        raise ValueError(f"Unsupported Instagram language: {instagram_language}")
     route_instruction = (
         "Run the normal one-time news/model/product classification from AGENTS.md."
         if workflow_type == "auto"
@@ -585,10 +634,15 @@ def build_initial_prompt(
     return (
         "Read AGENTS.md\n\n"
         f"{route_instruction}\n\n"
-        f"The user selected post_language `{post_language}`. This trusted "
-        "selection is authoritative. Pass it to fetch_tweets.py with "
-        f"`--language {post_language}`, persist it in the fetched JSON, and "
-        "never randomize or change it during revisions.\n\n"
+        f"The user selected Facebook language `{facebook_language}` and "
+        f"Instagram language `{instagram_language}`. These trusted selections "
+        "are authoritative. Pass them to fetch_tweets.py as "
+        f"`--facebook-language {facebook_language} --instagram-language "
+        f"{instagram_language}`, persist both in the fetched JSON, and never "
+        "randomize or change either during revisions. When the languages differ, "
+        "create, preview, and publish separate platform-specific rendered assets "
+        "and caption ordering. When they match, one approved package may be reused "
+        "for both platforms.\n\n"
         "TELEGRAM REQUEST START\n"
         f"{request_text.strip()}\n"
         "TELEGRAM REQUEST END\n\n"
@@ -694,7 +748,15 @@ def invoke_codex(
             "TELEGRAM_PREVIEW_RECEIPT_PATH": str(receipt_path),
             "TELEGRAM_WATCHER_JOB_ID": str(job["id"]),
             "BITS_TODAY_WORKFLOW_TYPE": str(job["workflow_type"] or "auto"),
-            "BITS_TODAY_POST_LANGUAGE": str(job["post_language"] or "english"),
+            "BITS_TODAY_POST_LANGUAGE": str(
+                job["facebook_language"] or job["post_language"] or "english"
+            ),
+            "BITS_TODAY_FACEBOOK_LANGUAGE": str(
+                job["facebook_language"] or job["post_language"] or "english"
+            ),
+            "BITS_TODAY_INSTAGRAM_LANGUAGE": str(
+                job["instagram_language"] or job["post_language"] or "english"
+            ),
             "BITS_TODAY_JOB_DIR": str(job_dir),
         }
     )
@@ -808,6 +870,41 @@ def mark_failed(
     connection.commit()
 
 
+def cancel_preview_job(
+    connection: sqlite3.Connection,
+    job_id: int,
+    turn_number: int,
+    message_id: int,
+) -> bool:
+    """Cancel only the exact active preview that owns the pressed button."""
+    connection.execute("BEGIN IMMEDIATE")
+    mapping = connection.execute(
+        """
+        SELECT 1 FROM preview_messages
+        WHERE message_id = ? AND job_id = ? AND turn_number = ? AND active = 1
+        """,
+        (message_id, job_id, turn_number),
+    ).fetchone()
+    if mapping is None:
+        connection.commit()
+        return False
+    cursor = connection.execute(
+        """
+        UPDATE jobs
+        SET status = 'failed', updated_at = ?, finished_at = ?,
+            last_error = 'Cancelled by user after preview'
+        WHERE id = ? AND status = 'awaiting_approval' AND turn_count = ?
+        """,
+        (utc_now(), utc_now(), job_id, turn_number),
+    )
+    if cursor.rowcount == 1:
+        connection.execute(
+            "UPDATE preview_messages SET active = 0 WHERE job_id = ?", (job_id,)
+        )
+    connection.commit()
+    return cursor.rowcount == 1
+
+
 def latest_progress_failure(
     connection: sqlite3.Connection, job_id: int
 ) -> str | None:
@@ -867,11 +964,17 @@ def render_progress(connection: sqlite3.Connection, job_id: int) -> str:
         (job_id,),
     ).fetchall()
     workflow = str(job["workflow_type"] or "awaiting selection")
-    language = str(job["post_language"] or "awaiting selection")
+    facebook_language = str(
+        job["facebook_language"] or job["post_language"] or "awaiting selection"
+    )
+    instagram_language = str(
+        job["instagram_language"] or "awaiting selection"
+    )
     lines = [
         f"Bits Today · Job {job_id}",
         f"Workflow: {WORKFLOW_LABELS.get(workflow, workflow.title())}",
-        f"Language: {language.title()}",
+        f"Facebook: {facebook_language.title()}",
+        f"Instagram: {instagram_language.title()}",
         "",
     ]
     if not events:
@@ -956,7 +1059,8 @@ def claim_next_job(connection: sqlite3.Connection) -> sqlite3.Row | None:
         """
         SELECT * FROM jobs
         WHERE status = 'queued' AND workflow_type IS NOT NULL
-          AND post_language IS NOT NULL
+          AND facebook_language IS NOT NULL
+          AND instagram_language IS NOT NULL
         ORDER BY source_update_id LIMIT 1
         """
     ).fetchone()
@@ -989,7 +1093,8 @@ def process_claimed_job(
             int(job["id"]),
             str(job["request_text"]),
             str(job["workflow_type"]),
-            str(job["post_language"]),
+            str(job["facebook_language"]),
+            str(job["instagram_language"]),
         ),
         reply_to_message_id=int(job["source_message_id"]),
         resume=False,
@@ -1054,6 +1159,9 @@ def process_claimed_job(
                 "Reply with changes instead to generate a revised preview."
             ),
             reply_to_message_id=preview_ids[-1],
+            reply_markup=preview_cancel_keyboard(
+                int(job["id"]), int(job["turn_count"])
+            ),
         )
     except RuntimeError as exc:
         print(f"Could not send approval instructions for job {job['id']}: {exc}", file=sys.stderr)
@@ -1175,21 +1283,51 @@ def select_workflow(
     return cursor.rowcount == 1
 
 
-def select_language(
-    connection: sqlite3.Connection, job_id: int, post_language: str
+def select_platform_language(
+    connection: sqlite3.Connection,
+    job_id: int,
+    platform: str,
+    post_language: str,
 ) -> bool:
+    if platform not in {"facebook", "instagram"}:
+        raise ValueError(f"Unsupported platform: {platform}")
     if post_language not in POST_LANGUAGES:
         raise ValueError(f"Unsupported post language: {post_language}")
+    column = f"{platform}_language"
+    prerequisite = (
+        "workflow_type IS NOT NULL"
+        if platform == "facebook"
+        else "facebook_language IS NOT NULL"
+    )
+    legacy_assignment = ", post_language = ?" if platform == "facebook" else ""
+    parameters: tuple[Any, ...] = (
+        (post_language, post_language, utc_now(), job_id)
+        if platform == "facebook"
+        else (post_language, utc_now(), job_id)
+    )
     cursor = connection.execute(
-        """
-        UPDATE jobs SET post_language = ?, updated_at = ?
-        WHERE id = ? AND status = 'queued' AND workflow_type IS NOT NULL
-          AND post_language IS NULL
+        f"""
+        UPDATE jobs SET {column} = ?{legacy_assignment}, updated_at = ?
+        WHERE id = ? AND status = 'queued' AND {prerequisite}
+          AND {column} IS NULL
         """,
-        (post_language, utc_now(), job_id),
+        parameters,
     )
     connection.commit()
     return cursor.rowcount == 1
+
+
+def select_language(
+    connection: sqlite3.Connection, job_id: int, post_language: str
+) -> bool:
+    """Compatibility helper that selects the same language for both platforms."""
+    facebook_changed = select_platform_language(
+        connection, job_id, "facebook", post_language
+    )
+    instagram_changed = select_platform_language(
+        connection, job_id, "instagram", post_language
+    )
+    return facebook_changed and instagram_changed
 
 
 def cancel_pending_job(connection: sqlite3.Connection, job_id: int) -> bool:
@@ -1197,8 +1335,9 @@ def cancel_pending_job(connection: sqlite3.Connection, job_id: int) -> bool:
         """
         UPDATE jobs
         SET status = 'failed', updated_at = ?, finished_at = ?,
-            last_error = 'Cancelled before workflow and language selection'
-        WHERE id = ? AND status = 'queued' AND post_language IS NULL
+            last_error = 'Cancelled before workflow and platform language selection'
+        WHERE id = ? AND status = 'queued'
+          AND (facebook_language IS NULL OR instagram_language IS NULL)
         """,
         (utc_now(), utc_now(), job_id),
     )
@@ -1298,6 +1437,9 @@ def process_claimed_resume(
                     "yes to the latest package to publish, or reply with more changes."
                 ),
                 reply_to_message_id=preview_ids[-1],
+                reply_markup=preview_cancel_keyboard(
+                    job_id, int(claimed["turn_count"])
+                ),
             )
         except RuntimeError as exc:
             print(
@@ -1594,14 +1736,79 @@ def handle_update(
         return
     callback = parse_callback(update, config)
     if callback is not None:
+        preview_cancel_match = re.fullmatch(
+            r"preview_cancel:(\d+):(\d+)",
+            callback.data,
+        )
+        if preview_cancel_match is not None:
+            job_id = int(preview_cancel_match.group(1))
+            turn_number = int(preview_cancel_match.group(2))
+            changed = cancel_preview_job(
+                connection,
+                job_id,
+                turn_number,
+                callback.message_id,
+            )
+            record_event(
+                connection,
+                callback,
+                "preview_cancelled" if changed else "ignored_stale_callback",
+                job_id if changed else None,
+            )
+            answer_callback(
+                session,
+                config,
+                callback.callback_id,
+                (
+                    "Cancelled. Nothing was published."
+                    if changed
+                    else "This preview is no longer active."
+                ),
+            )
+            if changed:
+                try:
+                    report_progress(
+                        session,
+                        config,
+                        connection,
+                        job_id,
+                        "failed",
+                        "Cancelled by user after preview",
+                    )
+                except RuntimeError as exc:
+                    print(
+                        f"Could not update progress for job {job_id}: {exc}",
+                        file=sys.stderr,
+                    )
+                try:
+                    edit_text(
+                        session,
+                        config,
+                        callback.message_id,
+                        (
+                            f"Bits Today · Job {job_id}\n\n"
+                            "Cancelled after preview. Nothing was published."
+                        ),
+                    )
+                except RuntimeError as exc:
+                    print(
+                        f"Could not edit cancelled preview message for job {job_id}: {exc}",
+                        file=sys.stderr,
+                    )
+            return
         workflow_match = re.fullmatch(
             r"workflow:(\d+):(news|model|product|reel|auto|cancel)",
             callback.data,
         )
-        language_match = re.fullmatch(
-            r"language:(\d+):(english|bangla|cancel)",
+        facebook_language_match = re.fullmatch(
+            r"facebook_language:(\d+):(english|bangla|cancel)",
             callback.data,
         )
+        instagram_language_match = re.fullmatch(
+            r"instagram_language:(\d+):(english|bangla|cancel)",
+            callback.data,
+        )
+        language_match = facebook_language_match or instagram_language_match
         match = workflow_match or language_match
         if match is None:
             record_event(connection, callback, "ignored_callback", None)
@@ -1635,11 +1842,23 @@ def handle_update(
                 )
             return
         if language_match is not None:
-            changed = select_language(connection, job_id, choice)
+            platform = (
+                "facebook" if facebook_language_match is not None else "instagram"
+            )
+            changed = select_platform_language(
+                connection,
+                job_id,
+                platform,
+                choice,
+            )
             record_event(
                 connection,
                 callback,
-                "language_selected" if changed else "ignored_stale_callback",
+                (
+                    f"{platform}_language_selected"
+                    if changed
+                    else "ignored_stale_callback"
+                ),
                 job_id,
             )
             answer_callback(
@@ -1647,24 +1866,49 @@ def handle_update(
                 config,
                 callback.callback_id,
                 (
-                    f"{choice.title()} selected."
+                    f"{platform.title()} {choice.title()} selected."
                     if changed
-                    else "This job's language has already been selected."
+                    else f"This job's {platform} language has already been selected."
                 ),
             )
             if changed:
                 selected_job = connection.execute(
-                    "SELECT workflow_type FROM jobs WHERE id = ?", (job_id,)
+                    """
+                    SELECT workflow_type, facebook_language, instagram_language
+                    FROM jobs WHERE id = ?
+                    """,
+                    (job_id,),
                 ).fetchone()
-                workflow_label = WORKFLOW_LABELS[str(selected_job["workflow_type"])]
-                report_progress(
-                    session,
-                    config,
-                    connection,
-                    job_id,
-                    "selected",
-                    f"{workflow_label} · {choice.title()}",
-                )
+                if platform == "facebook":
+                    edit_text(
+                        session,
+                        config,
+                        callback.message_id,
+                        (
+                            f"Bits Today · Job {job_id}\n"
+                            f"Workflow: "
+                            f"{WORKFLOW_LABELS[str(selected_job['workflow_type'])]}\n"
+                            f"Facebook: {choice.title()}\n\n"
+                            "Choose the Instagram language flow."
+                        ),
+                        reply_markup=platform_language_keyboard(
+                            job_id,
+                            "instagram",
+                        ),
+                    )
+                else:
+                    report_progress(
+                        session,
+                        config,
+                        connection,
+                        job_id,
+                        "selected",
+                        (
+                            f"{WORKFLOW_LABELS[str(selected_job['workflow_type'])]} · "
+                            f"Facebook {str(selected_job['facebook_language']).title()} · "
+                            f"Instagram {choice.title()}"
+                        ),
+                    )
             return
         changed = select_workflow(connection, job_id, choice)
         record_event(
@@ -1691,9 +1935,9 @@ def handle_update(
                 (
                     f"Bits Today · Job {job_id}\n"
                     f"Workflow: {WORKFLOW_LABELS[choice]}\n\n"
-                    "Choose the language flow for this post."
+                    "Choose the Facebook language flow."
                 ),
-                reply_markup=language_keyboard(job_id),
+                reply_markup=platform_language_keyboard(job_id, "facebook"),
             )
         return
     message = parse_message(update, config)
@@ -1747,10 +1991,10 @@ def handle_update(
                 (
                     f"Bits Today · Job {job_id}\n"
                     f"Workflow: {WORKFLOW_LABELS[workflow_type]}\n\n"
-                    "Choose the language flow for this post."
+                    "Choose the Facebook language flow."
                 ),
                 reply_to_message_id=message.message_id,
-                reply_markup=language_keyboard(job_id),
+                reply_markup=platform_language_keyboard(job_id, "facebook"),
             )
         except RuntimeError as exc:
             mark_failed(connection, job_id, f"Could not create progress dashboard: {exc}")
@@ -1905,6 +2149,7 @@ def queue_status(connection: sqlite3.Connection) -> dict[str, Any]:
         for row in connection.execute(
             """
             SELECT id, source_message_id, workflow_type, post_language,
+                   facebook_language, instagram_language,
                    progress_message_id,
                    status, session_id, turn_count,
                    received_at, updated_at, finished_at, last_error

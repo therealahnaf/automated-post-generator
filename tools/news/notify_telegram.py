@@ -240,13 +240,15 @@ def write_preview_receipt(
     videos: list[Path] | None = None,
     description: str,
     telegram_result: dict[str, Any],
+    platform: str | None = None,
 ) -> Path:
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.parent.chmod(0o700)
-    payload = {
+    package = {
         "job_id": job_id,
         "stage": "preview",
+        "platform": platform,
         "reply_to_message_id": reply_to_message_id,
         "sent_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "images": [str(image.resolve()) for image in images],
@@ -256,6 +258,67 @@ def write_preview_receipt(
         "description_sha256": hashlib.sha256(description.encode("utf-8")).hexdigest(),
         **telegram_result,
     }
+    payload = package
+    if platform:
+        packages: dict[str, Any] = {}
+        if path.is_file():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                existing = {}
+            if existing.get("job_id") == job_id and isinstance(
+                existing.get("packages"), dict
+            ):
+                packages.update(existing["packages"])
+        packages[platform] = package
+        ordered_packages = list(packages.values())
+        payload = {
+            "job_id": job_id,
+            "stage": "preview",
+            "reply_to_message_id": reply_to_message_id,
+            "sent_at": package["sent_at"],
+            "platforms": list(packages),
+            "packages": packages,
+            "images": [
+                value
+                for item in ordered_packages
+                for value in item.get("images", [])
+            ],
+            "image_sha256s": [
+                value
+                for item in ordered_packages
+                for value in item.get("image_sha256s", [])
+            ],
+            "videos": [
+                value
+                for item in ordered_packages
+                for value in item.get("videos", [])
+            ],
+            "video_sha256s": [
+                value
+                for item in ordered_packages
+                for value in item.get("video_sha256s", [])
+            ],
+            "description_sha256s": {
+                name: item.get("description_sha256")
+                for name, item in packages.items()
+            },
+            "photo_message_ids": [
+                value
+                for item in ordered_packages
+                for value in item.get("photo_message_ids", [])
+            ],
+            "video_message_ids": [
+                value
+                for item in ordered_packages
+                for value in item.get("video_message_ids", [])
+            ],
+            "description_message_ids": [
+                value
+                for item in ordered_packages
+                for value in item.get("description_message_ids", [])
+            ],
+        }
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -275,6 +338,7 @@ def send_video_review_package(
     description: str,
     stage: str,
     reply_to_message_id: int | None = None,
+    platform: str | None = None,
 ) -> dict[str, Any]:
     video = validate_video(video)
     description = validate_description(description)
@@ -287,7 +351,10 @@ def send_video_review_package(
             "sendVideo",
             data={
                 "chat_id": config.chat_id,
-                "caption": f"Bits Today — {label} — REEL",
+                "caption": (
+                    f"Bits Today — {label} — "
+                    f"{platform.upper() + ' ' if platform else ''}REEL"
+                ),
                 "supports_streaming": "true",
                 **reply_parameters(reply_to_message_id),
             },
@@ -295,7 +362,10 @@ def send_video_review_package(
             timeout=(10, 180),
         )
     text_results = []
-    for chunk in split_message(f"Bits Today — {label}\n\n{description}"):
+    platform_label = f" — {platform.upper()}" if platform else ""
+    for chunk in split_message(
+        f"Bits Today — {label}{platform_label}\n\n{description}"
+    ):
         text_results.append(
             call_telegram(
                 session,
@@ -328,6 +398,7 @@ def send_review_package(
     stage: str,
     secondary_images: list[Path] | None = None,
     reply_to_message_id: int | None = None,
+    platform: str | None = None,
 ) -> dict[str, Any]:
     images = [validate_image(image)]
     images.extend(validate_image(item) for item in secondary_images or [])
@@ -340,7 +411,12 @@ def send_review_package(
             mimetypes.guess_type(current_image.name)[0]
             or "application/octet-stream"
         )
-        image_label = "MAIN IMAGE" if index == 0 else f"SOURCE IMAGE {index}"
+        platform_prefix = f"{platform.upper()} " if platform else ""
+        image_label = (
+            f"{platform_prefix}MAIN IMAGE"
+            if index == 0
+            else f"{platform_prefix}SOURCE IMAGE {index}"
+        )
         with current_image.open("rb") as image_file:
             photo_results.append(
                 call_telegram(
@@ -358,7 +434,8 @@ def send_review_package(
                 )
             )
 
-    text = f"Bits Today — {label}\n\n{description}"
+    platform_label = f" — {platform.upper()}" if platform else ""
+    text = f"Bits Today — {label}{platform_label}\n\n{description}"
     text_results = []
     for chunk in split_message(text):
         text_results.append(
@@ -436,6 +513,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="preview",
     )
     parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram", "both"),
+        help=(
+            "Label a platform-specific package and merge it into the current "
+            "watcher preview receipt."
+        ),
+    )
+    parser.add_argument(
         "--send",
         action="store_true",
         help="Actually send the image and description after validation.",
@@ -508,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
                     description=description,
                     stage=args.stage,
                     reply_to_message_id=watcher_reply_message_id(),
+                    platform=args.platform,
                 )
             else:
                 assert image is not None
@@ -519,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
                     stage=args.stage,
                     secondary_images=secondary_images,
                     reply_to_message_id=watcher_reply_message_id(),
+                    platform=args.platform,
                 )
             receipt_path = None
             configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
@@ -531,6 +618,7 @@ def main(argv: list[str] | None = None) -> int:
                     videos=([video] if video is not None else []),
                     description=description,
                     telegram_result=result,
+                    platform=args.platform,
                 )
             print(
                 json.dumps(

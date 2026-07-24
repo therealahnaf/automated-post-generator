@@ -22,6 +22,21 @@ class FetchTweetsTests(unittest.TestCase):
             )
         self.assertEqual(args.language, "bangla")
 
+    def test_cli_inherits_independent_platform_languages(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "BITS_TODAY_FACEBOOK_LANGUAGE": "bangla",
+                "BITS_TODAY_INSTAGRAM_LANGUAGE": "english",
+            },
+            clear=False,
+        ):
+            args = fetch_tweets.build_parser().parse_args(
+                ["https://x.com/example/status/1"]
+            )
+        self.assertEqual(args.facebook_language, "bangla")
+        self.assertEqual(args.instagram_language, "english")
+
     def test_normalizes_x_and_twitter_status_urls(self) -> None:
         expected = "https://x.com/Polymarket/status/2079479742802141202"
         self.assertEqual(
@@ -145,7 +160,8 @@ class FetchTweetsTests(unittest.TestCase):
         ):
             result = fetch_tweets.fetch_tweets(
                 ["https://x.com/Polymarket/status/2079479742802141202"],
-                post_language="bangla",
+                facebook_language="bangla",
+                instagram_language="english",
                 headline_highlight="cyan",
             )
 
@@ -154,6 +170,10 @@ class FetchTweetsTests(unittest.TestCase):
         self.assertEqual(result["full_text_provider_api"], "https://api.vxtwitter.com")
         self.assertFalse(result["official_x_api_used"])
         self.assertEqual(result["post_language"], "bangla")
+        self.assertEqual(
+            result["platform_languages"],
+            {"facebook": "bangla", "instagram": "english"},
+        )
         self.assertEqual(result["headline_highlight"], "cyan")
         self.assertEqual(
             result["open_source_project"],

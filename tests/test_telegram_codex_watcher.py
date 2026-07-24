@@ -60,12 +60,18 @@ class TelegramCodexWatcherTests(unittest.TestCase):
 
     def test_manual_workflow_prompt_is_authoritative(self) -> None:
         prompt = watcher.build_initial_prompt(
-            3, "https://x.com/example/status/1", "reel", "bangla"
+            3,
+            "https://x.com/example/status/1",
+            "reel",
+            "bangla",
+            "english",
         )
         self.assertIn("manually selected workflow_type `reel`", prompt)
         self.assertIn("do not reclassify", prompt)
-        self.assertIn("selected post_language `bangla`", prompt)
-        self.assertIn("--language bangla", prompt)
+        self.assertIn("Facebook language `bangla`", prompt)
+        self.assertIn("Instagram language `english`", prompt)
+        self.assertIn("--facebook-language bangla", prompt)
+        self.assertIn("--instagram-language english", prompt)
 
     def test_pending_selection_is_not_claimed(self) -> None:
         message = watcher.TelegramMessage(
@@ -81,11 +87,23 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         self.assertIsNone(watcher.claim_next_job(self.connection))
         self.assertTrue(watcher.select_workflow(self.connection, job_id, "news"))
         self.assertIsNone(watcher.claim_next_job(self.connection))
-        self.assertTrue(watcher.select_language(self.connection, job_id, "english"))
+        self.assertTrue(
+            watcher.select_platform_language(
+                self.connection, job_id, "facebook", "english"
+            )
+        )
+        self.assertIsNone(watcher.claim_next_job(self.connection))
+        self.assertTrue(
+            watcher.select_platform_language(
+                self.connection, job_id, "instagram", "bangla"
+            )
+        )
         claimed = watcher.claim_next_job(self.connection)
         self.assertEqual(claimed["id"], job_id)
         self.assertEqual(claimed["workflow_type"], "news")
         self.assertEqual(claimed["post_language"], "english")
+        self.assertEqual(claimed["facebook_language"], "english")
+        self.assertEqual(claimed["instagram_language"], "bangla")
 
     def test_resume_turn_can_only_be_claimed_once(self) -> None:
         job_id = self.insert_job()
@@ -110,9 +128,10 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 INSERT INTO jobs(
                     source_update_id, chat_id, source_message_id, sender_id,
                     request_text, status, turn_count, updated_at,
-                    workflow_type, post_language
+                    workflow_type, post_language,
+                    facebook_language, instagram_language
                 ) VALUES (?, '-99', ?, '7', 'request', 'queued', 0, ?,
-                          'news', 'english')
+                          'news', 'english', 'english', 'bangla')
                 """,
                 (100 + index, 200 + index, watcher.utc_now()),
             )
@@ -171,21 +190,137 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             ],
         )
 
-    def test_language_keyboard_offers_explicit_flows_and_cancel(self) -> None:
-        keyboard = watcher.language_keyboard(42)
-        values = [
-            button["callback_data"]
-            for row in keyboard["inline_keyboard"]
-            for button in row
-        ]
+    def test_platform_language_keyboards_are_independent(self) -> None:
+        for platform in ("facebook", "instagram"):
+            keyboard = watcher.platform_language_keyboard(42, platform)
+            values = [
+                button["callback_data"]
+                for row in keyboard["inline_keyboard"]
+                for button in row
+            ]
+            self.assertEqual(
+                values,
+                [
+                    f"{platform}_language:42:english",
+                    f"{platform}_language:42:bangla",
+                    f"{platform}_language:42:cancel",
+                ],
+            )
+
+    def test_preview_cancel_keyboard_is_scoped_to_job_and_turn(self) -> None:
+        keyboard = watcher.preview_cancel_keyboard(42, 3)
         self.assertEqual(
-            values,
-            [
-                "language:42:english",
-                "language:42:bangla",
-                "language:42:cancel",
-            ],
+            keyboard,
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Cancel",
+                            "callback_data": "preview_cancel:42:3",
+                        }
+                    ]
+                ]
+            },
         )
+
+    def test_active_preview_cancel_stops_job_and_deactivates_approval(self) -> None:
+        job_id = self.insert_job()
+        watcher.add_active_preview_message(self.connection, job_id, 1, 500)
+        update = {
+            "update_id": 74,
+            "callback_query": {
+                "id": "callback-cancel-preview",
+                "data": f"preview_cancel:{job_id}:1",
+                "from": {"id": 7, "is_bot": False},
+                "message": {"message_id": 500, "chat": {"id": -99}},
+            },
+        }
+        session = Mock()
+        session.post.side_effect = [
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": True}),
+            ),
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": True}),
+            ),
+        ]
+
+        watcher.handle_update(session, self.config, self.connection, update)
+
+        job = self.connection.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        preview = self.connection.execute(
+            "SELECT * FROM preview_messages WHERE message_id = 500"
+        ).fetchone()
+        event = self.connection.execute(
+            "SELECT * FROM telegram_events WHERE update_id = 74"
+        ).fetchone()
+        progress = self.connection.execute(
+            """
+            SELECT stage, detail FROM job_progress_events
+            WHERE job_id = ? ORDER BY id DESC LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["last_error"], "Cancelled by user after preview")
+        self.assertEqual(preview["active"], 0)
+        self.assertEqual(event["kind"], "preview_cancelled")
+        self.assertEqual(progress["stage"], "failed")
+        self.assertEqual(progress["detail"], "Cancelled by user after preview")
+        self.assertTrue(
+            session.post.call_args_list[0].args[0].endswith(
+                "/answerCallbackQuery"
+            )
+        )
+        self.assertTrue(
+            session.post.call_args_list[1].args[0].endswith("/editMessageText")
+        )
+        edited_payload = session.post.call_args_list[1].kwargs["data"]
+        self.assertEqual(
+            json.loads(edited_payload["reply_markup"]),
+            {"inline_keyboard": []},
+        )
+
+    def test_stale_preview_cancel_cannot_stop_current_job(self) -> None:
+        job_id = self.insert_job()
+        watcher.add_active_preview_message(self.connection, job_id, 1, 500)
+        update = {
+            "update_id": 75,
+            "callback_query": {
+                "id": "callback-stale-preview",
+                "data": f"preview_cancel:{job_id}:2",
+                "from": {"id": 7, "is_bot": False},
+                "message": {"message_id": 500, "chat": {"id": -99}},
+            },
+        }
+        session = Mock()
+        session.post.return_value = Mock(
+            ok=True,
+            status_code=200,
+            json=Mock(return_value={"ok": True, "result": True}),
+        )
+
+        watcher.handle_update(session, self.config, self.connection, update)
+
+        job = self.connection.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        preview = self.connection.execute(
+            "SELECT * FROM preview_messages WHERE message_id = 500"
+        ).fetchone()
+        event = self.connection.execute(
+            "SELECT * FROM telegram_events WHERE update_id = 75"
+        ).fetchone()
+        self.assertEqual(job["status"], "awaiting_approval")
+        self.assertEqual(preview["active"], 1)
+        self.assertEqual(event["kind"], "ignored_stale_callback")
+        self.assertEqual(session.post.call_count, 1)
 
     def test_callback_selection_persists_and_edits_dashboard(self) -> None:
         message = watcher.TelegramMessage(
@@ -218,17 +353,17 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             for item in responses
         ]
         watcher.handle_update(session, self.config, self.connection, update)
-        language_update = {
+        facebook_update = {
             "update_id": 72,
             "callback_query": {
                 "id": "callback-2",
-                "data": f"language:{job_id}:bangla",
+                "data": f"facebook_language:{job_id}:bangla",
                 "from": {"id": 7, "is_bot": False},
                 "message": {"message_id": 81, "chat": {"id": -99}},
             },
         }
-        language_session = Mock()
-        language_session.post.side_effect = [
+        facebook_session = Mock()
+        facebook_session.post.side_effect = [
             Mock(
                 ok=True,
                 status_code=200,
@@ -241,21 +376,53 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             ),
         ]
         watcher.handle_update(
-            language_session,
+            facebook_session,
             self.config,
             self.connection,
-            language_update,
+            facebook_update,
+        )
+        self.assertIsNone(watcher.claim_next_job(self.connection))
+        instagram_update = {
+            "update_id": 73,
+            "callback_query": {
+                "id": "callback-3",
+                "data": f"instagram_language:{job_id}:english",
+                "from": {"id": 7, "is_bot": False},
+                "message": {"message_id": 81, "chat": {"id": -99}},
+            },
+        }
+        instagram_session = Mock()
+        instagram_session.post.side_effect = [
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": True}),
+            ),
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": {"message_id": 81}}),
+            ),
+        ]
+        watcher.handle_update(
+            instagram_session,
+            self.config,
+            self.connection,
+            instagram_update,
         )
         job = self.connection.execute(
             "SELECT * FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
         self.assertEqual(job["workflow_type"], "model")
         self.assertEqual(job["post_language"], "bangla")
+        self.assertEqual(job["facebook_language"], "bangla")
+        self.assertEqual(job["instagram_language"], "english")
         self.assertTrue(session.post.call_args_list[0].args[0].endswith("/answerCallbackQuery"))
         self.assertTrue(session.post.call_args_list[1].args[0].endswith("/editMessageText"))
         rendered = watcher.render_progress(self.connection, job_id)
         self.assertIn("Model Release", rendered)
-        self.assertIn("Language: Bangla", rendered)
+        self.assertIn("Facebook: Bangla", rendered)
+        self.assertIn("Instagram: English", rendered)
         self.assertIn("Workflow selected", rendered)
 
     def test_revision_prompt_cannot_be_mistaken_for_approval(self) -> None:
@@ -372,6 +539,8 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             row = migrated.execute("SELECT * FROM jobs WHERE id = 1").fetchone()
             self.assertEqual(row["workflow_type"], "auto")
             self.assertEqual(row["post_language"], "english")
+            self.assertEqual(row["facebook_language"], "english")
+            self.assertEqual(row["instagram_language"], "english")
             self.assertIn("progress_message_id", row.keys())
         finally:
             migrated.close()

@@ -121,11 +121,13 @@ from the same-author thread and nested quoted posts. Videos are not downloaded
 and video frames are not extracted. Photos become secondary post images in
 source order, capped at nine so the generated graphic keeps the cross-platform
 package at ten images total.
-At the start of each fetch, the default `--language auto` randomly chooses
-English or Bangla once and stores the result as `post_language` in the JSON.
-Telegram watcher jobs do not use that default: after workflow selection, the
-bot asks the user to choose English or Bangla and passes the selection through
-`--language`.
+At the start of a standalone fetch, the default `--language auto` randomly
+chooses English or Bangla once and stores the result as legacy
+`post_language`. Telegram watcher jobs do not use that default: after workflow
+selection, the bot asks separately for the Facebook and Instagram language and
+passes them through `--facebook-language` and `--instagram-language`. Both are
+stored under `platform_languages`; `post_language` mirrors Facebook for
+backward compatibility.
 The default `--highlight-style auto` independently chooses a one-line cyan
 block, a one-line red block, or the current two-line red-plus-cyan treatment.
 Both choices are stored in the JSON and reused instead of being rerolled.
@@ -351,9 +353,13 @@ status URL first presents `News`, `Model Release`, `Product Release`, `Reel`,
 `Auto Detect`, and `Cancel` inline buttons. `/news URL`, `/model URL`,
 `/product URL`, `/reel URL`, and `/auto URL` are direct-selection shortcuts.
 Manual selections are authoritative; Auto Detect runs the news/model/product
-classifier. After the workflow is chosen, the same message presents `English`
-and `বাংলা` buttons. Generation does not start until the language is selected,
-and the choice remains fixed through revisions and publishing.
+classifier. After the workflow is chosen, the same message asks for the
+Facebook language and then the Instagram language, each with `English` and
+`বাংলা` buttons. Generation does not start until both are selected, and both
+choices remain fixed through revisions and publishing. Matching choices reuse
+one package. Different choices produce platform-specific headlines, text
+cards, caption ordering, previews, and publishing assets while sharing the
+generated background and source media.
 
 The selector message becomes one edited progress dashboard for source fetching,
 media discovery, headline, research, bilingual description, generated items,

@@ -491,10 +491,17 @@ def fetch_tweets(
     timeout: float = 30.0,
     media_dir: Path | None = None,
     post_language: str = AUTO_LANGUAGE,
+    facebook_language: str | None = None,
+    instagram_language: str | None = None,
     headline_highlight: str = AUTO_HIGHLIGHT_STYLE,
 ) -> dict[str, Any]:
     """Fetch one or more public status URLs using the free open-source backend."""
-    selected_language = choose_post_language(post_language)
+    selected_language = choose_post_language(
+        facebook_language or post_language
+    )
+    selected_instagram_language = choose_post_language(
+        instagram_language or selected_language
+    )
     selected_highlight = choose_headline_highlight(headline_highlight)
     items = [
         fetch_thread(
@@ -514,6 +521,10 @@ def fetch_tweets(
             )
     return {
         "post_language": selected_language,
+        "platform_languages": {
+            "facebook": selected_language,
+            "instagram": selected_instagram_language,
+        },
         "headline_highlight": selected_highlight,
         "provider": "fxtwitter",
         "provider_api": f"{api_base.rstrip('/')}/2",
@@ -527,8 +538,16 @@ def fetch_tweets(
 
 def build_parser() -> argparse.ArgumentParser:
     watcher_language = os.getenv("BITS_TODAY_POST_LANGUAGE", "").strip().lower()
+    watcher_facebook_language = os.getenv(
+        "BITS_TODAY_FACEBOOK_LANGUAGE", ""
+    ).strip().lower()
+    watcher_instagram_language = os.getenv(
+        "BITS_TODAY_INSTAGRAM_LANGUAGE", ""
+    ).strip().lower()
     default_language = (
-        watcher_language if watcher_language in POST_LANGUAGES else AUTO_LANGUAGE
+        watcher_facebook_language
+        if watcher_facebook_language in POST_LANGUAGES
+        else watcher_language if watcher_language in POST_LANGUAGES else AUTO_LANGUAGE
     )
     parser = argparse.ArgumentParser(
         description=(
@@ -546,6 +565,26 @@ def build_parser() -> argparse.ArgumentParser:
             "English or Bangla once. Watcher jobs inherit the trusted Telegram "
             "selection."
         ),
+    )
+    parser.add_argument(
+        "--facebook-language",
+        choices=POST_LANGUAGES,
+        default=(
+            watcher_facebook_language
+            if watcher_facebook_language in POST_LANGUAGES
+            else None
+        ),
+        help="Trusted Facebook language; overrides --language when supplied.",
+    )
+    parser.add_argument(
+        "--instagram-language",
+        choices=POST_LANGUAGES,
+        default=(
+            watcher_instagram_language
+            if watcher_instagram_language in POST_LANGUAGES
+            else None
+        ),
+        help="Trusted Instagram language; defaults to the Facebook language.",
     )
     parser.add_argument(
         "--highlight-style",
@@ -613,6 +652,8 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             media_dir=args.media_dir,
             post_language=args.language,
+            facebook_language=args.facebook_language,
+            instagram_language=args.instagram_language,
             headline_highlight=args.highlight_style,
         )
         document = {

@@ -151,6 +151,45 @@ class NotifyTelegramTests(unittest.TestCase):
         self.assertEqual(len(payload["image_sha256s"][0]), 64)
         self.assertEqual(len(payload["description_sha256"]), 64)
 
+    def test_merges_platform_packages_into_one_preview_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            facebook = root / "facebook.png"
+            instagram = root / "instagram.png"
+            receipt = root / "receipt.json"
+            facebook.write_bytes(b"facebook")
+            instagram.write_bytes(b"instagram")
+            notify_telegram.write_preview_receipt(
+                receipt,
+                job_id="42",
+                reply_to_message_id=9,
+                images=[facebook],
+                description="Facebook copy",
+                telegram_result={
+                    "photo_message_ids": [100],
+                    "description_message_ids": [101],
+                },
+                platform="facebook",
+            )
+            notify_telegram.write_preview_receipt(
+                receipt,
+                job_id="42",
+                reply_to_message_id=9,
+                images=[instagram],
+                description="Instagram copy",
+                telegram_result={
+                    "photo_message_ids": [200],
+                    "description_message_ids": [201],
+                },
+                platform="instagram",
+            )
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["platforms"], ["facebook", "instagram"])
+        self.assertEqual(payload["photo_message_ids"], [100, 200])
+        self.assertEqual(payload["description_message_ids"], [101, 201])
+        self.assertEqual(set(payload["packages"]), {"facebook", "instagram"})
+
     def test_send_video_review_package_sends_video_then_description(self) -> None:
         video_response = Mock()
         video_response.ok = True

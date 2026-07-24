@@ -311,6 +311,32 @@ class GenerateDescriptionTests(unittest.TestCase):
                 generate_description.resolve_primary_language(args), "bangla"
             )
 
+    def test_resolves_platform_language_from_tweet_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "post_language": "english",
+                        "platform_languages": {
+                            "facebook": "english",
+                            "instagram": "bangla",
+                        },
+                        "items": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = type(
+                "Args",
+                (),
+                {"tweet_json": path, "platform": "instagram"},
+            )()
+            self.assertEqual(
+                generate_description.resolve_primary_language(args),
+                "bangla",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

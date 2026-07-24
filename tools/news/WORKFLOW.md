@@ -8,17 +8,18 @@ downloaded media; do not fetch or classify the story again.
    Preserve the complete same-author thread, nested quoted-post text, and photo
    source order. Do not download videos or extract video frames. The generated
    primary plus secondary images must never exceed 10 images. Retain the
-   router's persisted `post_language` choice (`english` or `bangla`) and
+   router's persisted Facebook and Instagram language choices and
    `headline_highlight` choice (`cyan`, `red`, or `dual`). A Telegram-selected
-   language is authoritative; never reroll either choice during the same story.
+   platform language is authoritative; never reroll either choice during the
+   same story.
 2. Write the English headline directly in the Codex task from the validated
    source. Lead with the strongest actor, action, risk, contrast, scale, number,
    or power shift. Preserve important names and numbers. Do not use a separate
    text-model call for the original headline and do not add unverified facts.
-   For a persisted Bangla post, `tools/news/generate_post.py` must make one
+   For each platform selecting Bangla, `tools/news/generate_post.py` must make one
    additional fixed `gpt-5.6-luna` call to translate the approved English
-   headline into concise Bangla. For English, render the approved English
-   headline directly.
+   headline into concise Bangla. Reuse that translation when both platforms
+   select Bangla. For English, render the approved English headline directly.
 3. Generate one text-free editorial background and run
    `tools/news/generate_post.py --headline`. Pillow owns all gradient and
    typography rendering. Use `--style brand-block` with `#FF5757` and
@@ -57,9 +58,10 @@ downloaded media; do not fetch or classify the story again.
    original poster's `@username` only when they are unmistakably a major public
    figure or major official account; otherwise omit both their account name and
    handle. This does not suppress people explicitly named in the story text.
-8. Order the languages using the persisted choice: English first for
-   `english`, Bangla first for `bangla`, then `---`, then the other language.
-   Do not configure text models through `.env` or command-line flags.
+8. After finalization, run `tools/news/prepare_platform_descriptions.py`.
+   English-selected platforms receive English first; Bangla-selected platforms
+   receive Bangla first, then `---`, then the other language. Do not configure
+   text models through `.env` or command-line flags.
 9. Search the internet for useful additional context. If useful details are
    found, enhance the English description and revise the Bangla
    translation-summary to match. If not, retain the generated copy. Never force
@@ -75,10 +77,11 @@ downloaded media; do not fetch or classify the story again.
     Keep the X URL first, include only used research sources, deduplicate URLs,
     and keep the complete bilingual copy and source block within the configured
     platform limit.
-11. Render and inspect the complete package, then follow the shared Telegram
-    preview, revision, exact `yes` approval, Facebook, and Instagram contract in
-    `AGENTS.md`. Reuse `--background-input` for typography or layout revisions
-    that do not require a new background.
+11. Render and inspect each distinct platform package, then follow the shared
+    Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
+    contract in `AGENTS.md`. Pass `--platform facebook` or `--platform
+    instagram` to `generate_post.py`; reuse `--background-input` between
+    platform variants and for revisions that do not require a new background.
 
 Never store tokens in source, output metadata, shell scripts, or command
 arguments.

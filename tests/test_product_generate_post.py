@@ -32,6 +32,17 @@ class ProductGeneratePostTests(unittest.TestCase):
         self.assertIn(generate_post.news_post.BRAND_CORAL[:3], values)
         self.assertIn(generate_post.news_post.BRAND_MINT[:3], values)
 
+    def test_primary_renders_bangla_platform_labels_and_intro(self) -> None:
+        result = generate_post.compose_primary(
+            self.background_bytes,
+            "Claude Code",
+            "Anthropic",
+            "টার্মিনালের ভেতরে কাজ করা একটি AI এজেন্ট",
+            date(2026, 7, 24),
+            language="bangla",
+        )
+        self.assertEqual(result.size, (1080, 1350))
+
     def test_no_media_cli_reuses_model_secondary_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
