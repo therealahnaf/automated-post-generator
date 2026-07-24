@@ -202,6 +202,7 @@ def make_layers(
         post_date,
         None,
         highlight,
+        top_y=210,
     )
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"

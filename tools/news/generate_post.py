@@ -646,6 +646,8 @@ def draw_brand_block(
     post_date: date,
     font_override: Path | None,
     highlight_style: str = "dual",
+    *,
+    top_y: int = 58,
 ) -> None:
     margin = 62
     max_width = CANVAS_SIZE[0] - margin * 2
@@ -702,7 +704,7 @@ def draw_brand_block(
             variation_name=italic_variation,
         )
 
-    y = 58
+    y = top_y
     for index, line in enumerate(lines):
         font = italic_font if index == len(lines) - 1 else headline_font
         is_bangla = contains_bangla_text(title)
