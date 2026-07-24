@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -41,13 +42,45 @@ STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
+WORKFLOW_TYPES = ("news", "model", "reel", "auto")
+WORKFLOW_LABELS = {
+    "news": "News",
+    "model": "Model Release",
+    "reel": "Reel",
+    "auto": "Auto Detect",
+}
+PROGRESS_STAGE_LABELS = {
+    "selected": "Workflow selected",
+    "fetching": "Fetching and validating source",
+    "fetched": "Source fetched and validated",
+    "media_ready": "Source media discovered",
+    "headline": "Headline generated",
+    "research_started": "Researching sources",
+    "research_complete": "Research complete",
+    "description": "Bilingual description generated",
+    "generating_items": "Generating post items",
+    "items_ready": "Post items generated",
+    "preview": "Preview delivered — awaiting approval",
+    "revision": "Applying requested revision",
+    "publishing_facebook": "Publishing to Facebook",
+    "facebook_done": "Facebook publishing complete",
+    "publishing_instagram": "Publishing to Instagram",
+    "instagram_done": "Instagram publishing complete",
+    "completed": "Workflow complete",
+    "failed": "Workflow stopped",
+}
+X_STATUS_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:x\.com|twitter\.com)/[^/\s]+/status/\d+(?:\?[^\s]*)?",
+    re.IGNORECASE,
+)
 WATCHER_PROMPT_SUFFIX = """This request came from the persistent Telegram watcher.
 
 Follow AGENTS.md through creation and Telegram preview delivery. Do not publish in
 this turn. After the latest preview has been sent successfully, stop and wait for
 the user to reply exactly `yes` to that preview in Telegram. The watcher will
-resume this exact Codex session with that approval. Do not use the unattended
-automatic-publishing exception."""
+resume this exact Codex session with that approval. Use
+`tools/news/report_progress.py` at every milestone required by AGENTS.md. Do not
+use the unattended automatic-publishing exception."""
 
 
 @dataclass(frozen=True)
@@ -70,6 +103,16 @@ class TelegramMessage:
     text: str
     reply_to_message_id: int | None
     received_at: str | None
+
+
+@dataclass(frozen=True)
+class TelegramCallback:
+    update_id: int
+    callback_id: str
+    message_id: int
+    chat_id: str
+    sender_id: str | None
+    data: str
 
 
 @dataclass(frozen=True)
@@ -155,6 +198,9 @@ def connect_database(path: Path) -> sqlite3.Connection:
             finished_at TEXT,
             last_error TEXT,
             final_output TEXT,
+            workflow_type TEXT,
+            selector_message_id INTEGER,
+            progress_message_id INTEGER,
             UNIQUE(chat_id, source_message_id)
         );
 
@@ -179,8 +225,37 @@ def connect_database(path: Path) -> sqlite3.Connection:
             kind TEXT NOT NULL,
             processed_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS job_progress_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES jobs(id),
+            stage TEXT NOT NULL,
+            detail TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS job_progress_events_job_idx
+            ON job_progress_events(job_id, id);
         """
     )
+    existing_columns = {
+        str(row["name"])
+        for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    for name, definition in (
+        ("workflow_type", "TEXT"),
+        ("selector_message_id", "INTEGER"),
+        ("progress_message_id", "INTEGER"),
+    ):
+        if name not in existing_columns:
+            connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+            if name == "workflow_type":
+                connection.execute(
+                    """
+                    UPDATE jobs SET workflow_type = 'auto'
+                    WHERE workflow_type IS NULL
+                    """
+                )
     connection.commit()
     return connection
 
@@ -284,7 +359,7 @@ def get_updates(
             "offset": str(offset),
             "limit": "100",
             "timeout": str(timeout_seconds),
-            "allowed_updates": json.dumps(["message"]),
+            "allowed_updates": json.dumps(["message", "callback_query"]),
         },
         timeout=(10, timeout_seconds + 15),
     )
@@ -299,30 +374,85 @@ def send_text(
     text: str,
     *,
     reply_to_message_id: int,
+    reply_markup: dict[str, Any] | None = None,
 ) -> list[int]:
     message_ids: list[int] = []
     for chunk in split_message(text):
+        data = {
+            "chat_id": config.telegram_chat_id,
+            "text": chunk,
+            "disable_web_page_preview": "true",
+            "reply_parameters": json.dumps(
+                {
+                    "message_id": reply_to_message_id,
+                    "allow_sending_without_reply": True,
+                },
+                separators=(",", ":"),
+            ),
+        }
+        if reply_markup is not None and len(split_message(text)) == 1:
+            data["reply_markup"] = json.dumps(reply_markup, separators=(",", ":"))
         result = telegram_call(
             session,
             config,
             "sendMessage",
-            {
-                "chat_id": config.telegram_chat_id,
-                "text": chunk,
-                "disable_web_page_preview": "true",
-                "reply_parameters": json.dumps(
-                    {
-                        "message_id": reply_to_message_id,
-                        "allow_sending_without_reply": True,
-                    },
-                    separators=(",", ":"),
-                ),
-            },
+            data,
             timeout=(10, 30),
         )
         if isinstance(result, dict) and isinstance(result.get("message_id"), int):
             message_ids.append(result["message_id"])
     return message_ids
+
+
+def edit_text(
+    session: requests.Session,
+    config: Config,
+    message_id: int,
+    text: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    data: dict[str, Any] = {
+        "chat_id": config.telegram_chat_id,
+        "message_id": str(message_id),
+        "text": text,
+        "disable_web_page_preview": "true",
+    }
+    data["reply_markup"] = json.dumps(
+        reply_markup or {"inline_keyboard": []}, separators=(",", ":")
+    )
+    telegram_call(session, config, "editMessageText", data, timeout=(10, 30))
+
+
+def answer_callback(
+    session: requests.Session,
+    config: Config,
+    callback_id: str,
+    text: str,
+) -> None:
+    telegram_call(
+        session,
+        config,
+        "answerCallbackQuery",
+        {"callback_query_id": callback_id, "text": text},
+        timeout=(10, 30),
+    )
+
+
+def workflow_keyboard(job_id: int) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "News", "callback_data": f"workflow:{job_id}:news"},
+                {"text": "Model Release", "callback_data": f"workflow:{job_id}:model"},
+            ],
+            [
+                {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
+                {"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"},
+            ],
+            [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
+        ]
+    }
 
 
 def parse_message(
@@ -365,9 +495,56 @@ def parse_message(
     )
 
 
-def build_initial_prompt(job_id: int, request_text: str) -> str:
+def parse_callback(
+    update: dict[str, Any], config: Config
+) -> TelegramCallback | None:
+    update_id = update.get("update_id")
+    callback = update.get("callback_query")
+    if not isinstance(update_id, int) or not isinstance(callback, dict):
+        return None
+    message = callback.get("message")
+    sender = callback.get("from")
+    chat = message.get("chat") if isinstance(message, dict) else None
+    if not isinstance(chat, dict) or str(chat.get("id")) != config.telegram_chat_id:
+        return None
+    if isinstance(sender, dict) and sender.get("is_bot"):
+        return None
+    sender_id = str(sender.get("id")) if isinstance(sender, dict) and sender.get("id") else None
+    if config.allowed_user_ids and sender_id not in config.allowed_user_ids:
+        return None
+    callback_id = callback.get("id")
+    message_id = message.get("message_id") if isinstance(message, dict) else None
+    data = callback.get("data")
+    if not isinstance(callback_id, str) or not isinstance(message_id, int):
+        return None
+    if not isinstance(data, str):
+        return None
+    return TelegramCallback(
+        update_id=update_id,
+        callback_id=callback_id,
+        message_id=message_id,
+        chat_id=config.telegram_chat_id,
+        sender_id=sender_id,
+        data=data,
+    )
+
+
+def build_initial_prompt(
+    job_id: int, request_text: str, workflow_type: str = "auto"
+) -> str:
+    if workflow_type not in WORKFLOW_TYPES:
+        raise ValueError(f"Unsupported workflow type: {workflow_type}")
+    route_instruction = (
+        "Run the normal one-time news/model classification from AGENTS.md."
+        if workflow_type == "auto"
+        else (
+            f"The user manually selected workflow_type `{workflow_type}`. This "
+            "trusted selection is authoritative: persist it and do not reclassify."
+        )
+    )
     return (
         "Read AGENTS.md\n\n"
+        f"{route_instruction}\n\n"
         "TELEGRAM REQUEST START\n"
         f"{request_text.strip()}\n"
         "TELEGRAM REQUEST END\n\n"
@@ -458,6 +635,7 @@ def invoke_codex(
             "TELEGRAM_REPLY_TO_MESSAGE_ID": str(reply_to_message_id),
             "TELEGRAM_PREVIEW_RECEIPT_PATH": str(receipt_path),
             "TELEGRAM_WATCHER_JOB_ID": str(job["id"]),
+            "BITS_TODAY_WORKFLOW_TYPE": str(job["workflow_type"] or "auto"),
         }
     )
     try:
@@ -494,6 +672,7 @@ def receipt_message_ids(path: Path) -> list[int]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     values = [
         *(payload.get("photo_message_ids") or []),
+        *(payload.get("video_message_ids") or []),
         *(payload.get("description_message_ids") or []),
     ]
     message_ids = [value for value in values if isinstance(value, int)]
@@ -562,6 +741,103 @@ def mark_failed(
     connection.commit()
 
 
+def add_progress_event(
+    connection: sqlite3.Connection,
+    job_id: int,
+    stage: str,
+    detail: str | None = None,
+) -> None:
+    if stage not in PROGRESS_STAGE_LABELS:
+        raise ValueError(f"Unsupported progress stage: {stage}")
+    normalized_detail = (detail or "").strip() or None
+    connection.execute(
+        """
+        INSERT INTO job_progress_events(job_id, stage, detail, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (job_id, stage, normalized_detail, utc_now()),
+    )
+    connection.execute(
+        "UPDATE jobs SET updated_at = ? WHERE id = ?", (utc_now(), job_id)
+    )
+    connection.commit()
+
+
+def render_progress(connection: sqlite3.Connection, job_id: int) -> str:
+    job = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise ValueError(f"Watcher job {job_id} does not exist")
+    events = connection.execute(
+        """
+        SELECT stage, detail FROM job_progress_events
+        WHERE job_id = ? ORDER BY id
+        """,
+        (job_id,),
+    ).fetchall()
+    workflow = str(job["workflow_type"] or "awaiting selection")
+    lines = [
+        f"Bits Today · Job {job_id}",
+        f"Workflow: {WORKFLOW_LABELS.get(workflow, workflow.title())}",
+        "",
+    ]
+    if not events:
+        lines.append("○ Choose a workflow to begin.")
+    else:
+        for index, event in enumerate(events):
+            stage = str(event["stage"])
+            marker = "✓" if index < len(events) - 1 or stage in {
+                "completed", "facebook_done", "instagram_done", "preview"
+            } else "●"
+            if stage == "failed":
+                marker = "!"
+            label = PROGRESS_STAGE_LABELS.get(stage, stage.replace("_", " ").title())
+            detail = str(event["detail"] or "").strip()
+            line = f"{marker} {label}"
+            if detail:
+                line += f": {detail}"
+            lines.append(line)
+    lines.extend(
+        [
+            "",
+            "Progress updates appear here. Approval only works by replying to the latest preview package.",
+        ]
+    )
+    return "\n".join(lines)[-4096:]
+
+
+def update_progress_message(
+    session: requests.Session,
+    config: Config,
+    connection: sqlite3.Connection,
+    job_id: int,
+) -> None:
+    job = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None or not job["progress_message_id"]:
+        return
+    try:
+        edit_text(
+            session,
+            config,
+            int(job["progress_message_id"]),
+            render_progress(connection, job_id),
+        )
+    except RuntimeError as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
+
+
+def report_progress(
+    session: requests.Session,
+    config: Config,
+    connection: sqlite3.Connection,
+    job_id: int,
+    stage: str,
+    detail: str | None = None,
+) -> None:
+    add_progress_event(connection, job_id, stage, detail)
+    update_progress_message(session, config, connection, job_id)
+
+
 def notify_failure(
     session: requests.Session,
     config: Config,
@@ -583,7 +859,11 @@ def notify_failure(
 def claim_next_job(connection: sqlite3.Connection) -> sqlite3.Row | None:
     connection.execute("BEGIN IMMEDIATE")
     row = connection.execute(
-        "SELECT * FROM jobs WHERE status = 'queued' ORDER BY source_update_id LIMIT 1"
+        """
+        SELECT * FROM jobs
+        WHERE status = 'queued' AND workflow_type IS NOT NULL
+        ORDER BY source_update_id LIMIT 1
+        """
     ).fetchone()
     if row is None:
         connection.commit()
@@ -610,7 +890,11 @@ def process_next_job(
     result = invoke_codex(
         config,
         job,
-        prompt=build_initial_prompt(int(job["id"]), str(job["request_text"])),
+        prompt=build_initial_prompt(
+            int(job["id"]),
+            str(job["request_text"]),
+            str(job["workflow_type"]),
+        ),
         reply_to_message_id=int(job["source_message_id"]),
         resume=False,
     )
@@ -622,6 +906,12 @@ def process_next_job(
             else "Codex finished without delivering a Telegram preview"
         )
         mark_failed(connection, int(job["id"]), error)
+        try:
+            report_progress(
+                session, config, connection, int(job["id"]), "failed", error
+            )
+        except RuntimeError:
+            pass
         notify_failure(
             session,
             config,
@@ -647,6 +937,17 @@ def process_next_job(
             session, config, int(job["id"]), int(job["source_message_id"]), error
         )
         return True
+    try:
+        report_progress(
+            session,
+            config,
+            connection,
+            int(job["id"]),
+            "preview",
+            f"{len(preview_ids)} Telegram messages",
+        )
+    except RuntimeError as exc:
+        print(f"Could not update progress for job {job['id']}: {exc}", file=sys.stderr)
     try:
         instruction_ids = send_text(
             session,
@@ -685,7 +986,7 @@ def preview_job_for_reply(
 
 def record_event(
     connection: sqlite3.Connection,
-    message: TelegramMessage,
+    message: TelegramMessage | TelegramCallback,
     kind: str,
     job_id: int | None,
 ) -> None:
@@ -702,14 +1003,19 @@ def record_event(
 
 
 def enqueue_request(
-    connection: sqlite3.Connection, message: TelegramMessage
+    connection: sqlite3.Connection,
+    message: TelegramMessage,
+    *,
+    workflow_type: str | None = None,
 ) -> int:
+    if workflow_type is not None and workflow_type not in WORKFLOW_TYPES:
+        raise ValueError(f"Unsupported workflow type: {workflow_type}")
     cursor = connection.execute(
         """
         INSERT OR IGNORE INTO jobs(
             source_update_id, chat_id, source_message_id, sender_id,
-            request_text, received_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            request_text, received_at, updated_at, workflow_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.update_id,
@@ -719,6 +1025,7 @@ def enqueue_request(
             message.text,
             message.received_at,
             utc_now(),
+            workflow_type,
         ),
     )
     if cursor.rowcount == 1:
@@ -730,6 +1037,58 @@ def enqueue_request(
         job_id = int(row["id"])
     record_event(connection, message, "queued", job_id)
     return job_id
+
+
+def set_progress_message(
+    connection: sqlite3.Connection, job_id: int, message_id: int
+) -> None:
+    connection.execute(
+        """
+        UPDATE jobs
+        SET selector_message_id = ?, progress_message_id = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (message_id, message_id, utc_now(), job_id),
+    )
+    connection.commit()
+
+
+def select_workflow(
+    connection: sqlite3.Connection, job_id: int, workflow_type: str
+) -> bool:
+    if workflow_type not in WORKFLOW_TYPES:
+        raise ValueError(f"Unsupported workflow type: {workflow_type}")
+    cursor = connection.execute(
+        """
+        UPDATE jobs SET workflow_type = ?, updated_at = ?
+        WHERE id = ? AND status = 'queued' AND workflow_type IS NULL
+        """,
+        (workflow_type, utc_now(), job_id),
+    )
+    connection.commit()
+    return cursor.rowcount == 1
+
+
+def cancel_pending_job(connection: sqlite3.Connection, job_id: int) -> bool:
+    cursor = connection.execute(
+        """
+        UPDATE jobs
+        SET status = 'failed', updated_at = ?, finished_at = ?,
+            last_error = 'Cancelled before workflow selection'
+        WHERE id = ? AND status = 'queued' AND workflow_type IS NULL
+        """,
+        (utc_now(), utc_now(), job_id),
+    )
+    connection.commit()
+    return cursor.rowcount == 1
+
+
+def progress_job_for_reply(
+    connection: sqlite3.Connection, message_id: int
+) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT * FROM jobs WHERE progress_message_id = ?", (message_id,)
+    ).fetchone()
 
 
 def claim_resume_turn(
@@ -762,6 +1121,17 @@ def process_resume(
     approval: bool,
 ) -> None:
     claimed = claim_resume_turn(connection, int(job["id"]), approval=approval)
+    try:
+        report_progress(
+            session,
+            config,
+            connection,
+            int(job["id"]),
+            "publishing_facebook" if approval else "revision",
+            None,
+        )
+    except RuntimeError as exc:
+        print(f"Could not update progress for job {job['id']}: {exc}", file=sys.stderr)
     result = invoke_codex(
         config,
         claimed,
@@ -772,6 +1142,12 @@ def process_resume(
     if result.exit_code != 0:
         error = result.error or "Codex resume failed"
         mark_failed(connection, int(job["id"]), error)
+        try:
+            report_progress(
+                session, config, connection, int(job["id"]), "failed", error
+            )
+        except RuntimeError:
+            pass
         notify_failure(session, config, int(job["id"]), message.message_id, error)
         return
 
@@ -811,6 +1187,17 @@ def process_resume(
                 int(claimed["turn_count"]),
                 message_id,
             )
+        try:
+            report_progress(
+                session,
+                config,
+                connection,
+                int(job["id"]),
+                "preview",
+                f"{len(preview_ids)} Telegram messages",
+            )
+        except RuntimeError:
+            pass
         return
 
     if not approval:
@@ -841,6 +1228,12 @@ def process_resume(
     )
     connection.commit()
     try:
+        report_progress(
+            session, config, connection, int(job["id"]), "completed", None
+        )
+    except RuntimeError as exc:
+        print(f"Could not update progress for job {job['id']}: {exc}", file=sys.stderr)
+    try:
         send_text(
             session,
             config,
@@ -866,13 +1259,130 @@ def handle_update(
         set_setting(connection, "telegram_offset", str(update_id + 1))
         connection.commit()
         return
+    callback = parse_callback(update, config)
+    if callback is not None:
+        match = re.fullmatch(r"workflow:(\d+):(news|model|reel|auto|cancel)", callback.data)
+        if match is None:
+            record_event(connection, callback, "ignored_callback", None)
+            answer_callback(session, config, callback.callback_id, "This button is not recognized.")
+            return
+        job_id = int(match.group(1))
+        choice = match.group(2)
+        job = connection.execute(
+            "SELECT * FROM jobs WHERE id = ? AND selector_message_id = ?",
+            (job_id, callback.message_id),
+        ).fetchone()
+        if job is None:
+            record_event(connection, callback, "ignored_stale_callback", None)
+            answer_callback(session, config, callback.callback_id, "This selector is no longer active.")
+            return
+        if choice == "cancel":
+            changed = cancel_pending_job(connection, job_id)
+            record_event(connection, callback, "cancelled" if changed else "ignored_stale_callback", job_id)
+            answer_callback(
+                session,
+                config,
+                callback.callback_id,
+                "Cancelled." if changed else "This job has already started.",
+            )
+            if changed:
+                edit_text(
+                    session,
+                    config,
+                    callback.message_id,
+                    f"Bits Today · Job {job_id}\n\n! Cancelled before workflow selection.",
+                )
+            return
+        changed = select_workflow(connection, job_id, choice)
+        record_event(
+            connection,
+            callback,
+            "workflow_selected" if changed else "ignored_stale_callback",
+            job_id,
+        )
+        answer_callback(
+            session,
+            config,
+            callback.callback_id,
+            (
+                f"{WORKFLOW_LABELS[choice]} selected."
+                if changed
+                else "This job has already been selected."
+            ),
+        )
+        if changed:
+            report_progress(
+                session,
+                config,
+                connection,
+                job_id,
+                "selected",
+                WORKFLOW_LABELS[choice],
+            )
+        return
     message = parse_message(update, config)
     if message is None:
         set_setting(connection, "telegram_offset", str(update_id + 1))
         connection.commit()
         return
     if message.text.startswith("/"):
-        record_event(connection, message, "ignored_command", None)
+        command_match = re.match(
+            r"^/(news|model|reel|auto)(?:@\w+)?\s+(.+)$",
+            message.text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if command_match is None:
+            record_event(connection, message, "ignored_command", None)
+            send_text(
+                session,
+                config,
+                "Send an X status URL, or use /news, /model, /reel, or /auto followed by the URL.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        workflow_type = command_match.group(1).lower()
+        request_text = command_match.group(2).strip()
+        if X_STATUS_URL_RE.search(request_text) is None:
+            record_event(connection, message, "invalid_request", None)
+            send_text(
+                session,
+                config,
+                "I could not find an X/Twitter status URL in that command.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        direct_message = TelegramMessage(
+            update_id=message.update_id,
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            sender_id=message.sender_id,
+            text=request_text,
+            reply_to_message_id=message.reply_to_message_id,
+            received_at=message.received_at,
+        )
+        job_id = enqueue_request(
+            connection, direct_message, workflow_type=workflow_type
+        )
+        try:
+            ids = send_text(
+                session,
+                config,
+                f"Bits Today · Job {job_id}\nWorkflow: {WORKFLOW_LABELS[workflow_type]}\n\n● Queued",
+                reply_to_message_id=message.message_id,
+            )
+        except RuntimeError as exc:
+            mark_failed(connection, job_id, f"Could not create progress dashboard: {exc}")
+            return
+        if ids:
+            set_progress_message(connection, job_id, ids[0])
+            report_progress(
+                session,
+                config,
+                connection,
+                job_id,
+                "selected",
+                WORKFLOW_LABELS[workflow_type],
+            )
         return
 
     job = None
@@ -906,6 +1416,25 @@ def handle_update(
         )
         return
 
+    if message.reply_to_message_id is not None:
+        progress_job = progress_job_for_reply(
+            connection, message.reply_to_message_id
+        )
+        if progress_job is not None:
+            record_event(
+                connection,
+                message,
+                "ignored_progress_reply",
+                int(progress_job["id"]),
+            )
+            send_text(
+                session,
+                config,
+                "That message only shows progress. Reply to the latest preview package for revisions or approval.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+
     if message.text == "yes":
         record_event(connection, message, "ignored_unthreaded_approval", None)
         send_text(
@@ -915,7 +1444,35 @@ def handle_update(
             reply_to_message_id=message.message_id,
         )
         return
-    enqueue_request(connection, message)
+    if X_STATUS_URL_RE.search(message.text) is None:
+        record_event(connection, message, "invalid_request", None)
+        send_text(
+            session,
+            config,
+            "Send an X/Twitter status URL to start a Bits Today post.",
+            reply_to_message_id=message.message_id,
+        )
+        return
+    job_id = enqueue_request(connection, message)
+    try:
+        selector_ids = send_text(
+            session,
+            config,
+            (
+                f"Bits Today · Job {job_id}\n\n"
+                "Choose the workflow for this X post. Auto Detect uses the existing "
+                "news/model classifier."
+            ),
+            reply_to_message_id=message.message_id,
+            reply_markup=workflow_keyboard(job_id),
+        )
+    except RuntimeError as exc:
+        mark_failed(connection, job_id, f"Could not send workflow selector: {exc}")
+        return
+    if not selector_ids:
+        mark_failed(connection, job_id, "Telegram returned no workflow selector message")
+        return
+    set_progress_message(connection, job_id, selector_ids[0])
 
 
 def queue_status(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -929,7 +1486,8 @@ def queue_status(connection: sqlite3.Connection) -> dict[str, Any]:
         dict(row)
         for row in connection.execute(
             """
-            SELECT id, source_message_id, status, session_id, turn_count,
+            SELECT id, source_message_id, workflow_type, progress_message_id,
+                   status, session_id, turn_count,
                    received_at, updated_at, finished_at, last_error
             FROM jobs ORDER BY id DESC LIMIT 20
             """

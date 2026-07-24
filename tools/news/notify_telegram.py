@@ -25,6 +25,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 TELEGRAM_API_ROOT = "https://api.telegram.org"
 MAX_MESSAGE_CHARACTERS = 4096
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_VIDEO_SUFFIXES = {".mp4"}
 STAGE_LABELS = {
     "preview": "PREVIEW REVIEW",
     "final": "FINAL PUBLISHING APPROVAL",
@@ -158,6 +159,17 @@ def validate_image(image: Path) -> Path:
     return image
 
 
+def validate_video(video: Path) -> Path:
+    video = video.resolve()
+    if not video.is_file():
+        raise ValueError(f"Video does not exist: {video}")
+    if video.suffix.lower() not in ALLOWED_VIDEO_SUFFIXES:
+        raise ValueError("Telegram preview video must be MP4.")
+    if video.stat().st_size <= 0:
+        raise ValueError("Telegram preview video cannot be empty.")
+    return video
+
+
 def validate_description(description: str) -> str:
     description = description.strip()
     if not description:
@@ -225,6 +237,7 @@ def write_preview_receipt(
     job_id: str | None,
     reply_to_message_id: int | None,
     images: list[Path],
+    videos: list[Path] | None = None,
     description: str,
     telegram_result: dict[str, Any],
 ) -> Path:
@@ -238,6 +251,8 @@ def write_preview_receipt(
         "sent_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "images": [str(image.resolve()) for image in images],
         "image_sha256s": [sha256_file(image) for image in images],
+        "videos": [str(video.resolve()) for video in videos or []],
+        "video_sha256s": [sha256_file(video) for video in videos or []],
         "description_sha256": hashlib.sha256(description.encode("utf-8")).hexdigest(),
         **telegram_result,
     }
@@ -250,6 +265,58 @@ def write_preview_receipt(
     os.replace(temporary, path)
     path.chmod(0o600)
     return path
+
+
+def send_video_review_package(
+    session: requests.Session,
+    config: TelegramConfig,
+    *,
+    video: Path,
+    description: str,
+    stage: str,
+    reply_to_message_id: int | None = None,
+) -> dict[str, Any]:
+    video = validate_video(video)
+    description = validate_description(description)
+    label = STAGE_LABELS[stage]
+    mime_type = mimetypes.guess_type(video.name)[0] or "video/mp4"
+    with video.open("rb") as video_file:
+        video_result = call_telegram(
+            session,
+            config,
+            "sendVideo",
+            data={
+                "chat_id": config.chat_id,
+                "caption": f"Bits Today — {label} — REEL",
+                "supports_streaming": "true",
+                **reply_parameters(reply_to_message_id),
+            },
+            files={"video": (video.name, video_file, mime_type)},
+            timeout=(10, 180),
+        )
+    text_results = []
+    for chunk in split_message(f"Bits Today — {label}\n\n{description}"):
+        text_results.append(
+            call_telegram(
+                session,
+                config,
+                "sendMessage",
+                data={
+                    "chat_id": config.chat_id,
+                    "text": chunk,
+                    "disable_web_page_preview": "true",
+                    **reply_parameters(reply_to_message_id),
+                },
+                timeout=(10, 30),
+            )
+        )
+    return {
+        "video_message_id": video_result.get("message_id"),
+        "video_message_ids": [video_result.get("message_id")],
+        "photo_message_ids": [],
+        "description_message_ids": [item.get("message_id") for item in text_results],
+        "reply_to_message_id": reply_to_message_id,
+    }
 
 
 def send_review_package(
@@ -346,7 +413,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List private chats that have messaged the bot, then exit.",
     )
-    parser.add_argument("--image", type=Path, help="Local review image.")
+    media_group = parser.add_mutually_exclusive_group()
+    media_group.add_argument("--image", type=Path, help="Local review image.")
+    media_group.add_argument("--video", type=Path, help="Local MP4 reel preview.")
     parser.add_argument(
         "--secondary-image",
         action="append",
@@ -393,11 +462,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 0
 
-            if args.image is None or not (args.description or args.description_file):
+            if (args.image is None and args.video is None) or not (
+                args.description or args.description_file
+            ):
                 raise ValueError(
-                    "--image and either --description or --description-file are required."
+                    "--image or --video and either --description or --description-file are required."
                 )
-            image = validate_image(args.image)
+            if args.video is not None and args.secondary_image:
+                raise ValueError("--secondary-image cannot be used with --video.")
+            image = validate_image(args.image) if args.image is not None else None
+            video = validate_video(args.video) if args.video is not None else None
             secondary_images = [
                 validate_image(item) for item in args.secondary_image
             ]
@@ -412,11 +486,12 @@ def main(argv: list[str] | None = None) -> int:
                             "bot_username": bot.get("username"),
                             "chat_type": chat.get("type"),
                             "stage": args.stage,
-                            "image": str(image),
+                            "image": str(image) if image is not None else None,
+                            "video": str(video) if video is not None else None,
                             "secondary_images": [
                                 str(item) for item in secondary_images
                             ],
-                            "image_count": 1 + len(secondary_images),
+                            "image_count": (1 + len(secondary_images)) if image else 0,
                             "description_characters": len(description),
                         },
                         ensure_ascii=False,
@@ -425,15 +500,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 0
 
-            result = send_review_package(
-                session,
-                config,
-                image=image,
-                description=description,
-                stage=args.stage,
-                secondary_images=secondary_images,
-                reply_to_message_id=watcher_reply_message_id(),
-            )
+            if video is not None:
+                result = send_video_review_package(
+                    session,
+                    config,
+                    video=video,
+                    description=description,
+                    stage=args.stage,
+                    reply_to_message_id=watcher_reply_message_id(),
+                )
+            else:
+                assert image is not None
+                result = send_review_package(
+                    session,
+                    config,
+                    image=image,
+                    description=description,
+                    stage=args.stage,
+                    secondary_images=secondary_images,
+                    reply_to_message_id=watcher_reply_message_id(),
+                )
             receipt_path = None
             configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
             if args.stage == "preview" and configured_receipt:
@@ -441,7 +527,8 @@ def main(argv: list[str] | None = None) -> int:
                     Path(configured_receipt),
                     job_id=os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip() or None,
                     reply_to_message_id=result["reply_to_message_id"],
-                    images=[image, *secondary_images],
+                    images=([image, *secondary_images] if image is not None else []),
+                    videos=([video] if video is not None else []),
                     description=description,
                     telegram_result=result,
                 )

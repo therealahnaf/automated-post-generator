@@ -151,6 +151,39 @@ class NotifyTelegramTests(unittest.TestCase):
         self.assertEqual(len(payload["image_sha256s"][0]), 64)
         self.assertEqual(len(payload["description_sha256"]), 64)
 
+    def test_send_video_review_package_sends_video_then_description(self) -> None:
+        video_response = Mock()
+        video_response.ok = True
+        video_response.status_code = 200
+        video_response.json.return_value = {
+            "ok": True,
+            "result": {"message_id": 30},
+        }
+        message_response = Mock()
+        message_response.ok = True
+        message_response.status_code = 200
+        message_response.json.return_value = {
+            "ok": True,
+            "result": {"message_id": 31},
+        }
+        session = Mock()
+        session.post.side_effect = [video_response, message_response]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "reel.mp4"
+            video.write_bytes(b"test-video")
+            result = notify_telegram.send_video_review_package(
+                session,
+                self.config,
+                video=video,
+                description="Reel description.",
+                stage="preview",
+                reply_to_message_id=12,
+            )
+        self.assertEqual(result["video_message_ids"], [30])
+        self.assertEqual(result["description_message_ids"], [31])
+        self.assertTrue(session.post.call_args_list[0].args[0].endswith("/sendVideo"))
+        self.assertIn("video", session.post.call_args_list[0].kwargs["files"])
+
 
 if __name__ == "__main__":
     unittest.main()

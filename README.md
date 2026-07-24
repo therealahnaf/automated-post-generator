@@ -23,7 +23,8 @@ fonts, credentials, policies, and tests remain at the repository root.
 `AGENTS.md` is the lightweight X-link router and shared approval/publishing
 contract. It dispatches validated stories to either
 [`tools/news/WORKFLOW.md`](tools/news/WORKFLOW.md) or
-[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md).
+[`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md), and trusted manual reel
+requests to [`tools/reels/WORKFLOW.md`](tools/reels/WORKFLOW.md).
 
 The model-announcement workflow lives in `tools/models/`. It creates a centered
 `Meet <model name>` primary card and feature-focused secondary cards. Posts
@@ -31,6 +32,12 @@ with photos create exactly one description segment per photo; posts without
 photos split the finalized English description into two or three cards that
 reuse the primary background. See
 [`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md) for the complete flow.
+
+The reel workflow converts an X video into a maximum 59.5-second 1080x1920
+H.264/AAC post. It contains the source video over a blurred moving fill, applies
+the news headline treatment, and ends with the live-video coral/mint type-out
+outro. `tools/reels/generate_reel.py` renders it; the dedicated Facebook and
+Instagram reel publishers retain the same exact-approval safeguards.
 
 Three Pillow presets are available through `--style`:
 
@@ -325,7 +332,16 @@ installation time.
 
 `tools/news/telegram_codex_watcher.py` is a separate, always-running alternative to the
 hourly queue. It uses Telegram long polling, keeps each Codex session, and
-sends previews as replies to the originating Telegram request. Reply exactly
+sends previews as replies to the originating Telegram request. Sending an X
+status URL first presents `News`, `Model Release`, `Reel`, `Auto Detect`, and
+`Cancel` inline buttons. `/news URL`, `/model URL`, `/reel URL`, and `/auto URL`
+are direct-selection shortcuts. Manual selections are authoritative; Auto
+Detect runs the news/model classifier.
+
+The selector message becomes one edited progress dashboard for source fetching,
+media discovery, headline, research, bilingual description, generated items,
+preview, revisions, and both publishing stages. Replies to this dashboard never
+approve or revise a job. Reply exactly
 `yes` to any message in the latest preview package to resume that same Codex
 session and publish. A non-`yes` reply is treated as revision feedback and must
 produce another preview before approval. Replies to stale previews and
