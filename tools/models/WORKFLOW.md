@@ -11,7 +11,10 @@ Use this workflow for posts announcing or introducing an AI model.
    internet, enhance the caption only with useful sourced details, keep both
    languages synchronized, and finalize it with
    `tools/news/finalize_description.py`. The supplied X URL must appear first
-   under `Sources:`, followed by research URLs actually used.
+   under `Sources:`, followed by research URLs actually used. Preserve the
+   shared generator's poster-identity policy: identify the original poster only
+   when they are unmistakably a major public figure or major official account;
+   otherwise omit their account name and `@username`.
 3. Identify the exact announced model name and the releasing company or
    organization from the validated source. Never infer a company that is not
    supported by the announcement or its official source. Run

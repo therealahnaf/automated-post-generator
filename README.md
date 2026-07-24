@@ -369,6 +369,14 @@ startup it imports the existing hourly queue's Telegram offset, so messages are
 neither replayed nor skipped while switching processes. Interrupted publishing
 is marked failed and never retried automatically.
 
+Ready jobs, revisions, approvals, and publishing turns run concurrently with no
+application-level worker limit. The watcher keeps one Telegram polling
+coordinator and launches one isolated worker thread per claimed turn. Each
+worker uses its own SQLite connection, Telegram session, Codex session state,
+and `.automation/watcher/jobs/job-<id>/` artifact directory. Practical
+concurrency is therefore limited only by the host and the external OpenAI,
+Apify, Telegram, and Meta services.
+
 Pause only the managed cron entry, then install the systemd service:
 
 ```bash

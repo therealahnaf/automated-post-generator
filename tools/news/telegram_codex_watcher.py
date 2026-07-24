@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -270,6 +271,14 @@ def connect_database(path: Path) -> sqlite3.Connection:
                     """
                 )
     connection.commit()
+    return connection
+
+
+def connect_worker_database(path: Path) -> sqlite3.Connection:
+    """Open the already-initialized watcher database for one worker thread."""
+    connection = sqlite3.connect(path, timeout=30)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=30000")
     return connection
 
 
@@ -583,7 +592,11 @@ def build_initial_prompt(
         "TELEGRAM REQUEST START\n"
         f"{request_text.strip()}\n"
         "TELEGRAM REQUEST END\n\n"
-        f"Telegram watcher job: {job_id}\n\n{WATCHER_PROMPT_SUFFIX}"
+        f"Telegram watcher job: {job_id}\n\n"
+        "Keep every downloaded and generated artifact for this job inside the "
+        "directory specified by BITS_TODAY_JOB_DIR. Do not reuse another job's "
+        "artifact directory.\n\n"
+        f"{WATCHER_PROMPT_SUFFIX}"
     )
 
 
@@ -644,6 +657,8 @@ def invoke_codex(
     stderr_path = logs_dir / f"{stem}.stderr.log"
     final_output_path = logs_dir / f"{stem}.final.txt"
     receipt_path = receipts_dir / f"{stem}.json"
+    job_dir = config.state_dir / "jobs" / f"job-{job['id']}"
+    job_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     if resume:
         command = [
@@ -680,6 +695,7 @@ def invoke_codex(
             "TELEGRAM_WATCHER_JOB_ID": str(job["id"]),
             "BITS_TODAY_WORKFLOW_TYPE": str(job["workflow_type"] or "auto"),
             "BITS_TODAY_POST_LANGUAGE": str(job["post_language"] or "english"),
+            "BITS_TODAY_JOB_DIR": str(job_dir),
         }
     )
     try:
@@ -944,12 +960,12 @@ def claim_next_job(connection: sqlite3.Connection) -> sqlite3.Row | None:
     return connection.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
 
 
-def process_next_job(
-    session: requests.Session, config: Config, connection: sqlite3.Connection
-) -> bool:
-    job = claim_next_job(connection)
-    if job is None:
-        return False
+def process_claimed_job(
+    session: requests.Session,
+    config: Config,
+    connection: sqlite3.Connection,
+    job: sqlite3.Row,
+) -> None:
     result = invoke_codex(
         config,
         job,
@@ -983,7 +999,7 @@ def process_next_job(
             int(job["source_message_id"]),
             error,
         )
-        return True
+        return
 
     connection.execute(
         "UPDATE jobs SET session_id = ?, updated_at = ? WHERE id = ?",
@@ -1000,7 +1016,7 @@ def process_next_job(
         notify_failure(
             session, config, int(job["id"]), int(job["source_message_id"]), error
         )
-        return True
+        return
     try:
         report_progress(
             session,
@@ -1030,6 +1046,16 @@ def process_next_job(
         add_active_preview_message(
             connection, int(job["id"]), int(job["turn_count"]), message_id
         )
+
+
+def process_next_job(
+    session: requests.Session, config: Config, connection: sqlite3.Connection
+) -> bool:
+    """Synchronously process one job; retained for one-shot callers and tests."""
+    job = claim_next_job(connection)
+    if job is None:
+        return False
+    process_claimed_job(session, config, connection, job)
     return True
 
 
@@ -1177,10 +1203,10 @@ def claim_resume_turn(
     job_id: int,
     *,
     approval: bool,
-) -> sqlite3.Row:
+) -> sqlite3.Row | None:
     status = "publishing" if approval else "revising"
     connection.execute("BEGIN IMMEDIATE")
-    connection.execute(
+    cursor = connection.execute(
         """
         UPDATE jobs
         SET status = ?, turn_count = turn_count + 1, updated_at = ?
@@ -1189,7 +1215,148 @@ def claim_resume_turn(
         (status, utc_now(), job_id),
     )
     connection.commit()
+    if cursor.rowcount != 1:
+        return None
     return connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+
+
+def process_claimed_resume(
+    session: requests.Session,
+    config: Config,
+    connection: sqlite3.Connection,
+    claimed: sqlite3.Row,
+    message: TelegramMessage,
+    *,
+    approval: bool,
+) -> None:
+    job_id = int(claimed["id"])
+    try:
+        report_progress(
+            session,
+            config,
+            connection,
+            job_id,
+            "publishing_facebook" if approval else "revision",
+            None,
+        )
+    except RuntimeError as exc:
+        print(f"Could not update progress for job {job_id}: {exc}", file=sys.stderr)
+    result = invoke_codex(
+        config,
+        claimed,
+        prompt="yes" if approval else build_revision_prompt(message.text),
+        reply_to_message_id=message.message_id,
+        resume=True,
+    )
+    if result.exit_code != 0:
+        error = result.error or "Codex resume failed"
+        mark_failed(connection, job_id, error)
+        try:
+            report_progress(
+                session, config, connection, job_id, "failed", error
+            )
+        except RuntimeError:
+            pass
+        notify_failure(session, config, job_id, message.message_id, error)
+        return
+
+    if result.receipt_path.is_file():
+        try:
+            preview_ids = register_preview(
+                connection,
+                job_id,
+                int(claimed["turn_count"]),
+                result.receipt_path,
+            )
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            error = f"Could not register the revised Telegram preview receipt: {exc}"
+            mark_failed(connection, job_id, error)
+            notify_failure(session, config, job_id, message.message_id, error)
+            return
+        try:
+            instruction_ids = send_text(
+                session,
+                config,
+                (
+                    f"Revised preview ready for watcher job {job_id}. Reply exactly "
+                    "yes to the latest package to publish, or reply with more changes."
+                ),
+                reply_to_message_id=preview_ids[-1],
+            )
+        except RuntimeError as exc:
+            print(
+                f"Could not send revised approval instructions for job {job_id}: {exc}",
+                file=sys.stderr,
+            )
+            instruction_ids = []
+        for message_id in instruction_ids:
+            add_active_preview_message(
+                connection,
+                job_id,
+                int(claimed["turn_count"]),
+                message_id,
+            )
+        try:
+            report_progress(
+                session,
+                config,
+                connection,
+                job_id,
+                "preview",
+                f"{len(preview_ids)} Telegram messages",
+            )
+        except RuntimeError:
+            pass
+        return
+
+    if not approval:
+        error = "Codex accepted the revision but did not deliver a new Telegram preview"
+        mark_failed(connection, job_id, error)
+        notify_failure(session, config, job_id, message.message_id, error)
+        return
+
+    reported_failure = latest_progress_failure(connection, job_id)
+    if reported_failure:
+        error = f"Codex reported a publishing failure: {reported_failure}"
+        mark_failed(connection, job_id, error)
+        return
+
+    final_output = ""
+    if result.final_output_path.is_file():
+        try:
+            final_output = result.final_output_path.read_text(
+                encoding="utf-8", errors="replace"
+            ).strip()
+        except OSError as exc:
+            print(f"Could not read final output for job {job_id}: {exc}", file=sys.stderr)
+    connection.execute(
+        """
+        UPDATE jobs
+        SET status = 'completed', updated_at = ?, finished_at = ?,
+            final_output = ?, last_error = NULL
+        WHERE id = ?
+        """,
+        (utc_now(), utc_now(), final_output, job_id),
+    )
+    connection.execute(
+        "UPDATE preview_messages SET active = 0 WHERE job_id = ?", (job_id,)
+    )
+    connection.commit()
+    try:
+        report_progress(
+            session, config, connection, job_id, "completed", None
+        )
+    except RuntimeError as exc:
+        print(f"Could not update progress for job {job_id}: {exc}", file=sys.stderr)
+    try:
+        send_text(
+            session,
+            config,
+            final_output or f"Watcher job {job_id} completed successfully.",
+            reply_to_message_id=message.message_id,
+        )
+    except RuntimeError as exc:
+        print(f"Could not send completion notice for job {job_id}: {exc}", file=sys.stderr)
 
 
 def process_resume(
@@ -1201,134 +1368,185 @@ def process_resume(
     *,
     approval: bool,
 ) -> None:
+    """Synchronously resume one job; retained for one-shot callers and tests."""
     claimed = claim_resume_turn(connection, int(job["id"]), approval=approval)
-    try:
-        report_progress(
-            session,
-            config,
-            connection,
-            int(job["id"]),
-            "publishing_facebook" if approval else "revision",
-            None,
-        )
-    except RuntimeError as exc:
-        print(f"Could not update progress for job {job['id']}: {exc}", file=sys.stderr)
-    result = invoke_codex(
+    if claimed is None:
+        return
+    process_claimed_resume(
+        session,
         config,
+        connection,
         claimed,
-        prompt="yes" if approval else build_revision_prompt(message.text),
-        reply_to_message_id=message.message_id,
-        resume=True,
+        message,
+        approval=approval,
     )
-    if result.exit_code != 0:
-        error = result.error or "Codex resume failed"
-        mark_failed(connection, int(job["id"]), error)
-        try:
-            report_progress(
-                session, config, connection, int(job["id"]), "failed", error
-            )
-        except RuntimeError:
-            pass
-        notify_failure(session, config, int(job["id"]), message.message_id, error)
-        return
 
-    if result.receipt_path.is_file():
-        try:
-            preview_ids = register_preview(
-                connection,
-                int(job["id"]),
-                int(claimed["turn_count"]),
-                result.receipt_path,
+
+class UnlimitedJobRunner:
+    """Run every claimed watcher turn in its own unbounded worker thread."""
+
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self._lock = threading.Lock()
+        self._threads: dict[str, threading.Thread] = {}
+
+    def _launch(self, key: str, target: Any, *args: Any) -> bool:
+        def run() -> None:
+            try:
+                target(*args)
+            finally:
+                with self._lock:
+                    self._threads.pop(key, None)
+
+        with self._lock:
+            existing = self._threads.get(key)
+            if existing is not None and existing.is_alive():
+                return False
+            thread = threading.Thread(
+                target=run,
+                name=f"bits-today-{key}",
+                daemon=True,
             )
-        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
-            error = f"Could not register the revised Telegram preview receipt: {exc}"
-            mark_failed(connection, int(job["id"]), error)
-            notify_failure(session, config, int(job["id"]), message.message_id, error)
-            return
+            self._threads[key] = thread
         try:
-            instruction_ids = send_text(
-                session,
-                config,
-                (
-                    f"Revised preview ready for watcher job {job['id']}. Reply exactly "
-                    "yes to the latest package to publish, or reply with more changes."
-                ),
-                reply_to_message_id=preview_ids[-1],
+            thread.start()
+        except Exception:
+            with self._lock:
+                self._threads.pop(key, None)
+            raise
+        return True
+
+    def _record_unexpected_failure(
+        self,
+        session: requests.Session,
+        connection: sqlite3.Connection,
+        job_id: int,
+        reply_to_message_id: int,
+        exc: Exception,
+    ) -> None:
+        error = f"Watcher worker crashed: {type(exc).__name__}: {exc}"
+        try:
+            mark_failed(connection, job_id, error)
+            report_progress(
+                session, self.config, connection, job_id, "failed", error
             )
-        except RuntimeError as exc:
+        except Exception as report_exc:
             print(
-                f"Could not send revised approval instructions for job {job['id']}: {exc}",
+                f"Could not record worker failure for job {job_id}: {report_exc}",
                 file=sys.stderr,
+                flush=True,
             )
-            instruction_ids = []
-        for message_id in instruction_ids:
-            add_active_preview_message(
-                connection,
-                int(job["id"]),
-                int(claimed["turn_count"]),
-                message_id,
-            )
-        try:
-            report_progress(
-                session,
-                config,
-                connection,
-                int(job["id"]),
-                "preview",
-                f"{len(preview_ids)} Telegram messages",
-            )
-        except RuntimeError:
-            pass
-        return
-
-    if not approval:
-        error = "Codex accepted the revision but did not deliver a new Telegram preview"
-        mark_failed(connection, int(job["id"]), error)
-        notify_failure(session, config, int(job["id"]), message.message_id, error)
-        return
-
-    reported_failure = latest_progress_failure(connection, int(job["id"]))
-    if reported_failure:
-        error = f"Codex reported a publishing failure: {reported_failure}"
-        mark_failed(connection, int(job["id"]), error)
-        return
-
-    final_output = ""
-    if result.final_output_path.is_file():
-        try:
-            final_output = result.final_output_path.read_text(
-                encoding="utf-8", errors="replace"
-            ).strip()
-        except OSError as exc:
-            print(f"Could not read final output for job {job['id']}: {exc}", file=sys.stderr)
-    connection.execute(
-        """
-        UPDATE jobs
-        SET status = 'completed', updated_at = ?, finished_at = ?,
-            final_output = ?, last_error = NULL
-        WHERE id = ?
-        """,
-        (utc_now(), utc_now(), final_output, job["id"]),
-    )
-    connection.execute(
-        "UPDATE preview_messages SET active = 0 WHERE job_id = ?", (job["id"],)
-    )
-    connection.commit()
-    try:
-        report_progress(
-            session, config, connection, int(job["id"]), "completed", None
-        )
-    except RuntimeError as exc:
-        print(f"Could not update progress for job {job['id']}: {exc}", file=sys.stderr)
-    try:
-        send_text(
+        notify_failure(
             session,
-            config,
-            final_output or f"Watcher job {job['id']} completed successfully.",
-            reply_to_message_id=message.message_id,
+            self.config,
+            job_id,
+            reply_to_message_id,
+            error,
         )
-    except RuntimeError as exc:
-        print(f"Could not send completion notice for job {job['id']}: {exc}", file=sys.stderr)
+
+    def _run_initial(self, job: sqlite3.Row) -> None:
+        connection = connect_worker_database(self.config.database_path)
+        try:
+            with requests.Session() as session:
+                try:
+                    process_claimed_job(session, self.config, connection, job)
+                except Exception as exc:
+                    self._record_unexpected_failure(
+                        session,
+                        connection,
+                        int(job["id"]),
+                        int(job["source_message_id"]),
+                        exc,
+                    )
+        finally:
+            connection.close()
+
+    def _run_resume(
+        self,
+        claimed: sqlite3.Row,
+        message: TelegramMessage,
+        approval: bool,
+    ) -> None:
+        connection = connect_worker_database(self.config.database_path)
+        try:
+            with requests.Session() as session:
+                try:
+                    process_claimed_resume(
+                        session,
+                        self.config,
+                        connection,
+                        claimed,
+                        message,
+                        approval=approval,
+                    )
+                except Exception as exc:
+                    self._record_unexpected_failure(
+                        session,
+                        connection,
+                        int(claimed["id"]),
+                        message.message_id,
+                        exc,
+                    )
+        finally:
+            connection.close()
+
+    def start_initial(self, job: sqlite3.Row) -> bool:
+        key = f"job-{job['id']}-turn-{job['turn_count']}"
+        return self._launch(key, self._run_initial, job)
+
+    def start_resume(
+        self,
+        claimed: sqlite3.Row,
+        message: TelegramMessage,
+        *,
+        approval: bool,
+    ) -> bool:
+        key = f"job-{claimed['id']}-turn-{claimed['turn_count']}"
+        return self._launch(key, self._run_resume, claimed, message, approval)
+
+    @property
+    def active_count(self) -> int:
+        with self._lock:
+            return sum(thread.is_alive() for thread in self._threads.values())
+
+    def wait_for_idle(self, timeout: float = 10.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                threads = list(self._threads.values())
+            if not threads:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            for thread in threads:
+                thread.join(min(remaining, 0.05))
+
+
+def dispatch_ready_jobs(
+    config: Config,
+    connection: sqlite3.Connection,
+    runner: UnlimitedJobRunner,
+) -> int:
+    """Claim and launch every currently ready job without a concurrency cap."""
+    launched = 0
+    while True:
+        job = claim_next_job(connection)
+        if job is None:
+            return launched
+        try:
+            started = runner.start_initial(job)
+        except Exception as exc:
+            error = f"Could not start watcher worker: {type(exc).__name__}: {exc}"
+            mark_failed(connection, int(job["id"]), error)
+            print(error, file=sys.stderr, flush=True)
+            continue
+        if not started:
+            error = "A worker for this watcher turn is already active"
+            mark_failed(connection, int(job["id"]), error)
+            print(f"Job {job['id']}: {error}", file=sys.stderr, flush=True)
+            continue
+        launched += 1
 
 
 def handle_update(
@@ -1336,6 +1554,7 @@ def handle_update(
     config: Config,
     connection: sqlite3.Connection,
     update: dict[str, Any],
+    runner: UnlimitedJobRunner | None = None,
 ) -> None:
     update_id = update.get("update_id")
     if not isinstance(update_id, int):
@@ -1536,14 +1755,56 @@ def handle_update(
             "approval" if approval else "revision",
             int(job["id"]),
         )
-        process_resume(
-            session,
-            config,
+        if runner is None:
+            process_resume(
+                session,
+                config,
+                connection,
+                job,
+                message,
+                approval=approval,
+            )
+            return
+        claimed = claim_resume_turn(
             connection,
-            job,
-            message,
+            int(job["id"]),
             approval=approval,
         )
+        if claimed is None:
+            send_text(
+                session,
+                config,
+                "That preview is already being processed.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        try:
+            started = runner.start_resume(
+                claimed,
+                message,
+                approval=approval,
+            )
+        except Exception as exc:
+            error = f"Could not start watcher worker: {type(exc).__name__}: {exc}"
+            mark_failed(connection, int(job["id"]), error)
+            notify_failure(
+                session,
+                config,
+                int(job["id"]),
+                message.message_id,
+                error,
+            )
+            return
+        if not started:
+            error = "A worker for this watcher turn is already active"
+            mark_failed(connection, int(job["id"]), error)
+            notify_failure(
+                session,
+                config,
+                int(job["id"]),
+                message.message_id,
+                error,
+            )
         return
 
     if message.reply_to_message_id is not None:
@@ -1709,16 +1970,29 @@ def watch(config: Config, connection: sqlite3.Connection) -> None:
     interrupted = fail_interrupted_jobs(connection)
     if interrupted:
         print(json.dumps({"interrupted_jobs_marked_failed": interrupted}), flush=True)
+    runner = UnlimitedJobRunner(config)
     with requests.Session() as session:
         while True:
-            while process_next_job(session, config, connection):
-                pass
-            offset = int(get_setting(connection, "telegram_offset") or "0")
             try:
+                dispatch_ready_jobs(config, connection, runner)
+                offset = int(get_setting(connection, "telegram_offset") or "0")
                 updates = get_updates(session, config, offset)
                 for update in sorted(updates, key=lambda item: int(item.get("update_id", -1))):
-                    handle_update(session, config, connection, update)
-            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                    handle_update(
+                        session,
+                        config,
+                        connection,
+                        update,
+                        runner=runner,
+                    )
+                dispatch_ready_jobs(config, connection, runner)
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                json.JSONDecodeError,
+                sqlite3.Error,
+            ) as exc:
                 print(f"Watcher error: {exc}", file=sys.stderr, flush=True)
                 time.sleep(5)
 

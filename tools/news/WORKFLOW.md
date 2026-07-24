@@ -52,7 +52,11 @@ downloaded media; do not fetch or classify the story again.
    creates consequential but source-grounded English copy; the second
    translates and summarizes it into concise Bangla. Include the complete
    thread and all nested quoted-post text. Preserve attribution and uncertainty
-   and never invent catastrophe, certainty, or consequences.
+   and never invent catastrophe, certainty, or consequences. Preserve the
+   generator's poster-identity policy through research revisions: include the
+   original poster's `@username` only when they are unmistakably a major public
+   figure or major official account; otherwise omit both their account name and
+   handle. This does not suppress people explicitly named in the story text.
 8. Order the languages using the persisted choice: English first for
    `english`, Bangla first for `bangla`, then `---`, then the other language.
    Do not configure text models through `.env` or command-line flags.

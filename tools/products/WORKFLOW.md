@@ -13,7 +13,10 @@ Use this workflow only after the `AGENTS.md` router has persisted
    internet, enhance the caption only with useful sourced details, keep both
    languages synchronized, and finalize it with
    `tools/news/finalize_description.py`. The supplied X URL must appear first
-   under `Sources:`, followed by research URLs actually used.
+   under `Sources:`, followed by research URLs actually used. Preserve the
+   shared generator's poster-identity policy: identify the original poster only
+   when they are unmistakably a major public figure or major official account;
+   otherwise omit their account name and `@username`.
 3. Identify the exact product name and releasing company or organization from
    the validated announcement. Do not classify an AI/ML model as a product and
    never invent a company or product name. Run

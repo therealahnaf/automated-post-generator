@@ -37,7 +37,9 @@ do not add facts, dates, allegations, figures, locations, background context, or
 quotes that are not present in the source material. Preserve attribution and
 uncertainty. If the source is short, incomplete, or truncated, write a shorter
 description and do not complete unfinished clauses. Output plain paragraphs
-only, with no headings, labels, bullets, hashtags, or markdown.
+only, with no headings, labels, bullets, hashtags, or markdown. Follow the
+poster-identity rule in the user prompt exactly; account metadata is private by
+default unless the original poster clearly qualifies as a major public figure.
 """
 
 BANGLA_SYSTEM_INSTRUCTIONS = """You are the Bangla-language copy editor for Bits Today.
@@ -48,7 +50,8 @@ Do not add background, implications, predictions, certainty, or dramatic claims.
 Write one or two concise paragraphs that are shorter than the English version.
 Use Bangla script for the prose while retaining proper nouns in English when
 that is clearer. Output only the Bangla copy, with no heading, language label,
-separator, bullets, hashtags, or markdown.
+separator, bullets, hashtags, or markdown. Never restore poster account
+identity that the English description omitted.
 """
 
 FEW_SHOT_EXAMPLES = [
@@ -138,6 +141,16 @@ def tweet_author_label(tweet: dict[str, Any]) -> str:
     return name or "unknown author"
 
 
+def has_author_identity(tweet: dict[str, Any]) -> bool:
+    author = tweet.get("author")
+    if not isinstance(author, dict):
+        return False
+    return any(
+        str(author.get(key, "")).strip()
+        for key in ("screen_name", "username", "handle", "name")
+    )
+
+
 def nested_quote(tweet: dict[str, Any]) -> dict[str, Any] | None:
     for key in ("quote", "quoted_tweet", "quotedTweet"):
         value = tweet.get(key)
@@ -153,7 +166,11 @@ def assemble_tweet_source(tweet: dict[str, Any]) -> str:
     valid_statuses = [status for status in statuses if isinstance(status, dict)]
     has_quote = any(nested_quote(status) is not None for status in valid_statuses)
     if len(valid_statuses) == 1 and not has_quote:
-        return normalize_source_text(str(valid_statuses[0].get("text", "")))
+        status = valid_statuses[0]
+        status_text = normalize_source_text(str(status.get("text", "")))
+        if status_text and has_author_identity(status):
+            return f"Main post by {tweet_author_label(status)}:\n{status_text}"
+        return status_text
 
     blocks: list[str] = []
     seen_ids: set[str] = set()
@@ -205,6 +222,22 @@ Rules for the current story:
   wording only when they appear in the current source.
 - Preserve source spelling and capitalization for proper nouns.
 - Keep allegations and reported claims attributed.
+- Treat account names and @usernames in structural labels such as "Main post
+  by" as poster metadata, not automatically as story subjects.
+- Mention the original poster's exact @username once only when the original
+  poster is unmistakably a major public figure: for example, a current senior
+  government official or elected leader, an official government account, or a
+  widely recognized celebrity, industry leader, public figure, or the official
+  account of a major globally recognized organization. A paid verification
+  badge, follower count, viral post, professional title, or confident-sounding
+  bio is not enough by itself. If prominence is uncertain, omit the identity.
+- For every other original poster, do not mention their @username, display
+  name, or identity. Do not identify quoted-post authors, reply authors, or
+  thread contributors separately. Attribute an ordinary account's claims
+  generically when attribution is needed, such as "the post says."
+- This poster-identity rule does not remove people or organizations explicitly
+  named inside the post text as subjects of the story. Preserve those names
+  when they are relevant.
 - Do not add background from memory or outside sources.
 - Do not invent catastrophe, certainty, or consequences beyond the source. Avoid
   literal end-of-the-world wording unless the source says it.
@@ -234,6 +267,9 @@ description between DESCRIPTION START and DESCRIPTION END.
 Requirements:
 - Preserve every important name, number, attribution, and uncertainty used in
   the English description.
+- Preserve an original poster's @username only if it already appears in the
+  English description under the major-public-figure rule. Never introduce an
+  omitted poster name, display name, or @username in Bangla.
 - Summarize rather than translating sentence by sentence.
 - Keep the Bangla version clearly shorter than the English version.
 - Use one or two short paragraphs and no more than

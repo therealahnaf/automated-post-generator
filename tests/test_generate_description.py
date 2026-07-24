@@ -36,6 +36,10 @@ class GenerateDescriptionTests(unittest.TestCase):
         self.assertIn("Do not invent catastrophe", prompt)
         self.assertIn("ignore the unfinished fragment", prompt)
         self.assertIn("under 1,300 characters", prompt)
+        self.assertIn("original poster's exact @username once", prompt)
+        self.assertIn("do not mention their @username", prompt)
+        self.assertIn("major globally recognized organization", prompt)
+        self.assertIn("If prominence is uncertain, omit the identity", prompt)
 
     def test_build_bangla_prompt_requires_summary_without_extra_facts(self) -> None:
         prompt = generate_description.build_bangla_prompt(
@@ -46,6 +50,8 @@ class GenerateDescriptionTests(unittest.TestCase):
         self.assertIn("Summarize rather than translating sentence by sentence", prompt)
         self.assertIn("700 characters", prompt)
         self.assertIn("Z.AI began operating", prompt)
+        self.assertIn("Never introduce an", prompt)
+        self.assertIn("@username in Bangla", prompt)
 
     def test_read_tweet_text_uses_first_validated_item(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -67,6 +73,33 @@ class GenerateDescriptionTests(unittest.TestCase):
             self.assertEqual(
                 generate_description.read_tweet_text(path),
                 "FT: China discussed AI data transfer curbs.",
+            )
+
+    def test_read_single_tweet_preserves_original_poster_metadata_for_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tweet.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "id": "1",
+                                "text": "A policy announcement.",
+                                "author": {
+                                    "name": "Public Official",
+                                    "screen_name": "official",
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                generate_description.read_tweet_text(path),
+                "Main post by Public Official (@official):\n"
+                "A policy announcement.",
             )
 
     def test_read_tweet_text_rejects_empty_text(self) -> None:

@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -49,6 +50,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             "TELEGRAM REQUEST END",
             prompt,
         )
+        self.assertIn("BITS_TODAY_JOB_DIR", prompt)
         self.assertNotIn("classify it once", prompt)
         self.assertIn("Do not publish in\nthis turn", prompt)
         self.assertNotIn(
@@ -84,6 +86,71 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         self.assertEqual(claimed["id"], job_id)
         self.assertEqual(claimed["workflow_type"], "news")
         self.assertEqual(claimed["post_language"], "english")
+
+    def test_resume_turn_can_only_be_claimed_once(self) -> None:
+        job_id = self.insert_job()
+        claimed = watcher.claim_resume_turn(
+            self.connection,
+            job_id,
+            approval=True,
+        )
+        duplicate = watcher.claim_resume_turn(
+            self.connection,
+            job_id,
+            approval=True,
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed["status"], "publishing")
+        self.assertIsNone(duplicate)
+
+    def test_dispatch_launches_every_ready_job_concurrently(self) -> None:
+        for index in range(3):
+            self.connection.execute(
+                """
+                INSERT INTO jobs(
+                    source_update_id, chat_id, source_message_id, sender_id,
+                    request_text, status, turn_count, updated_at,
+                    workflow_type, post_language
+                ) VALUES (?, '-99', ?, '7', 'request', 'queued', 0, ?,
+                          'news', 'english')
+                """,
+                (100 + index, 200 + index, watcher.utc_now()),
+            )
+        self.connection.commit()
+
+        started: set[int] = set()
+        started_lock = threading.Lock()
+        all_started = threading.Event()
+        release = threading.Event()
+
+        def hold_worker(session, config, connection, job) -> None:
+            del session, config, connection
+            with started_lock:
+                started.add(int(job["id"]))
+                if len(started) == 3:
+                    all_started.set()
+            release.wait(5)
+
+        runner = watcher.UnlimitedJobRunner(self.config)
+        with patch.object(watcher, "process_claimed_job", side_effect=hold_worker):
+            launched = watcher.dispatch_ready_jobs(
+                self.config,
+                self.connection,
+                runner,
+            )
+            self.assertEqual(launched, 3)
+            self.assertTrue(all_started.wait(2))
+            self.assertEqual(runner.active_count, 3)
+            release.set()
+            self.assertTrue(runner.wait_for_idle(2))
+
+        statuses = {
+            str(row["status"])
+            for row in self.connection.execute(
+                "SELECT status FROM jobs WHERE source_update_id >= 100"
+            )
+        }
+        self.assertEqual(statuses, {"generating"})
 
     def test_workflow_keyboard_has_all_choices_and_cancel(self) -> None:
         keyboard = watcher.workflow_keyboard(42)
@@ -341,6 +408,30 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 'model_reasoning_effort="medium"',
             ],
         )
+
+    def test_codex_turn_receives_a_job_specific_artifact_directory(self) -> None:
+        job_id = self.insert_job(status="generating")
+        job = self.connection.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        with patch.object(
+            watcher.subprocess,
+            "run",
+            return_value=Mock(returncode=0),
+        ) as run:
+            watcher.invoke_codex(
+                self.config,
+                job,
+                prompt="request",
+                reply_to_message_id=20,
+                resume=False,
+            )
+        job_dir = self.config.state_dir / "jobs" / f"job-{job_id}"
+        self.assertEqual(
+            run.call_args.kwargs["env"]["BITS_TODAY_JOB_DIR"],
+            str(job_dir),
+        )
+        self.assertTrue(job_dir.is_dir())
 
     def test_managed_cron_removal_preserves_other_entries(self) -> None:
         crontab = "\n".join(
