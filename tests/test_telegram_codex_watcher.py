@@ -58,10 +58,12 @@ class TelegramCodexWatcherTests(unittest.TestCase):
 
     def test_manual_workflow_prompt_is_authoritative(self) -> None:
         prompt = watcher.build_initial_prompt(
-            3, "https://x.com/example/status/1", "reel"
+            3, "https://x.com/example/status/1", "reel", "bangla"
         )
         self.assertIn("manually selected workflow_type `reel`", prompt)
         self.assertIn("do not reclassify", prompt)
+        self.assertIn("selected post_language `bangla`", prompt)
+        self.assertIn("--language bangla", prompt)
 
     def test_pending_selection_is_not_claimed(self) -> None:
         message = watcher.TelegramMessage(
@@ -76,9 +78,12 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         job_id = watcher.enqueue_request(self.connection, message)
         self.assertIsNone(watcher.claim_next_job(self.connection))
         self.assertTrue(watcher.select_workflow(self.connection, job_id, "news"))
+        self.assertIsNone(watcher.claim_next_job(self.connection))
+        self.assertTrue(watcher.select_language(self.connection, job_id, "english"))
         claimed = watcher.claim_next_job(self.connection)
         self.assertEqual(claimed["id"], job_id)
         self.assertEqual(claimed["workflow_type"], "news")
+        self.assertEqual(claimed["post_language"], "english")
 
     def test_workflow_keyboard_has_all_choices_and_cancel(self) -> None:
         keyboard = watcher.workflow_keyboard(42)
@@ -96,6 +101,22 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 "workflow:42:reel",
                 "workflow:42:auto",
                 "workflow:42:cancel",
+            ],
+        )
+
+    def test_language_keyboard_offers_explicit_flows_and_cancel(self) -> None:
+        keyboard = watcher.language_keyboard(42)
+        values = [
+            button["callback_data"]
+            for row in keyboard["inline_keyboard"]
+            for button in row
+        ]
+        self.assertEqual(
+            values,
+            [
+                "language:42:english",
+                "language:42:bangla",
+                "language:42:cancel",
             ],
         )
 
@@ -130,14 +151,44 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             for item in responses
         ]
         watcher.handle_update(session, self.config, self.connection, update)
+        language_update = {
+            "update_id": 72,
+            "callback_query": {
+                "id": "callback-2",
+                "data": f"language:{job_id}:bangla",
+                "from": {"id": 7, "is_bot": False},
+                "message": {"message_id": 81, "chat": {"id": -99}},
+            },
+        }
+        language_session = Mock()
+        language_session.post.side_effect = [
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": True}),
+            ),
+            Mock(
+                ok=True,
+                status_code=200,
+                json=Mock(return_value={"ok": True, "result": {"message_id": 81}}),
+            ),
+        ]
+        watcher.handle_update(
+            language_session,
+            self.config,
+            self.connection,
+            language_update,
+        )
         job = self.connection.execute(
             "SELECT * FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
         self.assertEqual(job["workflow_type"], "model")
+        self.assertEqual(job["post_language"], "bangla")
         self.assertTrue(session.post.call_args_list[0].args[0].endswith("/answerCallbackQuery"))
         self.assertTrue(session.post.call_args_list[1].args[0].endswith("/editMessageText"))
         rendered = watcher.render_progress(self.connection, job_id)
         self.assertIn("Model Release", rendered)
+        self.assertIn("Language: Bangla", rendered)
         self.assertIn("Workflow selected", rendered)
 
     def test_revision_prompt_cannot_be_mistaken_for_approval(self) -> None:
@@ -253,6 +304,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         try:
             row = migrated.execute("SELECT * FROM jobs WHERE id = 1").fetchone()
             self.assertEqual(row["workflow_type"], "auto")
+            self.assertEqual(row["post_language"], "english")
             self.assertIn("progress_message_id", row.keys())
         finally:
             migrated.close()

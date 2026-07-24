@@ -4,8 +4,8 @@ Use this workflow for posts announcing or introducing an AI model.
 
 1. Reuse the fetched tweet JSON created by the `AGENTS.md` workflow router and
    require its persisted `workflow_type` to be `model`. Do not fetch or
-   reclassify the story again. Photos are downloaded by the router; videos and
-   video frames are ignored.
+   reclassify the story again. Preserve its authoritative `post_language`.
+   Photos are downloaded by the router; videos and video frames are ignored.
 2. Generate the bilingual long-form caption through
    `tools/models/generate_description.py`. Research the announcement on the
    internet, enhance the caption only with useful sourced details, keep both

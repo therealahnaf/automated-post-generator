@@ -121,6 +121,9 @@ source order, capped at nine so the generated graphic keeps the cross-platform
 package at ten images total.
 At the start of each fetch, the default `--language auto` randomly chooses
 English or Bangla once and stores the result as `post_language` in the JSON.
+Telegram watcher jobs do not use that default: after workflow selection, the
+bot asks the user to choose English or Bangla and passes the selection through
+`--language`.
 The default `--highlight-style auto` independently chooses a one-line cyan
 block, a one-line red block, or the current two-line red-plus-cyan treatment.
 Both choices are stored in the JSON and reused instead of being rerolled.
@@ -346,7 +349,9 @@ status URL first presents `News`, `Model Release`, `Product Release`, `Reel`,
 `Auto Detect`, and `Cancel` inline buttons. `/news URL`, `/model URL`,
 `/product URL`, `/reel URL`, and `/auto URL` are direct-selection shortcuts.
 Manual selections are authoritative; Auto Detect runs the news/model/product
-classifier.
+classifier. After the workflow is chosen, the same message presents `English`
+and `বাংলা` buttons. Generation does not start until the language is selected,
+and the choice remains fixed through revisions and publishing.
 
 The selector message becomes one edited progress dashboard for source fetching,
 media discovery, headline, research, bilingual description, generated items,

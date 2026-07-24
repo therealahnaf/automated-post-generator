@@ -43,6 +43,7 @@ CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
 WORKFLOW_TYPES = ("news", "model", "product", "reel", "auto")
+POST_LANGUAGES = ("english", "bangla")
 CODEX_MODEL = "gpt-5.6-terra"
 CODEX_MODEL_REASONING_EFFORT = "medium"
 WORKFLOW_LABELS = {
@@ -202,6 +203,7 @@ def connect_database(path: Path) -> sqlite3.Connection:
             last_error TEXT,
             final_output TEXT,
             workflow_type TEXT,
+            post_language TEXT,
             selector_message_id INTEGER,
             progress_message_id INTEGER,
             UNIQUE(chat_id, source_message_id)
@@ -247,6 +249,7 @@ def connect_database(path: Path) -> sqlite3.Connection:
     }
     for name, definition in (
         ("workflow_type", "TEXT"),
+        ("post_language", "TEXT"),
         ("selector_message_id", "INTEGER"),
         ("progress_message_id", "INTEGER"),
     ):
@@ -257,6 +260,13 @@ def connect_database(path: Path) -> sqlite3.Connection:
                     """
                     UPDATE jobs SET workflow_type = 'auto'
                     WHERE workflow_type IS NULL
+                    """
+                )
+            if name == "post_language":
+                connection.execute(
+                    """
+                    UPDATE jobs SET post_language = 'english'
+                    WHERE post_language IS NULL
                     """
                 )
     connection.commit()
@@ -459,6 +469,18 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
     }
 
 
+def language_keyboard(job_id: int) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "English", "callback_data": f"language:{job_id}:english"},
+                {"text": "বাংলা", "callback_data": f"language:{job_id}:bangla"},
+            ],
+            [{"text": "Cancel", "callback_data": f"language:{job_id}:cancel"}],
+        ]
+    }
+
+
 def parse_message(
     update: dict[str, Any], config: Config
 ) -> TelegramMessage | None:
@@ -534,10 +556,15 @@ def parse_callback(
 
 
 def build_initial_prompt(
-    job_id: int, request_text: str, workflow_type: str = "auto"
+    job_id: int,
+    request_text: str,
+    workflow_type: str = "auto",
+    post_language: str = "english",
 ) -> str:
     if workflow_type not in WORKFLOW_TYPES:
         raise ValueError(f"Unsupported workflow type: {workflow_type}")
+    if post_language not in POST_LANGUAGES:
+        raise ValueError(f"Unsupported post language: {post_language}")
     route_instruction = (
         "Run the normal one-time news/model/product classification from AGENTS.md."
         if workflow_type == "auto"
@@ -549,6 +576,10 @@ def build_initial_prompt(
     return (
         "Read AGENTS.md\n\n"
         f"{route_instruction}\n\n"
+        f"The user selected post_language `{post_language}`. This trusted "
+        "selection is authoritative. Pass it to fetch_tweets.py with "
+        f"`--language {post_language}`, persist it in the fetched JSON, and "
+        "never randomize or change it during revisions.\n\n"
         "TELEGRAM REQUEST START\n"
         f"{request_text.strip()}\n"
         "TELEGRAM REQUEST END\n\n"
@@ -648,6 +679,7 @@ def invoke_codex(
             "TELEGRAM_PREVIEW_RECEIPT_PATH": str(receipt_path),
             "TELEGRAM_WATCHER_JOB_ID": str(job["id"]),
             "BITS_TODAY_WORKFLOW_TYPE": str(job["workflow_type"] or "auto"),
+            "BITS_TODAY_POST_LANGUAGE": str(job["post_language"] or "english"),
         }
     )
     try:
@@ -787,9 +819,11 @@ def render_progress(connection: sqlite3.Connection, job_id: int) -> str:
         (job_id,),
     ).fetchall()
     workflow = str(job["workflow_type"] or "awaiting selection")
+    language = str(job["post_language"] or "awaiting selection")
     lines = [
         f"Bits Today · Job {job_id}",
         f"Workflow: {WORKFLOW_LABELS.get(workflow, workflow.title())}",
+        f"Language: {language.title()}",
         "",
     ]
     if not events:
@@ -874,6 +908,7 @@ def claim_next_job(connection: sqlite3.Connection) -> sqlite3.Row | None:
         """
         SELECT * FROM jobs
         WHERE status = 'queued' AND workflow_type IS NOT NULL
+          AND post_language IS NOT NULL
         ORDER BY source_update_id LIMIT 1
         """
     ).fetchone()
@@ -906,6 +941,7 @@ def process_next_job(
             int(job["id"]),
             str(job["request_text"]),
             str(job["workflow_type"]),
+            str(job["post_language"]),
         ),
         reply_to_message_id=int(job["source_message_id"]),
         resume=False,
@@ -1081,13 +1117,30 @@ def select_workflow(
     return cursor.rowcount == 1
 
 
+def select_language(
+    connection: sqlite3.Connection, job_id: int, post_language: str
+) -> bool:
+    if post_language not in POST_LANGUAGES:
+        raise ValueError(f"Unsupported post language: {post_language}")
+    cursor = connection.execute(
+        """
+        UPDATE jobs SET post_language = ?, updated_at = ?
+        WHERE id = ? AND status = 'queued' AND workflow_type IS NOT NULL
+          AND post_language IS NULL
+        """,
+        (post_language, utc_now(), job_id),
+    )
+    connection.commit()
+    return cursor.rowcount == 1
+
+
 def cancel_pending_job(connection: sqlite3.Connection, job_id: int) -> bool:
     cursor = connection.execute(
         """
         UPDATE jobs
         SET status = 'failed', updated_at = ?, finished_at = ?,
-            last_error = 'Cancelled before workflow selection'
-        WHERE id = ? AND status = 'queued' AND workflow_type IS NULL
+            last_error = 'Cancelled before workflow and language selection'
+        WHERE id = ? AND status = 'queued' AND post_language IS NULL
         """,
         (utc_now(), utc_now(), job_id),
     )
@@ -1273,10 +1326,15 @@ def handle_update(
         return
     callback = parse_callback(update, config)
     if callback is not None:
-        match = re.fullmatch(
+        workflow_match = re.fullmatch(
             r"workflow:(\d+):(news|model|product|reel|auto|cancel)",
             callback.data,
         )
+        language_match = re.fullmatch(
+            r"language:(\d+):(english|bangla|cancel)",
+            callback.data,
+        )
+        match = workflow_match or language_match
         if match is None:
             record_event(connection, callback, "ignored_callback", None)
             answer_callback(session, config, callback.callback_id, "This button is not recognized.")
@@ -1305,7 +1363,39 @@ def handle_update(
                     session,
                     config,
                     callback.message_id,
-                    f"Bits Today · Job {job_id}\n\n! Cancelled before workflow selection.",
+                    f"Bits Today · Job {job_id}\n\n! Cancelled before generation.",
+                )
+            return
+        if language_match is not None:
+            changed = select_language(connection, job_id, choice)
+            record_event(
+                connection,
+                callback,
+                "language_selected" if changed else "ignored_stale_callback",
+                job_id,
+            )
+            answer_callback(
+                session,
+                config,
+                callback.callback_id,
+                (
+                    f"{choice.title()} selected."
+                    if changed
+                    else "This job's language has already been selected."
+                ),
+            )
+            if changed:
+                selected_job = connection.execute(
+                    "SELECT workflow_type FROM jobs WHERE id = ?", (job_id,)
+                ).fetchone()
+                workflow_label = WORKFLOW_LABELS[str(selected_job["workflow_type"])]
+                report_progress(
+                    session,
+                    config,
+                    connection,
+                    job_id,
+                    "selected",
+                    f"{workflow_label} · {choice.title()}",
                 )
             return
         changed = select_workflow(connection, job_id, choice)
@@ -1326,13 +1416,16 @@ def handle_update(
             ),
         )
         if changed:
-            report_progress(
+            edit_text(
                 session,
                 config,
-                connection,
-                job_id,
-                "selected",
-                WORKFLOW_LABELS[choice],
+                callback.message_id,
+                (
+                    f"Bits Today · Job {job_id}\n"
+                    f"Workflow: {WORKFLOW_LABELS[choice]}\n\n"
+                    "Choose the language flow for this post."
+                ),
+                reply_markup=language_keyboard(job_id),
             )
         return
     message = parse_message(update, config)
@@ -1383,22 +1476,21 @@ def handle_update(
             ids = send_text(
                 session,
                 config,
-                f"Bits Today · Job {job_id}\nWorkflow: {WORKFLOW_LABELS[workflow_type]}\n\n● Queued",
+                (
+                    f"Bits Today · Job {job_id}\n"
+                    f"Workflow: {WORKFLOW_LABELS[workflow_type]}\n\n"
+                    "Choose the language flow for this post."
+                ),
                 reply_to_message_id=message.message_id,
+                reply_markup=language_keyboard(job_id),
             )
         except RuntimeError as exc:
             mark_failed(connection, job_id, f"Could not create progress dashboard: {exc}")
             return
-        if ids:
-            set_progress_message(connection, job_id, ids[0])
-            report_progress(
-                session,
-                config,
-                connection,
-                job_id,
-                "selected",
-                WORKFLOW_LABELS[workflow_type],
-            )
+        if not ids:
+            mark_failed(connection, job_id, "Telegram returned no language selector message")
+            return
+        set_progress_message(connection, job_id, ids[0])
         return
 
     job = None
@@ -1502,7 +1594,8 @@ def queue_status(connection: sqlite3.Connection) -> dict[str, Any]:
         dict(row)
         for row in connection.execute(
             """
-            SELECT id, source_message_id, workflow_type, progress_message_id,
+            SELECT id, source_message_id, workflow_type, post_language,
+                   progress_message_id,
                    status, session_id, turn_count,
                    received_at, updated_at, finished_at, last_error
             FROM jobs ORDER BY id DESC LIMIT 20

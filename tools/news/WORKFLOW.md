@@ -8,9 +8,9 @@ downloaded media; do not fetch or classify the story again.
    Preserve the complete same-author thread, nested quoted-post text, and photo
    source order. Do not download videos or extract video frames. The generated
    primary plus secondary images must never exceed 10 images. Retain the
-   router's one-time random `post_language` choice (`english` or `bangla`) and
-   `headline_highlight` choice (`cyan`, `red`, or `dual`); never reroll either
-   choice during the same story.
+   router's persisted `post_language` choice (`english` or `bangla`) and
+   `headline_highlight` choice (`cyan`, `red`, or `dual`). A Telegram-selected
+   language is authoritative; never reroll either choice during the same story.
 2. Write the English headline directly in the Codex task from the validated
    source. Lead with the strongest actor, action, risk, contrast, scale, number,
    or power shift. Preserve important names and numbers. Do not use a separate

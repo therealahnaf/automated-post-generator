@@ -526,6 +526,10 @@ def fetch_tweets(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    watcher_language = os.getenv("BITS_TODAY_POST_LANGUAGE", "").strip().lower()
+    default_language = (
+        watcher_language if watcher_language in POST_LANGUAGES else AUTO_LANGUAGE
+    )
     parser = argparse.ArgumentParser(
         description=(
             "Fetch public X/Twitter posts through the free, open-source "
@@ -536,10 +540,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--language",
         choices=(AUTO_LANGUAGE, *POST_LANGUAGES),
-        default=AUTO_LANGUAGE,
+        default=default_language,
         help=(
-            "Primary post language. The default, auto, randomly chooses English "
-            "or Bangla once and saves it in the output JSON."
+            "Primary post language. Standalone default auto randomly chooses "
+            "English or Bangla once. Watcher jobs inherit the trusted Telegram "
+            "selection."
         ),
     )
     parser.add_argument(

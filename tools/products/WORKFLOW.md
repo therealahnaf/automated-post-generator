@@ -2,11 +2,12 @@
 
 Use this workflow only after the `AGENTS.md` router has persisted
 `workflow_type: product` in the fetched tweet JSON. Reuse that JSON and its
-downloaded media; do not fetch or classify the story again.
+   downloaded media; do not fetch or classify the story again.
 
 1. Confirm the fetched JSON contains the requested tweet ID and non-empty text.
    Preserve the complete same-author thread, nested quoted-post text, ordered
-   photos, persisted language, and highlight choices.
+   photos, persisted language, and highlight choices. The Telegram-selected
+   `post_language` is authoritative and must not be rerolled.
 2. Generate the bilingual long-form caption through
    `tools/products/generate_description.py`. Research the announcement on the
    internet, enhance the caption only with useful sourced details, keep both

@@ -11,6 +11,17 @@ from tools.news import fetch_tweets
 
 
 class FetchTweetsTests(unittest.TestCase):
+    def test_cli_inherits_trusted_watcher_language(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"BITS_TODAY_POST_LANGUAGE": "bangla"},
+            clear=False,
+        ):
+            args = fetch_tweets.build_parser().parse_args(
+                ["https://x.com/example/status/1"]
+            )
+        self.assertEqual(args.language, "bangla")
+
     def test_normalizes_x_and_twitter_status_urls(self) -> None:
         expected = "https://x.com/Polymarket/status/2079479742802141202"
         self.assertEqual(
