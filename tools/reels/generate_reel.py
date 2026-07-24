@@ -31,6 +31,7 @@ CANVAS = (1080, 1920)
 FPS = 30
 MAX_DURATION = 59.5
 OUTRO_DURATION = 3.0
+OUTRO_MINIMUM_SOURCE_DURATION = 15.0
 MIN_VIDEO_DURATION = 4.0
 MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
 OUTRO_TITLE = "Full Video Linked in Description"
@@ -175,6 +176,8 @@ def reel_timing(source_duration: float) -> tuple[float, float]:
     total = min(source_duration, MAX_DURATION)
     if total < MIN_VIDEO_DURATION:
         raise ValueError(f"Source video must be at least {MIN_VIDEO_DURATION:.0f} seconds.")
+    if source_duration < OUTRO_MINIMUM_SOURCE_DURATION:
+        return round(total, 3), round(total, 3)
     outro = min(OUTRO_DURATION, total - 1.0)
     return round(total - outro, 3), round(total, 3)
 
@@ -185,6 +188,7 @@ def make_layers(
     headline: str,
     post_date: date,
     highlight: str,
+    include_outro: bool = True,
 ) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     overlay = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
@@ -207,6 +211,9 @@ def make_layers(
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"
     overlay.save(overlay_path, "PNG", optimize=True)
+    layers = {"headline": overlay_path}
+    if not include_outro:
+        return layers
 
     red = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     ImageDraw.Draw(red).polygon(
@@ -277,7 +284,7 @@ def make_layers(
             )
         frame.save(frames / f"frame-{frame_index:03d}.png", "PNG", optimize=True)
     return {
-        "headline": overlay_path,
+        **layers,
         "coral": red_path,
         "mint": mint_path,
         "center": center_path,
@@ -296,13 +303,17 @@ def render_reel(
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     start = content_end
-    filter_complex = (
+    has_outro = content_end < total_duration
+    base_filter = (
         "[0:v]trim=duration={total},setpts=PTS-STARTPTS,split=2[bg][fg];"
         "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,gblur=sigma=35,eq=brightness=-0.20:saturation=0.85[bg2];"
         "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
         "[bg2][fg2]overlay=(W-w)/2:(H-h)/2[base];"
-        "[1:v]format=rgba[headline];"
+    ).format(total=total_duration)
+    if has_outro:
+        filter_complex = base_filter + (
+            "[1:v]format=rgba[headline];"
         "[base][headline]overlay=0:0:enable='lt(t,{start})'[v1];"
         "[2:v]format=rgba[coral];"
         "[v1][coral]overlay=0:'if(lt(t,{start}),-650,min(0,max(-650,-650+650*(t-{start})/0.55)))':"
@@ -315,11 +326,30 @@ def render_reel(
         "[5:v]setpts=PTS-STARTPTS+{start}/TB[text];"
         "[v4][text]overlay=0:0:eof_action=pass:enable='gte(t,{start})',"
         "fps=30,setsar=1,format=yuv420p[vout]"
-    ).format(total=total_duration, start=start, fade_start=start + 0.35)
+        ).format(start=start, fade_start=start + 0.35)
+    else:
+        filter_complex = base_filter + (
+            "[1:v]format=rgba[headline];"
+            "[base][headline]overlay=0:0,"
+            "fps=30,setsar=1,format=yuv420p[vout]"
+        )
     command = ["ffmpeg", "-y", "-i", str(source)]
-    for key in ("headline", "coral", "mint", "center"):
+    layer_keys = (
+        ("headline", "coral", "mint", "center")
+        if has_outro
+        else ("headline",)
+    )
+    for key in layer_keys:
         command.extend(["-loop", "1", "-i", str(layers[key])])
-    command.extend(["-framerate", str(FPS), "-i", str(layers["frames"] / "frame-%03d.png")])
+    if has_outro:
+        command.extend(
+            [
+                "-framerate",
+                str(FPS),
+                "-i",
+                str(layers["frames"] / "frame-%03d.png"),
+            ]
+        )
     command.extend(["-filter_complex", filter_complex, "-map", "[vout]"])
     if has_audio:
         command.extend(
@@ -409,12 +439,14 @@ def main(argv: list[str] | None = None) -> int:
             download_video(str(selected_format["url"]), source)
         source_info = probe_video(source)
         content_end, total_duration = reel_timing(float(source_info["duration"]))
+        has_outro = content_end < total_duration
         with tempfile.TemporaryDirectory(prefix="bits-today-reel-") as temp_dir:
             layers = make_layers(
                 Path(temp_dir),
                 headline=headline,
                 post_date=parse_date(args.date),
                 highlight=highlight,
+                include_outro=has_outro,
             )
             render_reel(
                 source,
@@ -436,12 +468,13 @@ def main(argv: list[str] | None = None) -> int:
             "selected_format": selected_format,
             "content_duration": content_end,
             "outro_duration": round(total_duration - content_end, 3),
+            "outro_enabled": has_outro,
             "duration": rendered_info["duration"],
             "width": rendered_info["width"],
             "height": rendered_info["height"],
             "fps": FPS,
-            "outro_title": OUTRO_TITLE,
-            "outro_detail": OUTRO_DETAIL,
+            "outro_title": OUTRO_TITLE if has_outro else None,
+            "outro_detail": OUTRO_DETAIL if has_outro else None,
             "output": str(output),
             "output_sha256": sha256_file(output),
         }

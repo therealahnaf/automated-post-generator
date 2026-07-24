@@ -28,15 +28,17 @@ tweet JSON and never reclassify it during revisions or publishing.
      blurred, darkened moving fill of the same video;
    - the Bits Today news headline treatment and persisted coral/mint highlight;
    - original audio fading during the final 0.5 seconds;
-   - a three-second outro while the underlying video keeps moving;
+   - for source videos 15 seconds or longer, a three-second outro while the
+     underlying video keeps moving;
    - coral entering from above, mint entering from below, and a dark
      semi-transparent center with the transparent Bits Today logo;
    - type-out text reading `Full Video Linked in Description`, followed by
      `Stay ahead with Bits Today`.
 
-   Videos longer than 59.5 seconds are trimmed. Shorter eligible videos retain
-   their natural total duration and reserve their final three seconds for the
-   live-video outro.
+   Videos longer than 59.5 seconds are trimmed. Source videos shorter than 15
+   seconds retain their natural total duration and do not receive the outro
+   overlay or type-out. Videos of 15 seconds or longer reserve their final
+   three seconds for the live-video outro.
 5. Inspect the MP4 and its JSON sidecar. Confirm 1080x1920, duration no greater
    than 59.5 seconds, 30 fps, playable H.264 video, and AAC audio when the
    source had audio. Report `items_ready` with the duration.
