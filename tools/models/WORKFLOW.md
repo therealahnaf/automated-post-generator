@@ -12,17 +12,21 @@ Use this workflow for posts announcing or introducing an AI model.
    languages synchronized, and finalize it with
    `tools/news/finalize_description.py`. The supplied X URL must appear first
    under `Sources:`, followed by research URLs actually used.
-3. Identify the exact announced model name from the validated source. Run
-   `tools/models/generate_copy.py` with that name, the tweet JSON, and the
-   finalized description. The headline is always exactly `Meet <model name>`.
+3. Identify the exact announced model name and the releasing company or
+   organization from the validated source. Never infer a company that is not
+   supported by the announcement or its official source. Run
+   `tools/models/generate_copy.py` with `--model-name`, `--company-name`, the
+   tweet JSON, and the finalized description. The headline remains exactly
+   `Meet <model name>`, and the copy JSON must persist `company_name`.
    The script uses the fixed `gpt-5.6-luna` model to split the finalized English
    description into ordered, source-grounded carousel segments. With photos,
    the segment count must exactly match the downloaded-photo count. Without
    photos, generate two or three segments according to the amount of detail.
 4. Generate one text-free model-launch background, then run
-   `tools/models/generate_post.py`. The first card places `Meet <model name>` in
-   the middle using the default `signal-stack-condensed` preset: centered
-   condensed model-name typography with no side rule. For each downloaded
+   `tools/models/generate_post.py`. The first card places a larger `Meet`, the
+   model name, and `by <company name>` directly beneath it in the middle using
+   the default `signal-stack-condensed` preset: centered condensed model-name
+   typography with no side rule. For each downloaded
    photo, create a secondary card with its short description at the top and the
    complete, uncropped photo aligned toward the bottom. Keep the generated
    primary first and preserve downloaded-photo order. The complete carousel

@@ -27,7 +27,8 @@ contract. It dispatches validated stories to either
 requests to [`tools/reels/WORKFLOW.md`](tools/reels/WORKFLOW.md).
 
 The model-announcement workflow lives in `tools/models/`. It creates a centered
-`Meet <model name>` primary card and feature-focused secondary cards. Posts
+primary card with a large `Meet`, the model name, and `by <company name>`,
+followed by feature-focused secondary cards. Posts
 with photos create exactly one description segment per photo; posts without
 photos split the finalized English description into two or three cards that
 reuse the primary background. See

@@ -23,6 +23,7 @@ from tools.models.generate_copy import (
     MAX_CARDS,
     MAX_SHORT_DESCRIPTION_CHARACTERS,
     build_headline,
+    normalize_company_name,
     normalize_model_name,
 )
 from tools.news import generate_description as news_description
@@ -64,6 +65,7 @@ SIGNAL_FONT_CANDIDATES = {
 @dataclass(frozen=True)
 class ModelPostMetadata:
     model_name: str
+    company_name: str
     headline: str
     short_descriptions: list[str]
     primary_image: str
@@ -74,16 +76,17 @@ class ModelPostMetadata:
     created_at: str
 
 
-def read_copy_file(path: Path) -> tuple[str, list[str]]:
+def read_copy_file(path: Path) -> tuple[str, str, list[str]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     model_name = normalize_model_name(str(payload.get("model_name", "")))
+    company_name = normalize_company_name(str(payload.get("company_name", "")))
     expected_headline = build_headline(model_name)
     if payload.get("headline") != expected_headline:
         raise ValueError(f"Copy headline must be exactly: {expected_headline}")
     raw_descriptions = payload.get("short_descriptions")
     if not isinstance(raw_descriptions, list) or not raw_descriptions:
         raise ValueError("Copy file has no short descriptions.")
-    return model_name, validate_short_descriptions(raw_descriptions)
+    return model_name, company_name, validate_short_descriptions(raw_descriptions)
 
 
 def validate_short_descriptions(values: list[Any]) -> list[str]:
@@ -187,6 +190,45 @@ def wrap_signal_name(
         if len(lines) <= 2:
             return font, lines, line_height
     raise ValueError("Model name is too long for the signal-stack card.")
+
+
+def fit_company_credit(
+    draw: ImageDraw.ImageDraw,
+    company_name: str,
+    *,
+    max_width: int = 900,
+) -> tuple[ImageFont.FreeTypeFont, str]:
+    credit = f"by {normalize_company_name(company_name)}"
+    for size in range(44, 25, -2):
+        font = news_post.load_roboto_font(size=size, bold=True)
+        if news_post.text_width(draw, credit, font) <= max_width:
+            return font, credit
+    raise ValueError("Company name is too long for the model-launch credit.")
+
+
+def draw_company_credit(
+    draw: ImageDraw.ImageDraw,
+    company_name: str,
+    *,
+    y: int,
+    centered: bool = True,
+    x: int = 0,
+) -> None:
+    font, credit = fit_company_credit(
+        draw,
+        company_name,
+        max_width=900 if centered else CANVAS_SIZE[0] - x - 70,
+    )
+    if centered:
+        x = (CANVAS_SIZE[0] - news_post.text_width(draw, credit, font)) // 2
+    draw.text(
+        (x, y),
+        credit,
+        font=font,
+        fill=news_post.BRAND_CORAL,
+        stroke_width=1,
+        stroke_fill=(0, 0, 0, 130),
+    )
 
 
 def draw_centered_blocks(
@@ -334,6 +376,7 @@ def draw_glass_frame(
 def draw_signal_stack(
     draw: ImageDraw.ImageDraw,
     model_name: str,
+    company_name: str,
     *,
     center_y: int,
     font_variant: str = "industrial",
@@ -343,8 +386,10 @@ def draw_signal_stack(
         model_name,
         variant=font_variant,
     )
-    label_font = news_post.load_roboto_font(size=54, bold=True, italic=True)
-    total_height = 70 + len(lines) * line_height
+    label_font = news_post.load_roboto_font(size=82, bold=True, italic=True)
+    label_height = 108
+    company_height = 70
+    total_height = label_height + len(lines) * line_height + company_height
     top = center_y - total_height // 2
     if font_variant == "condensed":
         label_width = news_post.text_width(draw, "Meet", label_font)
@@ -356,7 +401,7 @@ def draw_signal_stack(
             stroke_width=1,
             stroke_fill=(0, 0, 0, 120),
         )
-        top += 76
+        top += label_height
         for index, line in enumerate(lines):
             width = news_post.text_width(draw, line, model_font)
             fill = news_post.BRAND_MINT if index == len(lines) - 1 else news_post.WHITE
@@ -369,6 +414,7 @@ def draw_signal_stack(
                 stroke_fill=(0, 0, 0, 145),
             )
             top += line_height
+        draw_company_credit(draw, company_name, y=top + 32)
         return
 
     x = 154
@@ -391,7 +437,7 @@ def draw_signal_stack(
         stroke_width=1,
         stroke_fill=(0, 0, 0, 120),
     )
-    top += 76
+    top += label_height
     for index, line in enumerate(lines):
         fill = news_post.BRAND_MINT if index == len(lines) - 1 else news_post.WHITE
         draw.text(
@@ -403,6 +449,13 @@ def draw_signal_stack(
             stroke_fill=(0, 0, 0, 145),
         )
         top += line_height
+    draw_company_credit(
+        draw,
+        company_name,
+        y=top + 32,
+        centered=False,
+        x=x,
+    )
 
 
 def draw_short_description(
@@ -476,6 +529,7 @@ def add_brand_chrome(
 def compose_primary(
     background_bytes: bytes,
     model_name: str,
+    company_name: str,
     post_date: date,
     style: str = "signal-stack-condensed",
 ) -> Image.Image:
@@ -485,6 +539,7 @@ def compose_primary(
     draw = ImageDraw.Draw(canvas)
     if style == "brand-block":
         draw_centered_blocks(draw, build_headline(model_name), center_y=650)
+        draw_company_credit(draw, company_name, y=845)
     else:
         if style.startswith("signal-stack"):
             variant = {
@@ -496,6 +551,7 @@ def compose_primary(
             draw_signal_stack(
                 draw,
                 model_name,
+                company_name,
                 center_y=650,
                 font_variant=variant,
             )
@@ -504,6 +560,7 @@ def compose_primary(
                 "launch-label": draw_launch_label,
                 "glass-frame": draw_glass_frame,
             }[style](draw, model_name, center_y=650)
+            draw_company_credit(draw, company_name, y=850)
     add_brand_chrome(canvas, post_date)
     return canvas.convert("RGB")
 
@@ -594,6 +651,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tweet-json", type=Path, required=True)
     parser.add_argument("--copy-json", type=Path)
     parser.add_argument("--model-name")
+    parser.add_argument("--company-name")
     parser.add_argument(
         "--short-description",
         action="append",
@@ -635,16 +693,21 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.copy_json:
-            if args.model_name or args.short_description:
+            if args.model_name or args.company_name or args.short_description:
                 raise ValueError(
-                    "Use either --copy-json or --model-name with "
-                    "--short-description, not both."
+                    "Use either --copy-json or --model-name with --company-name "
+                    "and --short-description, not both."
                 )
-            model_name, short_descriptions = read_copy_file(args.copy_json)
+            model_name, company_name, short_descriptions = read_copy_file(
+                args.copy_json
+            )
         else:
             if not args.model_name:
                 raise ValueError("--model-name is required without --copy-json.")
+            if not args.company_name:
+                raise ValueError("--company-name is required without --copy-json.")
             model_name = normalize_model_name(args.model_name)
+            company_name = normalize_company_name(args.company_name)
             short_descriptions = validate_short_descriptions(args.short_description)
             if not short_descriptions:
                 raise ValueError("At least one --short-description is required.")
@@ -692,6 +755,7 @@ def main(argv: list[str] | None = None) -> int:
         compose_primary(
             background_bytes,
             model_name,
+            company_name,
             args.date,
             style=args.primary_style,
         ).save(
@@ -730,6 +794,7 @@ def main(argv: list[str] | None = None) -> int:
 
         metadata = ModelPostMetadata(
             model_name=model_name,
+            company_name=company_name,
             headline=build_headline(model_name),
             short_descriptions=short_descriptions[:secondary_count],
             primary_image=str(primary_path.resolve()),

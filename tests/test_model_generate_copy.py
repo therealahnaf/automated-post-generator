@@ -14,6 +14,12 @@ class ModelGenerateCopyTests(unittest.TestCase):
             "Meet Gemini 3.6 Flash",
         )
 
+    def test_company_name_is_normalized_for_primary_credit(self) -> None:
+        self.assertEqual(
+            generate_copy.normalize_company_name("  Google DeepMind  "),
+            "Google DeepMind",
+        )
+
     def test_generates_exact_number_of_source_grounded_cards(self) -> None:
         calls = []
 

@@ -21,6 +21,7 @@ class ModelGeneratePostTests(unittest.TestCase):
         result = generate_post.compose_primary(
             self.background_bytes,
             "Gemini 3.6 Flash",
+            "Google DeepMind",
             date(2026, 7, 23),
         )
 
@@ -43,6 +44,7 @@ class ModelGeneratePostTests(unittest.TestCase):
                 result = generate_post.compose_primary(
                     self.background_bytes,
                     "Gemini 3.6 Flash",
+                    "Google DeepMind",
                     date(2026, 7, 23),
                     style=style,
                 )
@@ -79,6 +81,7 @@ class ModelGeneratePostTests(unittest.TestCase):
         primary = generate_post.compose_primary(
             self.background_bytes,
             "Gemini 3.6 Flash",
+            "Google DeepMind",
             date(2026, 7, 23),
         )
         summary = generate_post.compose_fallback_secondary(
@@ -114,6 +117,7 @@ class ModelGeneratePostTests(unittest.TestCase):
                 json.dumps(
                     {
                         "model_name": "Test Model",
+                        "company_name": "Test Company",
                         "headline": "Meet Test Model",
                         "short_descriptions": [
                             "The first description segment.",

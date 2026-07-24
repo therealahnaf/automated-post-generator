@@ -21,6 +21,7 @@ from tools.news import finalize_description as news_finalizer
 
 TEXT_GENERATION_MODEL = "gpt-5.6-luna"
 MAX_MODEL_NAME_CHARACTERS = 80
+MAX_COMPANY_NAME_CHARACTERS = 100
 MAX_SHORT_DESCRIPTION_CHARACTERS = 160
 MAX_CARDS = 9
 NO_MEDIA_MIN_CARDS = 2
@@ -43,6 +44,17 @@ def normalize_model_name(value: str) -> str:
     if len(name) > MAX_MODEL_NAME_CHARACTERS:
         raise ValueError(
             f"Model name exceeds {MAX_MODEL_NAME_CHARACTERS} characters."
+        )
+    return name
+
+
+def normalize_company_name(value: str) -> str:
+    name = news_description.normalize_source_text(value).strip(" \"'")
+    if not name:
+        raise ValueError("Company name cannot be empty.")
+    if len(name) > MAX_COMPANY_NAME_CHARACTERS:
+        raise ValueError(
+            f"Company name exceeds {MAX_COMPANY_NAME_CHARACTERS} characters."
         )
     return name
 
@@ -184,6 +196,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Final bilingual description used to create ordered English segments.",
     )
     parser.add_argument("--model-name", required=True)
+    parser.add_argument(
+        "--company-name",
+        required=True,
+        help="Company or organization releasing the model.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -200,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         model_name = normalize_model_name(args.model_name)
+        company_name = normalize_company_name(args.company_name)
         source_text = read_english_description(args.description_file)
         card_range = required_card_range(downloaded_photo_count(args.tweet_json))
         news_description.require_api_key()
@@ -211,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         payload = {
             "model_name": model_name,
+            "company_name": company_name,
             "headline": build_headline(model_name),
             "short_descriptions": short_descriptions,
             "source_tweet_json": str(args.tweet_json.resolve()),
