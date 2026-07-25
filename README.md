@@ -50,6 +50,16 @@ The product-release workflow lives in `tools/products/`. Its primary card uses
 and `by <company name>`. Secondary cards follow the model workflow's ordered
 photo and no-media summary behavior.
 
+The standalone thought-carousel workflow lives in `tools/thoughts/`. It turns
+an informative or philosophical AI post and its same-author thread into a
+`Today's Tokens for Thought` cover, a short headline hook, and three to eight
+flowing paragraph cards. Pillow randomly selects each card's background from
+`assets/fonts/images/bg-*.png`, avoids immediate repeats, and records the seed
+for reproducible revisions. This workflow never generates backgrounds or uses
+an image model. See
+[`tools/thoughts/WORKFLOW.md`](tools/thoughts/WORKFLOW.md) for the current
+design-review flow.
+
 Three Pillow presets are available through `--style`:
 
 - `brand-block`: bold sans-serif blocks with an italic final line.
@@ -82,6 +92,21 @@ The default image model is `gpt-image-2` at medium quality. Override it with
 `--image-model` and `--image-quality` if needed. The script also writes a JSON
 sidecar containing the supplied title, image prompt, image model, and source
 sentence.
+
+To generate and render a thought carousel:
+
+```powershell
+python .\tools\thoughts\generate_copy.py `
+  --tweet-json .\output\tweet.json `
+  --output .\output\thought-copy.json
+
+python .\tools\thoughts\generate_post.py `
+  --copy-json .\output\thought-copy.json `
+  --output-dir .\output\thought-cards
+```
+
+The output directory contains the ordered full-resolution cards, a review-only
+contact sheet, and `post.json` with the selected backgrounds and random seed.
 
 When `--tweet-json` contains downloaded photos, the first photo is automatically
 added uncropped to the main post in a rounded frame when it is at least 640x480.
