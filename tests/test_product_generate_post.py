@@ -46,8 +46,15 @@ class ProductGeneratePostTests(unittest.TestCase):
     def test_no_media_cli_reuses_model_secondary_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            background_path = root / "background.png"
-            background_path.write_bytes(self.background_bytes)
+            background_dir = root / "backgrounds"
+            background_dir.mkdir()
+            for index, color in enumerate(
+                ((18, 36, 54), (54, 18, 36), (18, 54, 36)),
+                start=1,
+            ):
+                Image.new("RGB", (1024, 1280), color).save(
+                    background_dir / f"bg-{index}.png"
+                )
             tweet_path = root / "tweet.json"
             tweet_path.write_text(
                 json.dumps(
@@ -85,8 +92,10 @@ class ProductGeneratePostTests(unittest.TestCase):
                     str(tweet_path),
                     "--copy-json",
                     str(copy_path),
-                    "--background-input",
-                    str(background_path),
+                    "--background-dir",
+                    str(background_dir),
+                    "--seed",
+                    "42",
                     "--output-dir",
                     str(output_dir),
                     "--date",
@@ -101,6 +110,8 @@ class ProductGeneratePostTests(unittest.TestCase):
                 (output_dir / "post.json").read_text(encoding="utf-8")
             )
             self.assertEqual(metadata["primary_style"], "product-knowledge-stack")
+            self.assertEqual(metadata["background_seed"], 42)
+            self.assertEqual(len(metadata["background_sources"]), 3)
 
 
 if __name__ == "__main__":

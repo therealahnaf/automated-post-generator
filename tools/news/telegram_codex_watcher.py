@@ -43,7 +43,7 @@ STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
-WORKFLOW_TYPES = ("news", "model", "product", "reel", "auto")
+WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "auto")
 POST_LANGUAGES = ("english", "bangla")
 CODEX_MODEL = "gpt-5.6-terra"
 CODEX_MODEL_REASONING_EFFORT = "medium"
@@ -51,6 +51,7 @@ WORKFLOW_LABELS = {
     "news": "News",
     "model": "Model Release",
     "product": "Product Release",
+    "informative": "Informative",
     "reel": "Reel",
     "auto": "Auto Detect",
 }
@@ -482,9 +483,12 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
             ],
             [
                 {"text": "Product Release", "callback_data": f"workflow:{job_id}:product"},
-                {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
+                {"text": "Informative", "callback_data": f"workflow:{job_id}:informative"},
             ],
-            [{"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"}],
+            [
+                {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
+                {"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"},
+            ],
             [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
         ]
     }
@@ -1797,7 +1801,7 @@ def handle_update(
                     )
             return
         workflow_match = re.fullmatch(
-            r"workflow:(\d+):(news|model|product|reel|auto|cancel)",
+            r"workflow:(\d+):(news|model|product|informative|reel|auto|cancel)",
             callback.data,
         )
         facebook_language_match = re.fullmatch(
@@ -1947,7 +1951,7 @@ def handle_update(
         return
     if message.text.startswith("/"):
         command_match = re.match(
-            r"^/(news|model|product|reel|auto)(?:@\w+)?\s+(.+)$",
+            r"^/(news|model|product|informative|reel|auto)(?:@\w+)?\s+(.+)$",
             message.text,
             re.IGNORECASE | re.DOTALL,
         )
@@ -1956,8 +1960,8 @@ def handle_update(
             send_text(
                 session,
                 config,
-                "Send an X status URL, or use /news, /model, /product, /reel, "
-                "or /auto followed by the URL.",
+                "Send an X status URL, or use /news, /model, /product, "
+                "/informative, /reel, or /auto followed by the URL.",
                 reply_to_message_id=message.message_id,
             )
             return

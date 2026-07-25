@@ -24,6 +24,12 @@ PARAGRAPHS = [
     ),
 ]
 
+BANGLA_PARAGRAPHS = [
+    "কৃত্রিম বুদ্ধিমত্তা কাজকে সহজলভ্য করলে মানুষের মূল্যবোধ নিয়ে নতুন প্রশ্ন তৈরি হয়। উত্তর খোঁজার দায়িত্ব তখনও মানুষেরই থাকে।",
+    "প্রযুক্তি আমাদের সক্ষমতা বাড়াতে পারে, কিন্তু কোন লক্ষ্য গুরুত্বপূর্ণ তা নিজে ঠিক করতে পারে না। সেই বিচার মানুষের অভিজ্ঞতা থেকে আসে।",
+    "ভবিষ্যৎ শুধু দ্রুততম ব্যবস্থার হাতে থাকবে না। যত্ন, দায়িত্ব এবং সঠিক দিক বেছে নেওয়ার ক্ষমতাই মানুষের ভূমিকা নির্ধারণ করবে।",
+]
+
 
 class ThoughtGeneratePostTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -108,6 +114,111 @@ class ThoughtGeneratePostTests(unittest.TestCase):
         self.assertEqual(metadata["random_seed"], 42)
         self.assertEqual(len(metadata["images"]), 4)
         self.assertEqual(len(metadata["background_sources"]), 4)
+        self.assertEqual(metadata["post_language"], "english")
+        self.assertIsNone(metadata["platform"])
+
+    def test_platform_specific_copies_share_stable_background_sequence(self) -> None:
+        tweet_path = self.root / "tweet.json"
+        tweet_path.write_text(
+            json.dumps(
+                {
+                    "post_language": "english",
+                    "platform_languages": {
+                        "facebook": "english",
+                        "instagram": "bangla",
+                    },
+                    "items": [
+                        {
+                            "id": "1",
+                            "text": (
+                                "AI changes the work people do while leaving "
+                                "human judgment and responsibility essential."
+                            ),
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        english_copy = self.root / "english.json"
+        english_copy.write_text(
+            json.dumps(
+                {
+                    "series_title": "Today's Tokens for Thought",
+                    "hook": "What remains distinctly human as AI advances?",
+                    "paragraphs": PARAGRAPHS,
+                    "copy_language": "english",
+                    "source_tweet_json": str(tweet_path),
+                }
+            ),
+            encoding="utf-8",
+        )
+        bangla_copy = self.root / "bangla.json"
+        bangla_copy.write_text(
+            json.dumps(
+                {
+                    "series_title": "আজকের ভাবনার খোরাক",
+                    "hook": "AI এগিয়ে গেলে মানুষের নিজস্ব ভূমিকা কী থাকে?",
+                    "paragraphs": BANGLA_PARAGRAPHS,
+                    "copy_language": "bangla",
+                    "source_tweet_json": str(tweet_path),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        facebook_output = self.root / "facebook"
+        instagram_output = self.root / "instagram"
+        facebook_exit = generate_post.main(
+            [
+                "--tweet-json",
+                str(tweet_path),
+                "--platform",
+                "facebook",
+                "--copy-json",
+                str(english_copy),
+                "--background-dir",
+                str(self.backgrounds),
+                "--output-dir",
+                str(facebook_output),
+            ]
+        )
+        instagram_exit = generate_post.main(
+            [
+                "--tweet-json",
+                str(tweet_path),
+                "--platform",
+                "instagram",
+                "--copy-json",
+                str(bangla_copy),
+                "--background-dir",
+                str(self.backgrounds),
+                "--output-dir",
+                str(instagram_output),
+            ]
+        )
+
+        self.assertEqual(facebook_exit, 0)
+        self.assertEqual(instagram_exit, 0)
+        facebook_metadata = json.loads(
+            (facebook_output / "post.json").read_text(encoding="utf-8")
+        )
+        instagram_metadata = json.loads(
+            (instagram_output / "post.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(facebook_metadata["post_language"], "english")
+        self.assertEqual(instagram_metadata["post_language"], "bangla")
+        self.assertEqual(facebook_metadata["platform"], "facebook")
+        self.assertEqual(instagram_metadata["platform"], "instagram")
+        self.assertEqual(
+            facebook_metadata["random_seed"],
+            instagram_metadata["random_seed"],
+        )
+        self.assertEqual(
+            facebook_metadata["background_sources"],
+            instagram_metadata["background_sources"],
+        )
 
 
 if __name__ == "__main__":

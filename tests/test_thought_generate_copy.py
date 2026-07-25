@@ -71,6 +71,10 @@ class ThoughtGenerateCopyTests(unittest.TestCase):
             "Same-author thread continuation",
             call["input"][1]["content"],
         )
+        self.assertIn(
+            "major public figure or major official account",
+            call["input"][0]["content"],
+        )
 
     def test_rejects_too_few_paragraphs(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "3–8"):

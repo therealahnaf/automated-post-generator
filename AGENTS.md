@@ -7,8 +7,8 @@ complete or an explicit approval is required.
 ## Route the request
 
 1. If the Telegram watcher supplied a trusted manual `workflow_type` of
-   `news`, `model`, `product`, or `reel`, preserve it exactly and do not
-   classify. If it
+   `news`, `model`, `product`, `informative`, or `reel`, preserve it exactly
+   and do not classify. If it
    supplied `auto`, perform the one-time classification below. Interactive
    requests without a trusted selection also use that classifier.
    When the watcher supplies `facebook_language` and `instagram_language`
@@ -48,30 +48,32 @@ complete or an explicit approval is required.
      commentary about existing products or models.
    - If genuinely ambiguous, select `news`. Never invent a model name or ask
      for classification during an unattended Telegram job.
-   - Select `reel` only through a trusted manual selection; Auto Detect never
-     changes a video tweet into a reel without that selection.
-5. Persist the decision as `workflow_type` (`model`, `product`, `news`, or
-   `reel`) in the fetched tweet JSON. Never reclassify the story during
-   revisions, approval, or publishing.
+   - Select `informative` and `reel` only through a trusted manual selection.
+     Auto Detect never changes a philosophical post into an informative
+     carousel or a video tweet into a reel without that selection.
+5. Persist the decision as `workflow_type` (`model`, `product`, `news`,
+   `informative`, or `reel`) in the fetched tweet JSON. Never reclassify the
+   story during revisions, approval, or publishing.
 6. Dispatch exactly one workflow:
    - For `news`, read and follow `tools/news/WORKFLOW.md`.
    - For `model`, read and follow `tools/models/WORKFLOW.md`.
    - For `product`, read and follow `tools/products/WORKFLOW.md`.
+   - For `informative`, read and follow `tools/thoughts/WORKFLOW.md`.
    - For `reel`, read and follow `tools/reels/WORKFLOW.md`.
 
-The selected workflow owns its copy, research, image generation, layout, and
+The selected workflow owns its copy, research, visual assets, layout, and
 ordered carousel construction. Do not mix layouts or generation rules between
-the two workflows.
+workflows.
 
 Generate the English and Bangla copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to
 create Facebook and Instagram caption files in their selected order. If both
 platform languages match, render one package and reuse it. If they differ,
-render separate platform packages using the same generated background and
-source media: Facebook assets use `facebook_language`, Instagram assets use
-`instagram_language`, and every headline and text-bearing card must use its
-platform language. Do not make a second image-model call merely because the
-languages differ.
+render separate platform packages using the same workflow-selected background
+assets and source media: Facebook assets use `facebook_language`, Instagram
+assets use `instagram_language`, and every headline and text-bearing card must
+use its platform language. Never select or generate a second background set
+merely because the languages differ.
 
 ## Shared preview, approval, and publishing contract
 

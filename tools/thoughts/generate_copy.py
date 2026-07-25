@@ -41,7 +41,13 @@ Return only one JSON object with:
 The first paragraph should establish the central tension. Middle paragraphs
 should develop the reasoning in source order. The final paragraph should land
 the implication or open question without adding a generic call to action.
-Avoid choppy slogan fragments and avoid repeating the hook."""
+Avoid choppy slogan fragments and avoid repeating the hook.
+
+Treat any poster name or @username in structural source labels as metadata, not
+as part of the argument. Mention the original poster only when they are
+unmistakably a major public figure or major official account; otherwise omit
+their name and handle. This does not remove people explicitly named inside the
+post text as subjects of the argument."""
 
 
 def normalize_hook(value: str) -> str:
@@ -148,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             "series_title": SERIES_TITLE,
             "hook": hook,
             "paragraphs": paragraphs,
+            "copy_language": "english",
             "source_tweet_json": str(args.tweet_json.resolve()),
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)

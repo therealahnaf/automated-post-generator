@@ -18,13 +18,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools.models import generate_copy as model_copy
 from tools.models import generate_post as model_post
 from tools.news import generate_description as news_description
 from tools.news import generate_post as news_post
+from tools.news import local_backgrounds
 from tools.news.post_language import read_platform_language
 from tools.products.generate_copy import (
-    MAX_INTRO_HEADLINE_CHARACTERS,
     build_headline,
     normalize_company_name,
     normalize_intro_headline,
@@ -46,6 +45,8 @@ class ProductPostMetadata:
     secondary_images: list[str]
     source_images: list[str]
     background_source: str
+    background_sources: list[str]
+    background_seed: int
     primary_style: str
     platform: str | None
     post_language: str
@@ -71,25 +72,6 @@ def read_copy_file(path: Path) -> tuple[str, str, str, list[str]]:
         intro_headline,
         model_post.validate_short_descriptions(raw_descriptions),
     )
-
-
-def build_background_prompt(
-    source_text: str,
-    product_name: str,
-    intro_headline: str,
-) -> str:
-    return f"""Use case: stylized-concept
-Asset type: text-free 4:5 portrait background for a technology product launch
-Primary request: Create a premium editorial technology visual inspired by the launch of {product_name}.
-Product function: {intro_headline}
-Announcement context: {source_text}
-Scene/backdrop: a credible environment, material, device context, or abstract system that evokes the product's actual purpose without inventing a user interface
-Style/medium: polished cinematic editorial photography with refined depth and restrained abstract light structures
-Composition/framing: 4:5 portrait; keep the central 55 percent calm and uncluttered for a centered title stack; place detail around the edges and in depth
-Lighting/mood: useful, modern, consequential, confident
-Color palette: charcoal and black with restrained coral #FF5757 and mint #C2FFE1 accents
-Constraints: no text, no letters, no numbers, no logos, no trademarks, no watermark, no border, no invented UI
-""".strip()
 
 
 def fit_kicker(draw: ImageDraw.ImageDraw, language: str = "english"):
@@ -235,17 +217,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Source-grounded feature line; repeat once per secondary card.",
     )
-    parser.add_argument("--background-input", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--date", type=news_post.parse_date, default=date.today())
-    parser.add_argument("--keep-background", action="store_true")
-    parser.add_argument("--image-model", default=news_post.DEFAULT_IMAGE_MODEL)
-    parser.add_argument("--image-size", default=news_post.DEFAULT_IMAGE_SIZE)
     parser.add_argument(
-        "--image-quality",
-        choices=("low", "medium", "high", "auto"),
-        default=news_post.DEFAULT_IMAGE_QUALITY,
+        "--background-dir",
+        type=Path,
+        default=local_backgrounds.DEFAULT_BACKGROUND_DIR,
+        help="Directory containing the reusable bg-*.png files.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Override the stable background-selection seed.",
+    )
+    parser.add_argument("--date", type=news_post.parse_date, default=date.today())
     return parser
 
 
@@ -311,28 +295,25 @@ def main(argv: list[str] | None = None) -> int:
                 "A no-media product post requires two or three short descriptions."
             )
 
-        image_prompt = build_background_prompt(
-            source_text,
-            product_name,
-            intro_headline,
+        available_backgrounds = local_backgrounds.list_backgrounds(
+            args.background_dir
         )
-        if args.background_input:
-            if not args.background_input.is_file():
-                raise FileNotFoundError(
-                    f"Background image not found: {args.background_input}"
-                )
-            background_bytes = args.background_input.read_bytes()
-            background_source = str(args.background_input.resolve())
-        else:
-            news_post.require_api_key()
-            background_bytes = news_post.generate_background(
-                news_post.make_client(),
-                image_prompt,
-                model=args.image_model,
-                size=args.image_size,
-                quality=args.image_quality,
+        background_seed = (
+            args.seed
+            if args.seed is not None
+            else local_backgrounds.stable_seed(
+                "product",
+                product_name,
+                company_name,
+                source_text,
             )
-            background_source = "openai-image-api"
+        )
+        selected_backgrounds = local_backgrounds.select_backgrounds(
+            available_backgrounds,
+            secondary_count + 1,
+            background_seed,
+        )
+        background_bytes = selected_backgrounds[0].read_bytes()
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
         slug = re_slug(product_name)
@@ -357,20 +338,18 @@ def main(argv: list[str] | None = None) -> int:
                     source_path,
                     description,
                     args.date,
+                    background_bytes=selected_backgrounds[index - 1].read_bytes(),
                 ).save(output_path, format="PNG", optimize=True)
                 secondary_paths.append(output_path)
         else:
             for index, description in enumerate(short_descriptions, start=2):
                 output_path = args.output_dir / f"{index:02d}-summary-{index - 1}.png"
                 model_post.compose_fallback_secondary(
-                    background_bytes,
+                    selected_backgrounds[index - 1].read_bytes(),
                     description,
                     args.date,
                 ).save(output_path, format="PNG", optimize=True)
                 secondary_paths.append(output_path)
-
-        if args.keep_background:
-            (args.output_dir / "background.png").write_bytes(background_bytes)
 
         metadata = ProductPostMetadata(
             product_name=product_name,
@@ -381,7 +360,11 @@ def main(argv: list[str] | None = None) -> int:
             primary_image=str(primary_path.resolve()),
             secondary_images=[str(path.resolve()) for path in secondary_paths],
             source_images=[str(path.resolve()) for path in source_images],
-            background_source=background_source,
+            background_source=str(selected_backgrounds[0].resolve()),
+            background_sources=[
+                str(path.resolve()) for path in selected_backgrounds
+            ],
+            background_seed=background_seed,
             primary_style="product-knowledge-stack",
             platform=args.platform,
             post_language=language,

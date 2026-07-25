@@ -33,9 +33,13 @@ Use this workflow only after the `AGENTS.md` router has persisted
    With photos, the segment count must exactly match the downloaded-photo
    count. Without photos, create two or three segments according to the amount
    of distinct detail.
-5. Generate one text-free product-launch background, then run
-   `tools/products/generate_post.py`. The primary card uses the fixed
-   `product-knowledge-stack` layout:
+5. Run `tools/products/generate_post.py`; never call an image model for this
+   workflow. The renderer pseudo-randomly selects every card background from
+   `assets/fonts/images/bg-*.png`, avoids immediate repeats, and derives a
+   stable seed from the validated post so English and Bangla platform variants
+   use the same ordered background sequence. Pass `--seed <integer>` only when
+   deliberately overriding that sequence, and reuse it for every revision and
+   platform. The primary card uses the fixed `product-knowledge-stack` layout:
 
    ```text
    You Should Know About
@@ -47,19 +51,20 @@ Use this workflow only after the `AGENTS.md` router has persisted
    Keep this centered hierarchy and the coral/mint Bits Today palette.
 6. For every downloaded photo, create a secondary card with its short
    description at the top and the complete, uncropped photo aligned toward the
-   bottom. Preserve source order. The complete carousel must never exceed 10
-   images.
+   bottom over its selected local background. Preserve source order. The
+   complete carousel must never exceed 10 images.
 7. With no photos, create one secondary summary card for each of the two or
-   three description segments. Reuse the exact primary background; do not
-   generate additional backgrounds.
+   three description segments. Center each segment over its selected local
+   background; do not generate any background.
 8. If either platform selects Bangla, run
    `tools/news/translate_carousel_copy.py` once and reuse that translated copy
    JSON for every Bangla platform. Render each distinct package with
    `tools/products/generate_post.py --platform <platform>`; the renderer
    translates `You Should Know About` and `by`, while the translated copy
    supplies the functional intro and every text-bearing secondary card.
-   Preserve product and company names and reuse the same background and source
-   images across variants. Then follow the shared Telegram preview, revision,
-   exact `yes` approval, Facebook, and Instagram contract in `AGENTS.md`.
+   Preserve product and company names and reuse the same ordered local
+   backgrounds and source images across variants. Then follow the shared
+   Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
+   contract in `AGENTS.md`.
 
 Never store tokens in source, output metadata, or command arguments.

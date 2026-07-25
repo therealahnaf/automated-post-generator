@@ -24,15 +24,19 @@ fonts, credentials, policies, and tests remain at the repository root.
 contract. It dispatches validated stories to either
 [`tools/news/WORKFLOW.md`](tools/news/WORKFLOW.md) or
 [`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md),
-[`tools/products/WORKFLOW.md`](tools/products/WORKFLOW.md), and trusted manual
+[`tools/products/WORKFLOW.md`](tools/products/WORKFLOW.md), trusted manual
+informative requests to
+[`tools/thoughts/WORKFLOW.md`](tools/thoughts/WORKFLOW.md), and trusted manual
 reel requests to [`tools/reels/WORKFLOW.md`](tools/reels/WORKFLOW.md).
 
 The model-announcement workflow lives in `tools/models/`. It creates a centered
 primary card with a large `Meet`, the model name, and `by <company name>`,
 followed by feature-focused secondary cards. Posts
 with photos create exactly one description segment per photo; posts without
-photos split the finalized English description into two or three cards that
-reuse the primary background. See
+photos split the finalized English description into two or three cards.
+Every card uses a pseudo-random background from
+`assets/fonts/images/bg-*.png`; the stable saved seed keeps platform and
+language variants identical without calling an image model. See
 [`tools/models/WORKFLOW.md`](tools/models/WORKFLOW.md) for the complete flow.
 
 The reel workflow converts an X video into a maximum 59.5-second 1080x1920
@@ -48,17 +52,18 @@ rather than consuming Facebook's separately transcoded CDN copy.
 The product-release workflow lives in `tools/products/`. Its primary card uses
 `You Should Know About`, the product name, a one- or two-line functional gist,
 and `by <company name>`. Secondary cards follow the model workflow's ordered
-photo and no-media summary behavior.
+photo and no-media summary behavior, including the same seeded local-background
+selection and no image-generation call.
 
-The standalone thought-carousel workflow lives in `tools/thoughts/`. It turns
+The informative thought-carousel workflow lives in `tools/thoughts/`. It turns
 an informative or philosophical AI post and its same-author thread into a
 `Today's Tokens for Thought` cover, a short headline hook, and three to eight
 flowing paragraph cards. Pillow randomly selects each card's background from
 `assets/fonts/images/bg-*.png`, avoids immediate repeats, and records the seed
-for reproducible revisions. This workflow never generates backgrounds or uses
-an image model. See
-[`tools/thoughts/WORKFLOW.md`](tools/thoughts/WORKFLOW.md) for the current
-design-review flow.
+for reproducible revisions. English and Bangla copies are generated once and
+the Telegram watcher preserves independent Facebook and Instagram language
+selections. This workflow never generates backgrounds or uses an image model.
+See [`tools/thoughts/WORKFLOW.md`](tools/thoughts/WORKFLOW.md).
 
 Three Pillow presets are available through `--style`:
 
@@ -101,9 +106,16 @@ python .\tools\thoughts\generate_copy.py `
   --output .\output\thought-copy.json
 
 python .\tools\thoughts\generate_post.py `
+  --tweet-json .\output\tweet.json `
+  --platform facebook `
   --copy-json .\output\thought-copy.json `
-  --output-dir .\output\thought-cards
+  --output-dir .\output\thought-cards-facebook
 ```
+
+When either platform selects Bangla, translate the English copy once with
+`tools/news/translate_carousel_copy.py`, then pass the English or Bangla copy
+to each platform render according to the languages stored in `tweet.json`.
+Matching platform languages reuse one rendered package.
 
 The output directory contains the ordered full-resolution cards, a review-only
 contact sheet, and `post.json` with the selected backgrounds and random seed.
@@ -374,17 +386,18 @@ installation time.
 `tools/news/telegram_codex_watcher.py` is a separate, always-running alternative to the
 hourly queue. It uses Telegram long polling, keeps each Codex session, and
 sends previews as replies to the originating Telegram request. Sending an X
-status URL first presents `News`, `Model Release`, `Product Release`, `Reel`,
-`Auto Detect`, and `Cancel` inline buttons. `/news URL`, `/model URL`,
-`/product URL`, `/reel URL`, and `/auto URL` are direct-selection shortcuts.
-Manual selections are authoritative; Auto Detect runs the news/model/product
-classifier. After the workflow is chosen, the same message asks for the
+status URL first presents `News`, `Model Release`, `Product Release`,
+`Informative`, `Reel`, `Auto Detect`, and `Cancel` inline buttons. `/news URL`,
+`/model URL`, `/product URL`, `/informative URL`, `/reel URL`, and `/auto URL`
+are direct-selection shortcuts. Manual selections are authoritative; Auto
+Detect runs the news/model/product classifier and never chooses Informative or
+Reel. After the workflow is chosen, the same message asks for the
 Facebook language and then the Instagram language, each with `English` and
 `বাংলা` buttons. Generation does not start until both are selected, and both
 choices remain fixed through revisions and publishing. Matching choices reuse
 one package. Different choices produce platform-specific headlines, text
 cards, caption ordering, previews, and publishing assets while sharing the
-generated background and source media.
+workflow-selected backgrounds and source media.
 
 The selector message becomes one edited progress dashboard for source fetching,
 media discovery, headline, research, bilingual description, generated items,

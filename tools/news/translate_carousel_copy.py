@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate model/product carousel copy to Bangla in one fixed-model call."""
+"""Translate model, product, or informative carousel copy in one model call."""
 
 from __future__ import annotations
 
@@ -26,6 +26,24 @@ the same order."""
 
 
 def copy_strings(payload: dict[str, Any]) -> tuple[list[str], bool]:
+    if "paragraphs" in payload or "hook" in payload:
+        title = str(payload.get("series_title", "")).strip()
+        hook = str(payload.get("hook", "")).strip()
+        paragraphs = payload.get("paragraphs")
+        if (
+            not title
+            or not hook
+            or not isinstance(paragraphs, list)
+            or not paragraphs
+        ):
+            raise ValueError(
+                "Informative copy JSON needs series_title, hook, and paragraphs."
+            )
+        values = [title, hook, *(str(value).strip() for value in paragraphs)]
+        if any(not value for value in values):
+            raise ValueError("Carousel copy strings cannot be empty.")
+        return values, False
+
     descriptions = payload.get("short_descriptions")
     if not isinstance(descriptions, list) or not descriptions:
         raise ValueError("Copy JSON has no short_descriptions.")
@@ -74,13 +92,14 @@ def parse_translations(text: str, expected_count: int) -> list[str]:
 
 def translate_copy(client: Any, payload: dict[str, Any]) -> dict[str, Any]:
     values, is_product = copy_strings(payload)
+    is_informative = "paragraphs" in payload and "hook" in payload
     response = client.responses.create(
         model=TEXT_GENERATION_MODEL,
         input=[
             {"role": "system", "content": SYSTEM_INSTRUCTIONS},
             {"role": "user", "content": build_prompt(values)},
         ],
-        max_output_tokens=900,
+        max_output_tokens=2200 if is_informative else 900,
         reasoning={"effort": "none"},
     )
     translations = parse_translations(
@@ -88,10 +107,16 @@ def translate_copy(client: Any, payload: dict[str, Any]) -> dict[str, Any]:
         len(values),
     )
     translated = dict(payload)
-    if is_product:
+    if is_informative:
+        translated["series_title"] = translations[0]
+        translated["hook"] = translations[1]
+        translated["paragraphs"] = translations[2:]
+    elif is_product:
         translated["intro_headline"] = translations[0]
         translations = translations[1:]
-    translated["short_descriptions"] = translations
+        translated["short_descriptions"] = translations
+    else:
+        translated["short_descriptions"] = translations
     translated["copy_language"] = "bangla"
     return translated
 

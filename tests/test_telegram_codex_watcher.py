@@ -73,6 +73,25 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         self.assertIn("--facebook-language bangla", prompt)
         self.assertIn("--instagram-language english", prompt)
 
+    def test_informative_workflow_keeps_independent_platform_languages(self) -> None:
+        prompt = watcher.build_initial_prompt(
+            4,
+            "https://x.com/example/status/2",
+            "informative",
+            "english",
+            "bangla",
+        )
+        self.assertIn(
+            "manually selected workflow_type `informative`",
+            prompt,
+        )
+        self.assertIn("Facebook language `english`", prompt)
+        self.assertIn("Instagram language `bangla`", prompt)
+        self.assertEqual(
+            watcher.WORKFLOW_LABELS["informative"],
+            "Informative",
+        )
+
     def test_pending_selection_is_not_claimed(self) -> None:
         message = watcher.TelegramMessage(
             update_id=50,
@@ -184,6 +203,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 "workflow:42:news",
                 "workflow:42:model",
                 "workflow:42:product",
+                "workflow:42:informative",
                 "workflow:42:reel",
                 "workflow:42:auto",
                 "workflow:42:cancel",

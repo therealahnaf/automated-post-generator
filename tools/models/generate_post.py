@@ -28,11 +28,11 @@ from tools.models.generate_copy import (
 )
 from tools.news import generate_description as news_description
 from tools.news import generate_post as news_post
+from tools.news import local_backgrounds
 from tools.news.post_language import read_platform_language
 
 
 CANVAS_SIZE = news_post.CANVAS_SIZE
-BACKGROUND_COLOR = (33, 33, 33, 255)
 CARD_MARGIN = 58
 MEDIA_TOP = 560
 MEDIA_BOTTOM = 1225
@@ -73,6 +73,8 @@ class ModelPostMetadata:
     secondary_images: list[str]
     source_images: list[str]
     background_source: str
+    background_sources: list[str]
+    background_seed: int
     primary_style: str
     platform: str | None
     post_language: str
@@ -130,20 +132,6 @@ def read_source_images(tweet_json: Path) -> list[Path]:
                 resolved.append(candidate)
                 break
     return resolved
-
-
-def build_background_prompt(source_text: str, model_name: str) -> str:
-    return f"""Use case: stylized-concept
-Asset type: text-free 4:5 portrait background for a technology model launch
-Primary request: Create a premium editorial technology visual inspired by the launch of {model_name}.
-Announcement context: {source_text}
-Scene/backdrop: abstract but credible AI compute environment, luminous data structures, refined depth, no people required
-Style/medium: polished cinematic editorial photography blended with restrained abstract light structures
-Composition/framing: 4:5 portrait; keep the central 45 percent calm and uncluttered for a centered title; place detail around the edges and in depth
-Lighting/mood: consequential product launch, precise, modern, confident
-Color palette: charcoal and black with restrained coral #FF5757 and mint #C2FFE1 accents
-Constraints: no text, no letters, no numbers, no logos, no trademarks, no watermark, no border, no UI labels
-""".strip()
 
 
 def open_background(background_bytes: bytes) -> Image.Image:
@@ -660,8 +648,10 @@ def compose_media_secondary(
     source_path: Path,
     short_description: str,
     post_date: date,
+    *,
+    background_bytes: bytes,
 ) -> Image.Image:
-    canvas = Image.new("RGBA", CANVAS_SIZE, BACKGROUND_COLOR)
+    canvas = news_post.add_scrim(open_background(background_bytes))
     add_top_gradient(canvas)
     draw = ImageDraw.Draw(canvas)
     draw.rectangle((CARD_MARGIN, 54, CARD_MARGIN + 150, 63), fill=news_post.BRAND_CORAL)
@@ -709,25 +699,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Source-grounded feature line; repeat once per secondary card.",
     )
-    parser.add_argument("--background-input", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--background-dir",
+        type=Path,
+        default=local_backgrounds.DEFAULT_BACKGROUND_DIR,
+        help="Directory containing the reusable bg-*.png files.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Override the stable background-selection seed.",
+    )
     parser.add_argument("--date", type=news_post.parse_date, default=date.today())
     parser.add_argument(
         "--primary-style",
         choices=PRIMARY_STYLE_CHOICES,
         default="signal-stack-condensed",
         help="Typography treatment for the centered primary headline.",
-    )
-    parser.add_argument("--keep-background", action="store_true")
-    parser.add_argument(
-        "--image-model",
-        default=news_post.DEFAULT_IMAGE_MODEL,
-    )
-    parser.add_argument("--image-size", default=news_post.DEFAULT_IMAGE_SIZE)
-    parser.add_argument(
-        "--image-quality",
-        choices=("low", "medium", "high", "auto"),
-        default=news_post.DEFAULT_IMAGE_QUALITY,
     )
     return parser
 
@@ -781,24 +770,25 @@ def main(argv: list[str] | None = None) -> int:
                 "A no-media model post requires two or three short descriptions."
             )
 
-        image_prompt = build_background_prompt(source_text, model_name)
-        if args.background_input:
-            if not args.background_input.is_file():
-                raise FileNotFoundError(
-                    f"Background image not found: {args.background_input}"
-                )
-            background_bytes = args.background_input.read_bytes()
-            background_source = str(args.background_input.resolve())
-        else:
-            news_post.require_api_key()
-            background_bytes = news_post.generate_background(
-                news_post.make_client(),
-                image_prompt,
-                model=args.image_model,
-                size=args.image_size,
-                quality=args.image_quality,
+        available_backgrounds = local_backgrounds.list_backgrounds(
+            args.background_dir
+        )
+        background_seed = (
+            args.seed
+            if args.seed is not None
+            else local_backgrounds.stable_seed(
+                "model",
+                model_name,
+                company_name,
+                source_text,
             )
-            background_source = "openai-image-api"
+        )
+        selected_backgrounds = local_backgrounds.select_backgrounds(
+            available_backgrounds,
+            secondary_count + 1,
+            background_seed,
+        )
+        background_bytes = selected_backgrounds[0].read_bytes()
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
         slug = "".join(
@@ -828,7 +818,12 @@ def main(argv: list[str] | None = None) -> int:
                 start=2,
             ):
                 output_path = args.output_dir / f"{index:02d}-feature-{index - 1}.png"
-                compose_media_secondary(source_path, description, args.date).save(
+                compose_media_secondary(
+                    source_path,
+                    description,
+                    args.date,
+                    background_bytes=selected_backgrounds[index - 1].read_bytes(),
+                ).save(
                     output_path,
                     format="PNG",
                     optimize=True,
@@ -840,14 +835,11 @@ def main(argv: list[str] | None = None) -> int:
                     args.output_dir / f"{index:02d}-summary-{index - 1}.png"
                 )
                 compose_fallback_secondary(
-                    background_bytes,
+                    selected_backgrounds[index - 1].read_bytes(),
                     description,
                     args.date,
                 ).save(output_path, format="PNG", optimize=True)
                 secondary_paths.append(output_path)
-
-        if args.keep_background:
-            (args.output_dir / "background.png").write_bytes(background_bytes)
 
         metadata = ModelPostMetadata(
             model_name=model_name,
@@ -857,7 +849,11 @@ def main(argv: list[str] | None = None) -> int:
             primary_image=str(primary_path.resolve()),
             secondary_images=[str(path.resolve()) for path in secondary_paths],
             source_images=[str(path.resolve()) for path in source_images],
-            background_source=background_source,
+            background_source=str(selected_backgrounds[0].resolve()),
+            background_sources=[
+                str(path.resolve()) for path in selected_backgrounds
+            ],
+            background_seed=background_seed,
             primary_style=args.primary_style,
             platform=args.platform,
             post_language=language,

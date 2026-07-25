@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import secrets
 import sys
 from dataclasses import asdict, dataclass
@@ -20,7 +19,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.news import generate_description as news_description
 from tools.news import generate_post as news_post
+from tools.news import local_backgrounds
+from tools.news.post_language import read_platform_language
 from tools.thoughts.generate_copy import (
     MAX_PARAGRAPHS,
     MIN_PARAGRAPHS,
@@ -31,8 +33,7 @@ from tools.thoughts.generate_copy import (
 
 
 CANVAS_SIZE = news_post.CANVAS_SIZE
-DEFAULT_BACKGROUND_DIR = PROJECT_ROOT / "assets" / "fonts" / "images"
-DEFAULT_LOGO = news_post.DEFAULT_BRAND_LOGO
+DEFAULT_BACKGROUND_DIR = local_backgrounds.DEFAULT_BACKGROUND_DIR
 MARGIN = 72
 BODY_LEFT = 92
 BODY_WIDTH = 896
@@ -47,15 +48,31 @@ class ThoughtPostMetadata:
     preview_sheet: str
     background_sources: list[str]
     random_seed: int
-    logo_source: str
+    platform: str | None
+    post_language: str
     created_at: str
 
 
-def read_copy_file(path: Path) -> tuple[str, list[str]]:
+def read_copy_file(path: Path) -> tuple[str, str, list[str], str]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("series_title") != SERIES_TITLE:
-        raise ValueError(f"series_title must be exactly: {SERIES_TITLE}")
-    hook = normalize_hook(str(payload.get("hook", "")))
+    copy_language = str(payload.get("copy_language", "english")).lower()
+    if copy_language not in {"english", "bangla"}:
+        raise ValueError("copy_language must be english or bangla.")
+    series_title = news_description.normalize_source_text(
+        str(payload.get("series_title", ""))
+    )
+    if copy_language == "english":
+        if series_title != SERIES_TITLE:
+            raise ValueError(f"series_title must be exactly: {SERIES_TITLE}")
+        hook = normalize_hook(str(payload.get("hook", "")))
+    else:
+        hook = news_description.normalize_source_text(
+            str(payload.get("hook", ""))
+        )
+        if not series_title or not news_post.contains_bangla_text(series_title):
+            raise ValueError("Bangla series_title must contain Bangla text.")
+        if not hook or not news_post.contains_bangla_text(hook):
+            raise ValueError("Bangla hook must contain Bangla text.")
     raw_paragraphs = payload.get("paragraphs")
     if (
         not isinstance(raw_paragraphs, list)
@@ -64,21 +81,25 @@ def read_copy_file(path: Path) -> tuple[str, list[str]]:
         raise ValueError(
             f"Copy file must contain {MIN_PARAGRAPHS}–{MAX_PARAGRAPHS} paragraphs."
         )
-    paragraphs = [normalize_paragraph(str(value)) for value in raw_paragraphs]
-    return hook, paragraphs
+    if copy_language == "english":
+        paragraphs = [
+            normalize_paragraph(str(value)) for value in raw_paragraphs
+        ]
+    else:
+        paragraphs = [
+            news_description.normalize_source_text(str(value))
+            for value in raw_paragraphs
+        ]
+        if any(
+            not paragraph or not news_post.contains_bangla_text(paragraph)
+            for paragraph in paragraphs
+        ):
+            raise ValueError("Every Bangla paragraph must contain Bangla text.")
+    return series_title, hook, paragraphs, copy_language
 
 
 def list_backgrounds(directory: Path) -> list[Path]:
-    if not directory.is_dir():
-        raise FileNotFoundError(f"Background directory not found: {directory}")
-    backgrounds = sorted(
-        path
-        for path in directory.glob("bg-*.png")
-        if path.is_file()
-    )
-    if not backgrounds:
-        raise FileNotFoundError(f"No bg-*.png images found in {directory}")
-    return backgrounds
+    return local_backgrounds.list_backgrounds(directory)
 
 
 def select_backgrounds(
@@ -86,16 +107,7 @@ def select_backgrounds(
     count: int,
     seed: int,
 ) -> list[Path]:
-    if not backgrounds:
-        raise ValueError("At least one background is required.")
-    rng = random.Random(seed)
-    selected: list[Path] = []
-    for _ in range(count):
-        choices = backgrounds
-        if len(backgrounds) > 1 and selected:
-            choices = [path for path in backgrounds if path != selected[-1]]
-        selected.append(rng.choice(choices))
-    return selected
+    return local_backgrounds.select_backgrounds(backgrounds, count, seed)
 
 
 def prepare_background(path: Path) -> Image.Image:
@@ -133,6 +145,23 @@ def wrap_text(
     return lines
 
 
+def load_text_font(
+    text: str,
+    *,
+    size: int,
+    bold: bool,
+    italic: bool = False,
+) -> ImageFont.FreeTypeFont:
+    if news_post.contains_bangla_text(text):
+        path, index = news_post.find_bangla_font(bold=bold)
+        return news_post.load_font(path, size=size, index=index)
+    return news_post.load_roboto_font(
+        size=size,
+        bold=bold,
+        italic=italic,
+    )
+
+
 def fit_text(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -145,7 +174,8 @@ def fit_text(
     italic: bool = False,
 ) -> tuple[ImageFont.FreeTypeFont, list[str], int]:
     for size in range(start_size, minimum_size - 1, -2):
-        font = news_post.load_roboto_font(
+        font = load_text_font(
+            text,
             size=size,
             bold=bold,
             italic=italic,
@@ -157,18 +187,45 @@ def fit_text(
     raise ValueError("Text is too long for the thought card.")
 
 
+def fit_single_line(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    *,
+    max_width: int,
+    start_size: int,
+    minimum_size: int,
+) -> ImageFont.FreeTypeFont:
+    for size in range(start_size, minimum_size - 1, -2):
+        font = load_text_font(text, size=size, bold=True)
+        if news_post.text_width(draw, text, font) <= max_width:
+            return font
+    raise ValueError("Series title is too long for one line.")
+
+
 def compose_cover(
     background_path: Path,
     hook: str,
     post_date: date,
     total_cards: int,
+    *,
+    series_title: str = SERIES_TITLE,
 ) -> Image.Image:
     canvas = prepare_background(background_path)
     draw = ImageDraw.Draw(canvas)
     del post_date, total_cards
 
-    title_font = news_post.load_roboto_font(size=40, bold=True)
-    title = SERIES_TITLE.upper()
+    title = (
+        series_title
+        if news_post.contains_bangla_text(series_title)
+        else series_title.upper()
+    )
+    title_font = fit_single_line(
+        draw,
+        title,
+        max_width=CANVAS_SIZE[0] - MARGIN * 2,
+        start_size=40,
+        minimum_size=28,
+    )
     title_width = news_post.text_width(draw, title, title_font)
     draw.text(
         ((CANVAS_SIZE[0] - title_width) // 2, 408),
@@ -289,6 +346,12 @@ def make_preview_sheet(images: list[Path], output: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--copy-json", type=Path, required=True)
+    parser.add_argument("--tweet-json", type=Path)
+    parser.add_argument(
+        "--platform",
+        choices=("facebook", "instagram"),
+        help="Validate the copy against that platform's persisted language.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
         "--background-dir",
@@ -311,9 +374,38 @@ def main(argv: list[str] | None = None) -> int:
     configure_utf8(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
-        hook, paragraphs = read_copy_file(args.copy_json)
+        series_title, hook, paragraphs, copy_language = read_copy_file(
+            args.copy_json
+        )
+        if args.platform:
+            if args.tweet_json is None:
+                raise ValueError("--tweet-json is required with --platform.")
+            platform_language = read_platform_language(
+                args.tweet_json,
+                args.platform,
+            )
+            if copy_language != platform_language:
+                raise ValueError(
+                    f"{args.platform} requires {platform_language} copy, "
+                    f"but {args.copy_json} contains {copy_language}."
+                )
+
         backgrounds = list_backgrounds(args.background_dir)
-        seed = args.seed if args.seed is not None else secrets.randbits(63)
+        source_tweet_json = args.tweet_json
+        if source_tweet_json is None:
+            payload = json.loads(args.copy_json.read_text(encoding="utf-8"))
+            stored_source = payload.get("source_tweet_json")
+            if isinstance(stored_source, str) and stored_source.strip():
+                candidate = Path(stored_source)
+                if candidate.is_file():
+                    source_tweet_json = candidate
+        if args.seed is not None:
+            seed = args.seed
+        elif source_tweet_json is not None and source_tweet_json.is_file():
+            source_text = news_description.read_tweet_text(source_tweet_json)
+            seed = local_backgrounds.stable_seed("informative", source_text)
+        else:
+            seed = secrets.randbits(63)
         selected = select_backgrounds(
             backgrounds,
             len(paragraphs) + 1,
@@ -329,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
                 hook,
                 args.date,
                 len(paragraphs) + 1,
+                series_title=series_title,
             ),
             cover_path,
         )
@@ -354,14 +447,15 @@ def main(argv: list[str] | None = None) -> int:
         preview_path = args.output_dir / "preview-contact-sheet.png"
         make_preview_sheet(output_paths, preview_path)
         metadata = ThoughtPostMetadata(
-            series_title=SERIES_TITLE,
+            series_title=series_title,
             hook=hook,
             paragraphs=paragraphs,
             images=[str(path.resolve()) for path in output_paths],
             preview_sheet=str(preview_path.resolve()),
             background_sources=[str(path.resolve()) for path in selected],
             random_seed=seed,
-            logo_source=str(DEFAULT_LOGO.resolve()),
+            platform=args.platform,
+            post_language=copy_language,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
         metadata_path = args.output_dir / "post.json"

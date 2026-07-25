@@ -74,6 +74,7 @@ class ModelGeneratePostTests(unittest.TestCase):
                 source_path,
                 "Higher intelligence, greater token efficiency, and a lower price.",
                 date(2026, 7, 23),
+                background_bytes=self.background_bytes,
             )
 
         self.assertEqual(result.size, (1080, 1350))
@@ -106,8 +107,15 @@ class ModelGeneratePostTests(unittest.TestCase):
     def test_no_media_cli_renders_one_card_per_description_segment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            background_path = root / "background.png"
-            background_path.write_bytes(self.background_bytes)
+            background_dir = root / "backgrounds"
+            background_dir.mkdir()
+            for index, color in enumerate(
+                ((18, 36, 54), (54, 18, 36), (18, 54, 36)),
+                start=1,
+            ):
+                Image.new("RGB", (1024, 1280), color).save(
+                    background_dir / f"bg-{index}.png"
+                )
             tweet_path = root / "tweet.json"
             tweet_path.write_text(
                 json.dumps(
@@ -146,8 +154,10 @@ class ModelGeneratePostTests(unittest.TestCase):
                     str(tweet_path),
                     "--copy-json",
                     str(copy_path),
-                    "--background-input",
-                    str(background_path),
+                    "--background-dir",
+                    str(background_dir),
+                    "--seed",
+                    "42",
                     "--output-dir",
                     str(output_dir),
                     "--date",
@@ -159,6 +169,17 @@ class ModelGeneratePostTests(unittest.TestCase):
             self.assertTrue((output_dir / "02-summary-1.png").is_file())
             self.assertTrue((output_dir / "03-summary-2.png").is_file())
             self.assertTrue((output_dir / "04-summary-3.png").is_file())
+            metadata = json.loads(
+                (output_dir / "post.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(metadata["background_seed"], 42)
+            self.assertEqual(len(metadata["background_sources"]), 4)
+            names = [
+                Path(path).name for path in metadata["background_sources"]
+            ]
+            self.assertTrue(
+                all(left != right for left, right in zip(names, names[1:]))
+            )
 
 
 if __name__ == "__main__":

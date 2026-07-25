@@ -26,28 +26,33 @@ Use this workflow for posts announcing or introducing an AI model.
    description into ordered, source-grounded carousel segments. With photos,
    the segment count must exactly match the downloaded-photo count. Without
    photos, generate two or three segments according to the amount of detail.
-4. Generate one text-free model-launch background, then run
-   `tools/models/generate_post.py`. The first card places a larger `Meet`, the
-   model name, and `by <company name>` directly beneath it in the middle using
-   the default `signal-stack-condensed` preset: centered condensed model-name
-   typography with no side rule. For each downloaded
-   photo, create a secondary card with its short description at the top and the
-   complete, uncropped photo aligned toward the bottom. Keep the generated
-   primary first and preserve downloaded-photo order. The complete carousel
-   must never exceed 10 images.
-5. When no photos were downloaded, create one secondary summary card for each
-   of the two or three description segments. Every summary card must reuse the
-   exact generated primary background with its segment centered. Do not
-   generate additional backgrounds.
-6. If either platform selects Bangla, run
+4. Run `tools/models/generate_post.py`; never call an image model for this
+   workflow. The renderer pseudo-randomly selects every card background from
+   `assets/fonts/images/bg-*.png`, avoids immediate repeats, and derives a
+   stable seed from the validated post so English and Bangla platform variants
+   use the same ordered background sequence. Pass `--seed <integer>` only when
+   deliberately overriding that sequence, and reuse the same seed for every
+   revision and platform.
+5. The first card places a larger `Meet`, the model name, and
+   `by <company name>` directly beneath it in the middle using the default
+   `signal-stack-condensed` preset: centered condensed model-name typography
+   with no side rule. For each downloaded photo, create a secondary card with
+   its short description at the top and the complete, uncropped photo aligned
+   toward the bottom over its selected local background. Keep the primary first
+   and preserve downloaded-photo order. The complete carousel must never
+   exceed 10 images.
+6. When no photos were downloaded, create one secondary summary card for each
+   of the two or three description segments. Center each segment over its
+   selected local background; do not generate any background.
+7. If either platform selects Bangla, run
    `tools/news/translate_carousel_copy.py` once and reuse that translated copy
    JSON for every Bangla platform. Render each distinct platform package with
    `tools/models/generate_post.py --platform <platform>`; the renderer
    translates `Meet` and `by`, while the translated copy supplies every
    text-bearing secondary card. Preserve model and company names, and reuse the
-   same background and source images across variants. Then follow the shared
-   Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
-   contract in `AGENTS.md`.
+   same ordered local backgrounds and source images across variants. Then
+   follow the shared Telegram preview, revision, exact `yes` approval,
+   Facebook, and Instagram contract in `AGENTS.md`.
 
 Never store tokens in source, output metadata, or command arguments. Read them
 from the repository-root `.env` or an authenticated session.
