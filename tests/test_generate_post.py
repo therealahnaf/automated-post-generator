@@ -5,6 +5,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -208,6 +209,121 @@ class GeneratePostTests(unittest.TestCase):
         # The photo's top-left is rounded instead of remaining a square corner.
         corner = result.getpixel((307, 550))
         self.assertFalse(corner[0] < 40 and corner[1] > 170)
+
+    def test_photo_tweet_uses_stable_local_background_without_image_api(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            backgrounds = root / "backgrounds"
+            backgrounds.mkdir()
+            for index, color in enumerate(("navy", "purple"), start=1):
+                Image.new("RGB", (1024, 1280), color).save(
+                    backgrounds / f"bg-{index}.png"
+                )
+            photo_path = root / "tweet-photo.jpg"
+            Image.new("RGB", (900, 700), "white").save(photo_path)
+            tweet_json = root / "tweet.json"
+            tweet_json.write_text(
+                json.dumps(
+                    {
+                        "requested_urls": ["https://x.com/example/status/123"],
+                        "post_language": "english",
+                        "headline_highlight": "dual",
+                        "items": [
+                            {
+                                "id": "123",
+                                "downloaded_photos": [
+                                    {"local_path": str(photo_path)}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "post.png"
+
+            with mock.patch.object(
+                generate_post,
+                "generate_background",
+                side_effect=AssertionError("image API must not be called"),
+            ):
+                result = generate_post.main(
+                    [
+                        "A source story",
+                        "--headline",
+                        "A concise headline",
+                        "--tweet-json",
+                        str(tweet_json),
+                        "--background-dir",
+                        str(backgrounds),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+            metadata = json.loads(output.with_suffix(".json").read_text("utf-8"))
+            selected_again = generate_post.select_news_background_for_photo(
+                tweet_json=tweet_json,
+                feature_image_path=photo_path,
+                background_dir=backgrounds,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(Path(metadata["background_source"]), selected_again.resolve())
+        self.assertEqual(Path(metadata["feature_image_source"]), photo_path.resolve())
+
+    def test_photo_less_tweet_generates_editorial_background(self) -> None:
+        background = Image.new("RGB", (1024, 1280), "navy")
+        payload = io.BytesIO()
+        background.save(payload, format="PNG")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            tweet_json = root / "tweet.json"
+            tweet_json.write_text(
+                json.dumps(
+                    {
+                        "requested_urls": ["https://x.com/example/status/456"],
+                        "post_language": "english",
+                        "headline_highlight": "red",
+                        "items": [{"id": "456", "downloaded_photos": []}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "post.png"
+
+            with (
+                mock.patch.dict(
+                    generate_post.os.environ,
+                    {"OPENAI_API_KEY": "test-key"},
+                ),
+                mock.patch.object(generate_post, "make_client") as make_client,
+                mock.patch.object(
+                    generate_post,
+                    "generate_background",
+                    return_value=payload.getvalue(),
+                ) as generate_background,
+            ):
+                result = generate_post.main(
+                    [
+                        "A source story",
+                        "--headline",
+                        "A concise headline",
+                        "--tweet-json",
+                        str(tweet_json),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+            metadata = json.loads(output.with_suffix(".json").read_text("utf-8"))
+
+        self.assertEqual(result, 0)
+        make_client.assert_called_once_with()
+        generate_background.assert_called_once()
+        self.assertEqual(metadata["background_source"], "openai-image-api")
+        self.assertIsNone(metadata["feature_image_source"])
 
     def test_small_feature_photo_is_ineligible_and_never_upscaled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

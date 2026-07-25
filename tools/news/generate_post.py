@@ -20,6 +20,12 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
 try:
+    from .local_backgrounds import (
+        DEFAULT_BACKGROUND_DIR,
+        list_backgrounds,
+        select_backgrounds,
+        stable_seed,
+    )
     from .post_language import (
         HEADLINE_HIGHLIGHT_STYLES,
         read_headline_highlight,
@@ -27,6 +33,12 @@ try:
         read_post_language,
     )
 except ImportError:
+    from local_backgrounds import (
+        DEFAULT_BACKGROUND_DIR,
+        list_backgrounds,
+        select_backgrounds,
+        stable_seed,
+    )
     from post_language import (
         HEADLINE_HIGHLIGHT_STYLES,
         read_headline_highlight,
@@ -527,6 +539,40 @@ def find_first_tweet_photo(tweet_json: Path) -> Path | None:
     return None
 
 
+def select_news_background_for_photo(
+    *,
+    tweet_json: Path | None,
+    feature_image_path: Path | None,
+    background_dir: Path = DEFAULT_BACKGROUND_DIR,
+) -> Path | None:
+    """Select a stable random local background when downloaded photo media exists."""
+    photo_path = feature_image_path
+    if photo_path is None and tweet_json is not None:
+        photo_path = find_first_tweet_photo(tweet_json)
+    if photo_path is None:
+        return None
+
+    seed_values = ["news-photo-background"]
+    if tweet_json is not None:
+        payload = json.loads(tweet_json.read_text(encoding="utf-8"))
+        requested_urls = payload.get("requested_urls", [])
+        seed_values.extend(str(url) for url in requested_urls if url)
+        seed_values.extend(
+            str(item.get("id"))
+            for item in payload.get("items", [])
+            if item.get("id")
+        )
+    if len(seed_values) == 1:
+        seed_values.append(str(photo_path.resolve()))
+
+    backgrounds = list_backgrounds(background_dir)
+    return select_backgrounds(
+        backgrounds,
+        count=1,
+        seed=stable_seed(*seed_values),
+    )[0]
+
+
 def feature_photo_meets_minimum(
     feature_image_path: Path,
     minimum_size: tuple[int, int] = FEATURE_IMAGE_MIN_SIZE,
@@ -582,15 +628,6 @@ def paste_feature_photo(
     shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
     canvas.alpha_composite(shadow)
-
-    border = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(border).rounded_rectangle(
-        (x - 5, y - 5, x + photo.width + 5, y + photo.height + 5),
-        radius=radius + 5,
-        outline=BRAND_MINT,
-        width=5,
-    )
-    canvas.alpha_composite(border)
 
     photo.putalpha(combined_alpha)
     canvas.alpha_composite(photo, (x, y))
@@ -992,7 +1029,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--background-input",
         type=Path,
-        help="Reuse a local background and skip the OpenAI image API call.",
+        help=(
+            "Explicitly reuse a local background. Otherwise, tweets with photos "
+            "automatically use a bundled bg-* image and photo-less tweets call "
+            "the OpenAI image API."
+        ),
+    )
+    parser.add_argument(
+        "--background-dir",
+        type=Path,
+        default=DEFAULT_BACKGROUND_DIR,
+        help=(
+            "Directory containing reusable bg-*.png files for tweets with "
+            f"photos (default: {DEFAULT_BACKGROUND_DIR})."
+        ),
     )
     parser.add_argument(
         "--feature-image",
@@ -1071,11 +1121,13 @@ def main(argv: list[str] | None = None) -> int:
         headline_highlight = (
             read_headline_highlight(args.tweet_json) if args.tweet_json else "dual"
         )
+        discovered_tweet_photo = (
+            find_first_tweet_photo(args.tweet_json) if args.tweet_json else None
+        )
+        background_photo = args.feature_image or discovered_tweet_photo
         feature_image_path = None
         if not args.no_feature_image:
-            candidate = args.feature_image
-            if candidate is None and args.tweet_json:
-                candidate = find_first_tweet_photo(args.tweet_json)
+            candidate = background_photo
             if candidate is not None:
                 if feature_photo_meets_minimum(candidate):
                     feature_image_path = candidate
@@ -1097,6 +1149,20 @@ def main(argv: list[str] | None = None) -> int:
             print("Reusing local editorial background...", file=sys.stderr)
             background_bytes = args.background_input.read_bytes()
             background_source = str(args.background_input.resolve())
+        elif background_photo is not None:
+            local_background = select_news_background_for_photo(
+                tweet_json=args.tweet_json,
+                feature_image_path=background_photo,
+                background_dir=args.background_dir,
+            )
+            if local_background is None:
+                raise RuntimeError("Could not select a local photo-post background.")
+            print(
+                f"Using local photo-post background: {local_background.name}",
+                file=sys.stderr,
+            )
+            background_bytes = local_background.read_bytes()
+            background_source = str(local_background.resolve())
         else:
             require_api_key()
             client = make_client()

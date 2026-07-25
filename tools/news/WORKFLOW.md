@@ -20,24 +20,28 @@ downloaded media; do not fetch or classify the story again.
    additional fixed `gpt-5.6-luna` call to translate the approved English
    headline into concise Bangla. Reuse that translation when both platforms
    select Bangla. For English, render the approved English headline directly.
-3. Generate one text-free editorial background and run
-   `tools/news/generate_post.py --headline`. Pillow owns all gradient and
-   typography rendering. Use `--style brand-block` with `#FF5757` and
-   `#C2FFE1`. Render `Bits Today | <date>` and the transparent bottom-right
-   logo. Use bundled Roboto for English headlines and the byline; retain the
-   Bengali-capable Nirmala UI/Noto Sans Bengali path for Bangla.
+3. Run `tools/news/generate_post.py --headline`. When the tweet has one or more
+   downloaded photos, do not call the image model: select a stable random
+   `bg-*.png` from `assets/fonts/images` and reuse it across platform-language
+   variants and revisions. Only when the tweet has no downloaded photos,
+   generate one text-free editorial background with the image model. Pillow
+   owns all gradient and typography rendering. Use `--style brand-block` with
+   `#FF5757` and `#C2FFE1`. Render `Bits Today | <date>` and the transparent
+   bottom-right logo. Use bundled Roboto for English headlines and the byline;
+   retain the Bengali-capable Nirmala UI/Noto Sans Bengali path for Bangla.
 4. Apply the persisted highlight treatment: `cyan` highlights only the first
    line in mint, `red` highlights only the first line in coral, and `dual`
    highlights the first line in coral and the second in mint. Do not add
    `Desk`, an AI-generated credit, a footer, an extra badge, or an experimental
    preset.
 5. The generated post is always primary. If the tweet has photos, place the
-   first downloaded photo uncropped in a rounded-corner frame over the lower
-   portion of the same background only when its orientation-independent source
-   dimensions are at least 640x480 pixels and its fitted inset retains a useful
-   minimum footprint. Never upscale it. A smaller or extreme-aspect-ratio photo
-   remains secondary only. Keep an inset photo out of the secondary set so the
-   carousel never repeats an image already visible in the generated primary.
+   first downloaded photo uncropped in a borderless rounded-corner inset over
+   the lower portion of the selected local background only when its
+   orientation-independent source dimensions are at least 640x480 pixels and
+   its fitted inset retains a useful minimum footprint. Never upscale it. A
+   smaller or extreme-aspect-ratio photo remains secondary only. Keep an inset
+   photo out of the secondary set so the carousel never repeats an image
+   already visible in the generated primary.
 6. Run every downloaded photo through
    `tools/news/brand_tweet_images.py --post-metadata <primary-post.json>`.
    The primary post's JSON sidecar records `feature_image_source`; the branding

@@ -120,13 +120,16 @@ Matching platform languages reuse one rendered package.
 The output directory contains the ordered full-resolution cards, a review-only
 contact sheet, and `post.json` with the selected backgrounds and random seed.
 
-When `--tweet-json` contains downloaded photos, the first photo is automatically
-added uncropped to the main post in a rounded frame when it is at least 640x480.
-Photos are never enlarged; smaller photos remain secondary media only. Use
-`--feature-image` to choose a specific photo, or `--no-feature-image` to disable
-the inset. The generated JSON sidecar records the exact `feature_image_source`
-used so downstream carousel preparation can remove that image from the
-secondary set.
+When `--tweet-json` contains downloaded photos, the renderer automatically
+selects a stable random `bg-*.png` from `assets/fonts/images` instead of calling
+the image API. The first photo is added uncropped to the main post as a
+borderless rounded inset when it is at least 640x480. Photos are never enlarged;
+smaller or extreme-aspect photos remain secondary media only. When the tweet
+has no downloaded photos, the renderer generates a text-free editorial
+background with the image model. Use `--feature-image` to choose a specific
+photo, `--no-feature-image` to disable the inset, or `--background-input` to
+force an exact background. The generated JSON sidecar records the exact
+`feature_image_source` and `background_source` used.
 
 For headline or layout revisions, reuse the saved text-free background instead
 of paying for another image generation:
