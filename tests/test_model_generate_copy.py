@@ -70,7 +70,7 @@ class ModelGenerateCopyTests(unittest.TestCase):
             path = Path(directory) / "description.txt"
             path.write_text(
                 "English launch description.\n\n---\n\nবাংলা বিবরণ।\n\n"
-                "Sources:\nhttps://x.com/example/status/1\n",
+                "Sources:\n@example on X\n",
                 encoding="utf-8",
             )
             self.assertEqual(

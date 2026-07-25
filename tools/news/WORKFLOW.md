@@ -74,13 +74,16 @@ downloaded media; do not fetch or classify the story again.
 
     ```text
     Sources:
-    <supplied X URL>
-    <each research URL actually used>
+    @<original poster> on X
+    <each research publisher actually used>
     ```
 
-    Keep the X URL first, include only used research sources, deduplicate URLs,
-    and keep the complete bilingual copy and source block within the configured
-    platform limit.
+    Pass the supplied X URL and each research URL actually used to the
+    finalizer for validation, but never place a raw link in the caption. Keep
+    the original X account label first, use recognizable publisher/site labels
+    for research sources, deduplicate repeated publishers, and keep the
+    complete bilingual copy and source block within the configured platform
+    limit.
 11. Render and inspect each distinct platform package, then follow the shared
     Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
     contract in `AGENTS.md`. Pass `--platform facebook` or `--platform

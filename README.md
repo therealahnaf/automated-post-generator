@@ -236,8 +236,10 @@ python .\tools\news\generate_description.py `
   --output .\output\polymarket-description.txt
 ```
 
-After web research, append the supplied X URL and each research URL actually
-used in the final copy. The X URL is read from the tweet JSON and stays first:
+After web research, supply the original X URL and each research URL actually
+used. The formatter validates those URLs internally but writes only
+human-readable identities into the caption. The original X account stays
+first:
 
 ```powershell
 python .\tools\news\finalize_description.py `
@@ -247,9 +249,11 @@ python .\tools\news\finalize_description.py `
   --output .\output\polymarket-description.txt
 ```
 
-The final caption ends with `Sources:` followed by one deduplicated URL per
-line. The formatter rejects output exceeding Instagram's 2,200-character
-caption limit instead of silently truncating the description.
+The final caption ends with labels such as `@Polymarket on X`, `Reuters`, and
+`OpenAI` under `Sources:`. Raw links never appear in the published caption.
+Multiple URLs from the same publisher collapse to one label. The formatter
+rejects output exceeding Instagram's 2,200-character caption limit instead of
+silently truncating the description.
 
 ## Editorial approval workflow
 

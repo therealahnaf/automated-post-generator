@@ -15,9 +15,11 @@ reel layouts in this workflow.
    initial caption for useful context; enhance it only when useful details are
    found, otherwise keep it unchanged. Keep English and Bangla synchronized,
    finalize it with `tools/news/finalize_description.py`, and put the supplied
-   X URL first under `Sources:` followed by research URLs actually used. Then
-   run `tools/news/prepare_platform_descriptions.py` so each platform's
-   selected language appears first.
+   X account first under `Sources:` as `@username on X`, followed by
+   recognizable labels for research publishers actually used. Do not place
+   raw links in the caption. Then run
+   `tools/news/prepare_platform_descriptions.py` so each platform's selected
+   language appears first.
 3. Run `tools/thoughts/generate_copy.py --tweet-json <tweet.json> --output
    <english-copy.json>`. Its single fixed `gpt-5.6-luna` call creates:
 

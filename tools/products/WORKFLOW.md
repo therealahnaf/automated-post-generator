@@ -13,8 +13,10 @@ Use this workflow only after the `AGENTS.md` router has persisted
    `tools/products/generate_description.py`. Research the announcement on the
    internet, enhance the caption only with useful sourced details, keep both
    languages synchronized, and finalize it with
-   `tools/news/finalize_description.py`. The supplied X URL must appear first
-   under `Sources:`, followed by research URLs actually used. Preserve the
+   `tools/news/finalize_description.py`. Under `Sources:`, show the supplied X
+   account first as `@username on X`, followed by recognizable labels for
+   research publishers actually used. Do not place raw links in the caption.
+   Preserve the
    shared generator's poster-identity policy: identify the original poster only
    when they are unmistakably a major public figure or major official account;
    otherwise omit their account name and `@username`.

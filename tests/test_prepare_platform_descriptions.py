@@ -11,8 +11,8 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
         description = (
             "English description.\n\n---\n\n"
             "বাংলা বিবরণ।\n\nSources:\n"
-            "https://x.com/example/status/1\n"
-            "https://example.com/research"
+            "@example on X\n"
+            "Example"
         )
         facebook = prepare.order_description(description, "english")
         instagram = prepare.order_description(description, "bangla")
@@ -31,7 +31,7 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
             tweet = root / "tweet.json"
             output = root / "platforms"
             description.write_text(
-                "English.\n\n---\n\nবাংলা।\n\nSources:\nhttps://example.com",
+                "English.\n\n---\n\nবাংলা।\n\nSources:\nExample",
                 encoding="utf-8",
             )
             tweet.write_text(
