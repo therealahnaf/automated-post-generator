@@ -20,7 +20,10 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env")
+# Publishing commands may be launched by the persistent Telegram watcher, whose
+# inherited environment can outlive an access-token rotation. Reload the
+# repository's current publishing credentials for every invocation.
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 
 GRAPH_ROOT = "https://graph.instagram.com"
