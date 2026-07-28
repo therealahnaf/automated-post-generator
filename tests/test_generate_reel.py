@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,7 +79,55 @@ class GenerateReelTests(unittest.TestCase):
         filter_complex = command[command.index("-filter_complex") + 1]
         self.assertNotIn("coral", filter_complex)
         self.assertNotIn("typeout", " ".join(str(item) for item in command))
+        self.assertNotIn("fps=5", filter_complex)
+        self.assertIn("[bg]fps=15", filter_complex)
+        self.assertIn("[fg]fps=30", filter_complex)
+        self.assertIn("scale=270:480", filter_complex)
+        self.assertEqual(command[command.index("-threads") + 1], "2")
+        self.assertEqual(command[command.index("-preset") + 1], "veryfast")
         self.assertEqual(command.count("-i"), 2)
+
+    def test_atomic_render_does_not_expose_failed_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "reel.mp4"
+            output.write_bytes(b"previous-good-render")
+            with patch(
+                "tools.reels.generate_reel.render_reel",
+                side_effect=RuntimeError("ffmpeg failed"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "ffmpeg failed"):
+                    generate_reel.atomic_render_reel(
+                        Path("source.mp4"),
+                        output,
+                        {"headline": Path("headline.png")},
+                        content_end=10,
+                        total_duration=10,
+                        has_audio=False,
+                    )
+            self.assertEqual(output.read_bytes(), b"previous-good-render")
+            self.assertEqual(list(Path(temp_dir).glob("*.incomplete.mp4")), [])
+
+    def test_atomic_render_replaces_output_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "reel.mp4"
+            output.write_bytes(b"old")
+
+            def fake_render(_source, temporary, _layers, **_kwargs) -> None:
+                temporary.write_bytes(b"new-complete-render")
+
+            with patch(
+                "tools.reels.generate_reel.render_reel",
+                side_effect=fake_render,
+            ):
+                generate_reel.atomic_render_reel(
+                    Path("source.mp4"),
+                    output,
+                    {"headline": Path("headline.png")},
+                    content_end=10,
+                    total_duration=10,
+                    has_audio=False,
+                )
+            self.assertEqual(output.read_bytes(), b"new-complete-render")
 
 
 if __name__ == "__main__":

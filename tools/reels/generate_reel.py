@@ -4,15 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 import requests
@@ -29,6 +32,7 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
 FPS = 30
+BACKGROUND_FPS = 15
 MAX_DURATION = 59.5
 OUTRO_DURATION = 3.0
 OUTRO_MINIMUM_SOURCE_DURATION = 15.0
@@ -306,11 +310,13 @@ def render_reel(
     has_outro = content_end < total_duration
     base_filter = (
         "[0:v]trim=duration={total},setpts=PTS-STARTPTS,split=2[bg][fg];"
-        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,gblur=sigma=35,eq=brightness=-0.20:saturation=0.85[bg2];"
-        "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
+        "[bg]fps={background_fps},"
+        "scale=270:480:force_original_aspect_ratio=increase,"
+        "crop=270:480,boxblur=10:2,scale=1080:1920,"
+        "eq=brightness=-0.20:saturation=0.85[bg2];"
+        "[fg]fps={fps},scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
         "[bg2][fg2]overlay=(W-w)/2:(H-h)/2[base];"
-    ).format(total=total_duration)
+    ).format(total=total_duration, background_fps=BACKGROUND_FPS, fps=FPS)
     if has_outro:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
@@ -377,8 +383,10 @@ def render_reel(
             str(FPS),
             "-c:v",
             "libx264",
+            "-threads",
+            "2",
             "-preset",
-            "medium",
+            "veryfast",
             "-crf",
             "20",
             "-movflags",
@@ -391,6 +399,59 @@ def render_reel(
         raise RuntimeError(result.stderr[-4000:] or "ffmpeg failed to render the reel.")
 
 
+@contextmanager
+def output_lock(output: Path) -> Iterator[None]:
+    """Serialize renderers targeting the same final MP4."""
+    lock_path = output.with_suffix(output.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(
+                f"Waiting for the active reel render to finish: {output}",
+                file=sys.stderr,
+                flush=True,
+            )
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def atomic_render_reel(
+    source: Path,
+    output: Path,
+    layers: dict[str, Path],
+    *,
+    content_end: float,
+    total_duration: float,
+    has_audio: bool,
+) -> None:
+    """Render beside the destination and expose it only after FFmpeg succeeds."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.stem}.",
+        suffix=".incomplete.mp4",
+        dir=output.parent,
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        render_reel(
+            source,
+            temporary,
+            layers,
+            content_end=content_end,
+            total_duration=total_duration,
+            has_audio=has_audio,
+        )
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def parse_date(value: str | None) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date() if value else date.today()
 
@@ -401,6 +462,76 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.stem}.",
+        suffix=".incomplete.json",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            json.dump(payload, target, ensure_ascii=False, indent=2)
+            target.write("\n")
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def reusable_render(
+    output: Path,
+    *,
+    tweet_id: str,
+    headline: str,
+    highlight: str,
+    post_date: date,
+    source: Path | None,
+    selected_format: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    metadata_path = output.with_suffix(".json")
+    if not output.is_file() or not metadata_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            return None
+        expected = {
+            "workflow_type": "reel",
+            "tweet_id": tweet_id,
+            "headline": headline,
+            "headline_highlight": highlight,
+            "post_date": post_date.isoformat(),
+        }
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            return None
+        if selected_format is not None:
+            existing_format = metadata.get("selected_format")
+            if not isinstance(existing_format, dict) or (
+                existing_format.get("url") != selected_format.get("url")
+            ):
+                return None
+        if source is not None:
+            if metadata.get("source_video") != str(source):
+                return None
+            if metadata.get("source_video_sha256") != sha256_file(source):
+                return None
+        if metadata.get("output_sha256") != sha256_file(output):
+            return None
+        rendered_info = probe_video(output)
+        if (
+            rendered_info["width"] != CANVAS[0]
+            or rendered_info["height"] != CANVAS[1]
+            or rendered_info["duration"] > MAX_DURATION + 0.05
+        ):
+            return None
+        return metadata
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -428,6 +559,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("Tweet JSON contains an invalid headline_highlight.")
         output = args.output.resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
+        post_date = parse_date(args.date)
         selected_format: dict[str, Any] | None = None
         if args.source_video:
             source = args.source_video.resolve()
@@ -436,53 +568,64 @@ def main(argv: list[str] | None = None) -> int:
         else:
             selected_format = choose_video_format(tweet)
             source = output.with_name(f"{tweet['id']}-source.mp4")
-            download_video(str(selected_format["url"]), source)
-        source_info = probe_video(source)
-        content_end, total_duration = reel_timing(float(source_info["duration"]))
-        has_outro = content_end < total_duration
-        with tempfile.TemporaryDirectory(prefix="bits-today-reel-") as temp_dir:
-            layers = make_layers(
-                Path(temp_dir),
-                headline=headline,
-                post_date=parse_date(args.date),
-                highlight=highlight,
-                include_outro=has_outro,
-            )
-            render_reel(
-                source,
+        with output_lock(output):
+            existing = reusable_render(
                 output,
-                layers,
-                content_end=content_end,
-                total_duration=total_duration,
-                has_audio=bool(source_info["has_audio"]),
+                tweet_id=str(tweet["id"]),
+                headline=headline,
+                highlight=highlight,
+                post_date=post_date,
+                source=source if args.source_video else None,
+                selected_format=selected_format,
             )
-        rendered_info = probe_video(output)
-        metadata = {
-            "workflow_type": "reel",
-            "tweet_id": str(tweet["id"]),
-            "source_url": str(tweet.get("url") or ""),
-            "headline": headline,
-            "headline_highlight": highlight,
-            "source_video": str(source),
-            "source_video_sha256": sha256_file(source),
-            "selected_format": selected_format,
-            "content_duration": content_end,
-            "outro_duration": round(total_duration - content_end, 3),
-            "outro_enabled": has_outro,
-            "duration": rendered_info["duration"],
-            "width": rendered_info["width"],
-            "height": rendered_info["height"],
-            "fps": FPS,
-            "outro_title": OUTRO_TITLE if has_outro else None,
-            "outro_detail": OUTRO_DETAIL if has_outro else None,
-            "output": str(output),
-            "output_sha256": sha256_file(output),
-        }
-        metadata_path = output.with_suffix(".json")
-        metadata_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+            if existing is not None:
+                print(json.dumps(existing, ensure_ascii=False, indent=2))
+                return 0
+            if not args.source_video:
+                download_video(str(selected_format["url"]), source)
+            source_info = probe_video(source)
+            content_end, total_duration = reel_timing(float(source_info["duration"]))
+            has_outro = content_end < total_duration
+            with tempfile.TemporaryDirectory(prefix="bits-today-reel-") as temp_dir:
+                layers = make_layers(
+                    Path(temp_dir),
+                    headline=headline,
+                    post_date=post_date,
+                    highlight=highlight,
+                    include_outro=has_outro,
+                )
+                atomic_render_reel(
+                    source,
+                    output,
+                    layers,
+                    content_end=content_end,
+                    total_duration=total_duration,
+                    has_audio=bool(source_info["has_audio"]),
+                )
+            rendered_info = probe_video(output)
+            metadata = {
+                "workflow_type": "reel",
+                "tweet_id": str(tweet["id"]),
+                "source_url": str(tweet.get("url") or ""),
+                "headline": headline,
+                "headline_highlight": highlight,
+                "post_date": post_date.isoformat(),
+                "source_video": str(source),
+                "source_video_sha256": sha256_file(source),
+                "selected_format": selected_format,
+                "content_duration": content_end,
+                "outro_duration": round(total_duration - content_end, 3),
+                "outro_enabled": has_outro,
+                "duration": rendered_info["duration"],
+                "width": rendered_info["width"],
+                "height": rendered_info["height"],
+                "fps": FPS,
+                "outro_title": OUTRO_TITLE if has_outro else None,
+                "outro_detail": OUTRO_DETAIL if has_outro else None,
+                "output": str(output),
+                "output_sha256": sha256_file(output),
+            }
+            write_json_atomic(output.with_suffix(".json"), metadata)
         print(json.dumps(metadata, ensure_ascii=False, indent=2))
         return 0
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:

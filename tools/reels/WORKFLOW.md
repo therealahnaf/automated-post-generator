@@ -42,7 +42,10 @@ tweet JSON and never reclassify it during revisions or publishing.
    Videos longer than 59.5 seconds are trimmed. Source videos shorter than 15
    seconds retain their natural total duration and do not receive the outro
    overlay or type-out. Videos of 15 seconds or longer reserve their final
-   three seconds for the live-video outro.
+   three seconds for the live-video outro. Rendering can take several minutes.
+   Keep waiting on the original command or its yielded execution session; never
+   launch another generator for the same output. The generator serializes
+   duplicate invocations and exposes the final MP4 only after FFmpeg succeeds.
 5. Inspect the MP4 and its JSON sidecar. Confirm 1080x1920, duration no greater
    than 59.5 seconds, 30 fps, playable H.264 video, and AAC audio when the
    source had audio. Report `items_ready` with the duration.
