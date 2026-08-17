@@ -20,6 +20,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
 try:
+    from . import codeastrix_footer
     from .local_backgrounds import (
         DEFAULT_BACKGROUND_DIR,
         list_backgrounds,
@@ -33,6 +34,7 @@ try:
         read_post_language,
     )
 except ImportError:
+    import codeastrix_footer
     from local_backgrounds import (
         DEFAULT_BACKGROUND_DIR,
         list_backgrounds,
@@ -982,6 +984,7 @@ def compose_post(
         }[style]
         renderer(draw, title, source, post_date, font_override)
     paste_brand_logo(canvas, logo_path)
+    canvas = codeastrix_footer.apply_footer(canvas)
 
     return canvas.convert("RGB")
 

@@ -138,17 +138,20 @@ class BrandTweetImagesTests(unittest.TestCase):
                 self.assertEqual(result.size, (1080, 1350))
                 border_pixel = result.convert("RGB").getpixel((2, 2))
                 source_pixel = result.convert("RGB").getpixel((345, 560))
-                corner_crop = result.convert("RGB").crop((880, 1150, 1078, 1348))
+                corner_crop = result.convert("RGB").crop((880, 1030, 1078, 1190))
                 colors = corner_crop.getcolors(maxcolors=corner_crop.width * corner_crop.height)
+                footer_pixel = result.convert("RGB").getpixel((500, 1338))
 
             self.assertTrue(all(abs(actual - expected) <= 3 for actual, expected in zip(border_pixel, (33, 33, 33))))
             self.assertTrue(all(channel >= 245 for channel in source_pixel))
             self.assertTrue(any(red > 220 and green < 130 for _, (red, green, _) in colors or []))
             self.assertEqual(metadata["source_size"], [400, 240])
             self.assertEqual(metadata["rendered_size"], [400, 240])
-            self.assertEqual(metadata["source_box"], [340, 555, 740, 795])
+            self.assertEqual(metadata["source_box"], [340, 476, 740, 716])
             self.assertEqual(metadata["aspect_ratio"], "4:5")
             self.assertEqual(metadata["border_color"], "#212121")
+            self.assertTrue(all(channel < 80 for channel in footer_pixel))
+            self.assertEqual(metadata["codeastrix_footer_height"], 158)
 
     def test_scales_large_portrait_down_without_cropping(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -169,8 +172,8 @@ class BrandTweetImagesTests(unittest.TestCase):
             )
 
             self.assertEqual(metadata["output_size"], [1080, 1350])
-            self.assertEqual(metadata["rendered_size"], [312, 1250])
-            self.assertEqual(metadata["source_box"], [384, 50, 696, 1300])
+            self.assertEqual(metadata["rendered_size"], [273, 1092])
+            self.assertEqual(metadata["source_box"], [403, 50, 676, 1142])
 
     def test_rejects_non_positive_border(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

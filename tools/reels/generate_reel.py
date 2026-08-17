@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import os
@@ -18,15 +17,21 @@ from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
+
 import requests
 from PIL import Image, ImageDraw
 
 try:
-    from tools.news import generate_post
+    from tools.news import codeastrix_footer, generate_post
 except ImportError:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tools.news import generate_post
+    from tools.news import codeastrix_footer, generate_post
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -215,7 +220,13 @@ def make_layers(
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"
     overlay.save(overlay_path, "PNG", optimize=True)
-    layers = {"headline": overlay_path}
+    footer_path = directory / "codeastrix-footer.png"
+    codeastrix_footer.make_footer_layer(CANVAS).save(
+        footer_path,
+        "PNG",
+        optimize=True,
+    )
+    layers = {"headline": overlay_path, "footer": footer_path}
     if not include_outro:
         return layers
 
@@ -329,21 +340,25 @@ def render_reel(
         "enable='gte(t,{start})'[v3];"
         "[4:v]format=rgba,fade=t=in:st={fade_start}:d=0.55:alpha=1[center];"
         "[v3][center]overlay=0:0:enable='gte(t,{start})'[v4];"
-        "[5:v]setpts=PTS-STARTPTS+{start}/TB[text];"
-        "[v4][text]overlay=0:0:eof_action=pass:enable='gte(t,{start})',"
+        "[5:v]format=rgba[footer];"
+        "[6:v]setpts=PTS-STARTPTS+{start}/TB[text];"
+        "[v4][text]overlay=0:0:eof_action=pass:enable='gte(t,{start})'[v5];"
+        "[v5][footer]overlay=0:0,"
         "fps=30,setsar=1,format=yuv420p[vout]"
         ).format(start=start, fade_start=start + 0.35)
     else:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
-            "[base][headline]overlay=0:0,"
+            "[2:v]format=rgba[footer];"
+            "[base][headline]overlay=0:0[v1];"
+            "[v1][footer]overlay=0:0,"
             "fps=30,setsar=1,format=yuv420p[vout]"
         )
     command = ["ffmpeg", "-y", "-i", str(source)]
     layer_keys = (
-        ("headline", "coral", "mint", "center")
+        ("headline", "coral", "mint", "center", "footer")
         if has_outro
-        else ("headline",)
+        else ("headline", "footer")
     )
     for key in layer_keys:
         command.extend(["-loop", "1", "-i", str(layers[key])])
@@ -404,20 +419,41 @@ def output_lock(output: Path) -> Iterator[None]:
     """Serialize renderers targeting the same final MP4."""
     lock_path = output.with_suffix(output.suffix + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_file:
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            print(
-                f"Waiting for the active reel render to finish: {output}",
-                file=sys.stderr,
-                flush=True,
-            )
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    with lock_path.open("a+b") as lock_file:
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print(
+                    f"Waiting for the active reel render to finish: {output}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        else:
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                print(
+                    f"Waiting for the active reel render to finish: {output}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
         try:
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            else:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def atomic_render_reel(

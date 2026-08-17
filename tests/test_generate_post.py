@@ -381,7 +381,7 @@ class GeneratePostTests(unittest.TestCase):
 
         self.assertEqual(canvas.getpixel((540, 850)), (0, 0, 255, 255))
 
-    def test_all_brand_styles_include_palette_and_bottom_right_logo(self) -> None:
+    def test_all_brand_styles_include_palette_and_default_footer(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))
         payload = io.BytesIO()
         background.save(payload, format="PNG")
@@ -406,11 +406,19 @@ class GeneratePostTests(unittest.TestCase):
                 self.assertIn(generate_post.BRAND_CORAL[:3], values)
                 self.assertIn(generate_post.BRAND_MINT[:3], values)
 
-                logo = result.crop((860, 1160, 1080, 1350))
-                logo_colors = logo.getcolors(maxcolors=logo.width * logo.height) or []
-                logo_values = {color for _, color in logo_colors}
-                self.assertIn(generate_post.BRAND_CORAL[:3], logo_values)
-                self.assertIn(generate_post.BRAND_MINT[:3], logo_values)
+                footer = result.crop((0, 1192, 1080, 1350))
+                footer_colors = footer.getcolors(
+                    maxcolors=footer.width * footer.height
+                ) or []
+                footer_values = {color for _, color in footer_colors}
+                self.assertIn(
+                    generate_post.codeastrix_footer.BLUE_LIGHT[:3],
+                    footer_values,
+                )
+                self.assertIn(
+                    generate_post.codeastrix_footer.WHITE[:3],
+                    footer_values,
+                )
 
 
 if __name__ == "__main__":

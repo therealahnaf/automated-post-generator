@@ -11,6 +11,11 @@ from typing import Any
 
 from PIL import Image, ImageColor, ImageOps
 
+try:
+    from . import codeastrix_footer
+except ImportError:
+    import codeastrix_footer
+
 
 DEFAULT_BORDER_COLOR = "#212121"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -131,8 +136,9 @@ def brand_tweet_image(
         border_width = max(24, min(72, round(min(canvas_size) * 0.045)))
     if border_width < 1:
         raise ValueError("Border width must be at least 1 pixel.")
+    content_height = codeastrix_footer.footer_top(canvas_size)
     available_width = canvas_width - border_width * 2
-    available_height = canvas_height - border_width * 2
+    available_height = content_height - border_width * 2
     if available_width < 1 or available_height < 1:
         raise ValueError("Border width leaves no room for the source image.")
 
@@ -149,7 +155,7 @@ def brand_tweet_image(
             Image.Resampling.LANCZOS,
         )
     source_x = (canvas_width - rendered_width) // 2
-    source_y = (canvas_height - rendered_height) // 2
+    source_y = (content_height - rendered_height) // 2
 
     canvas = Image.new(
         "RGBA",
@@ -162,11 +168,12 @@ def brand_tweet_image(
     logo = load_logo(logo_path, logo_side)
     logo_inset = max(12, round(border_width * 0.4))
     logo_x = canvas_width - logo.width - logo_inset
-    logo_y = canvas_height - logo.height - logo_inset
+    logo_y = content_height - logo.height - logo_inset
     canvas.alpha_composite(
         logo,
         (logo_x, logo_y),
     )
+    codeastrix_footer.draw_footer(canvas)
 
     save_image(canvas, output_path)
     return {
@@ -188,6 +195,7 @@ def brand_tweet_image(
         "border_color": border_color.upper(),
         "border_width": border_width,
         "logo": str(logo_path.resolve()),
+        "codeastrix_footer_height": canvas_height - content_height,
     }
 
 

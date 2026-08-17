@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.news import generate_description as news_description
+from tools.news import codeastrix_footer
 from tools.news import generate_post as news_post
 from tools.news import local_backgrounds
 from tools.news.post_language import read_platform_language
@@ -259,6 +260,7 @@ def compose_cover(
             ),
         )
         y += line_height
+    codeastrix_footer.draw_footer(canvas)
     return canvas.convert("RGB")
 
 
@@ -313,6 +315,7 @@ def compose_thought_card(
         font=close_font,
         fill=news_post.BRAND_MINT,
     )
+    codeastrix_footer.draw_footer(canvas)
     return canvas.convert("RGB")
 
 

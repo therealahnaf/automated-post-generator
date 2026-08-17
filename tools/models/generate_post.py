@@ -27,6 +27,7 @@ from tools.models.generate_copy import (
     normalize_model_name,
 )
 from tools.news import generate_description as news_description
+from tools.news import codeastrix_footer
 from tools.news import generate_post as news_post
 from tools.news import local_backgrounds
 from tools.news.post_language import read_platform_language
@@ -35,7 +36,7 @@ from tools.news.post_language import read_platform_language
 CANVAS_SIZE = news_post.CANVAS_SIZE
 CARD_MARGIN = 58
 MEDIA_TOP = 560
-MEDIA_BOTTOM = 1225
+MEDIA_BOTTOM = codeastrix_footer.footer_top(CANVAS_SIZE) - 84
 PRIMARY_STYLE_CHOICES = (
     "brand-block",
     "launch-label",
@@ -530,19 +531,17 @@ def add_brand_chrome(
     compact: bool = False,
 ) -> None:
     draw = ImageDraw.Draw(canvas)
+    byline_y = codeastrix_footer.footer_top(CANVAS_SIZE) - (58 if compact else 66)
     news_post.draw_byline(
         draw,
         "Bits Today",
         post_date,
         CARD_MARGIN,
-        1288 if compact else 1280,
+        byline_y,
         source_color=news_post.BRAND_CORAL,
         detail_color=news_post.BRAND_MINT,
     )
-    if compact:
-        paste_compact_logo(canvas)
-    else:
-        news_post.paste_brand_logo(canvas, news_post.DEFAULT_BRAND_LOGO)
+    codeastrix_footer.draw_footer(canvas)
 
 
 def compose_primary(

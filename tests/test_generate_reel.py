@@ -70,7 +70,10 @@ class GenerateReelTests(unittest.TestCase):
         generate_reel.render_reel(
             Path("source.mp4"),
             Path("output.mp4"),
-            {"headline": Path("headline.png")},
+            {
+                "headline": Path("headline.png"),
+                "footer": Path("footer.png"),
+            },
             content_end=10,
             total_duration=10,
             has_audio=False,
@@ -85,7 +88,33 @@ class GenerateReelTests(unittest.TestCase):
         self.assertIn("scale=270:480", filter_complex)
         self.assertEqual(command[command.index("-threads") + 1], "2")
         self.assertEqual(command[command.index("-preset") + 1], "veryfast")
-        self.assertEqual(command.count("-i"), 2)
+        self.assertIn("footer", filter_complex)
+        self.assertEqual(command.count("-i"), 3)
+
+    @patch("tools.reels.generate_reel.subprocess.run")
+    def test_outro_render_places_footer_after_typeout(self, mock_run) -> None:
+        mock_run.return_value = SimpleNamespace(returncode=0, stderr="")
+        generate_reel.render_reel(
+            Path("source.mp4"),
+            Path("output.mp4"),
+            {
+                "headline": Path("headline.png"),
+                "coral": Path("coral.png"),
+                "mint": Path("mint.png"),
+                "center": Path("center.png"),
+                "footer": Path("footer.png"),
+                "frames": Path("frames"),
+            },
+            content_end=12,
+            total_duration=15,
+            has_audio=True,
+        )
+
+        command = mock_run.call_args.args[0]
+        filter_complex = command[command.index("-filter_complex") + 1]
+        self.assertIn("[v5][footer]overlay=0:0", filter_complex)
+        self.assertIn("frame-%03d.png", " ".join(str(item) for item in command))
+        self.assertEqual(command.count("-i"), 7)
 
     def test_atomic_render_does_not_expose_failed_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
