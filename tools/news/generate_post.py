@@ -129,8 +129,12 @@ def make_client() -> Any:
 
 HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for Bits Today.
 Translate the supplied approved English news headline into natural, concise
-Bangla suitable for a social-news image. Preserve every name, product name,
-organization name, model name, number, unit, attribution, and uncertainty.
+Bangla suitable for a social-news image. Use plain, immediately understandable
+language for both technical and general readers while preserving the English
+headline's dramatic, consequence-first energy. Prefer a natural, punchy Bangla
+rendering over a stiff word-for-word translation. Preserve every name, product
+name, organization name, model name, number, unit, attribution, uncertainty,
+and conditional wording such as "could" or "may".
 Keep names and named products in their original English spelling: never
 translate or transliterate them into Bangla script. Do not add facts,
 commentary, labels, quotation marks, hashtags, or markdown. Output only the

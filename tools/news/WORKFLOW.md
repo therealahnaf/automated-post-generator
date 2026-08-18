@@ -13,13 +13,44 @@ downloaded media; do not fetch or classify the story again.
    platform language is authoritative; never reroll either choice during the
    same story.
 2. Write the English headline directly in the Codex task from the validated
-   source. Lead with the strongest actor, action, risk, contrast, scale, number,
-   or power shift. Preserve important names and numbers. Do not use a separate
-   text-model call for the original headline and do not add unverified facts.
+   source. Make it immediately understandable to both technical and general
+   readers: translate jargon into the concrete thing that happened and why a
+   person should care. Use a bold, dramatic, consequence-first framing rather
+   than a neutral summary. Prefer a specific actor plus a forceful verb and the
+   largest defensible result, risk, contrast, scale, number, or power shift.
+   Headlines such as `AI Solves a 100-Year-Old Math Problem`, `AI Just Did What
+   Scientists Couldn't for Decades`, or `This AI Discovery Could Transform
+   Cancer Research` illustrate the intended energy and clarity, but their facts
+   are examples only.
+
+   Headlines should be extremes: push the framing toward the strongest,
+   highest-stakes, most surprising version that the validated facts can support.
+   Additional examples of the intended style are:
+
+   - `Kentucky School Teaches Students With Wrong AI-Generated Content`
+   - `Claude Makes Progress On a 100 Year Old Math Problem`
+   - `AI Agents Tried to Infiltrate an Open-Source Project`
+   - `OpenAI CFO Leaves saying Mission Success Seems Near`
+
+   For research and scientific stories, first state the concrete breakthrough
+   in plain language. When the validated source or research establishes a
+   credible downstream implication, connect it to the most consequential
+   understandable outcome with words such as `could`, `may`, or `could lead
+   to`. Make the significance feel extreme without making the underlying fact
+   more certain or complete than it is. Never invent a link to curing cancer,
+   solving a field, saving lives, or another high-stakes outcome merely to make
+   the headline stronger. A partial result, simulation, preprint, benchmark, or
+   early laboratory finding must not become a solved problem, proven treatment,
+   or deployed breakthrough. Preserve important names and numbers. Avoid vague
+   hype such as `game-changing`, `revolutionary`, or `shocking` when a concrete
+   result can carry the headline. Do not use a separate text-model call for the
+   original headline and do not add unverified facts.
    For each platform selecting Bangla, `tools/news/generate_post.py` must make one
    additional fixed `gpt-5.6-luna` call to translate the approved English
-   headline into concise Bangla. Reuse that translation when both platforms
-   select Bangla. For English, render the approved English headline directly.
+   headline into concise, natural Bangla that preserves the same plain-language
+   clarity, dramatic force, and uncertainty. Reuse that translation when both
+   platforms select Bangla. For English, render the approved English headline
+   directly.
 3. Run `tools/news/generate_post.py --headline`. When the first downloaded
    photo is eligible for the primary inset, do not call the image model: select
    a stable random `bg-*.png` from `assets/fonts/images` and reuse it across

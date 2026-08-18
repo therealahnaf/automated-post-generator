@@ -64,6 +64,10 @@ class GeneratePostTests(unittest.TestCase):
         self.assertTrue(generate_post.contains_bangla_text(translated))
         self.assertEqual(calls[0]["model"], "gpt-5.6-luna")
         self.assertEqual(calls[0]["reasoning"], {"effort": "none"})
+        instructions = calls[0]["input"][0]["content"]
+        self.assertIn("technical and general readers", instructions)
+        self.assertIn("dramatic, consequence-first energy", instructions)
+        self.assertIn("conditional wording", instructions)
 
     def test_brand_block_renders_bangla_headline(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))
