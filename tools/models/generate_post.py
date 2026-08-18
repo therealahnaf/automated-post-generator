@@ -37,6 +37,7 @@ CANVAS_SIZE = news_post.CANVAS_SIZE
 CARD_MARGIN = 58
 MEDIA_TOP = 560
 MEDIA_BOTTOM = codeastrix_footer.footer_top(CANVAS_SIZE) - 84
+MEDIA_VERTICAL_GAP = 28
 PRIMARY_STYLE_CHOICES = (
     "brand-block",
     "launch-label",
@@ -508,7 +509,7 @@ def draw_short_description(
     *,
     center_y: int,
     max_width: int = 920,
-) -> None:
+) -> tuple[int, int]:
     font, lines, line_height = wrap_centered(
         draw,
         description,
@@ -518,6 +519,7 @@ def draw_short_description(
         minimum_size=38,
     )
     top = center_y - (len(lines) * line_height) // 2
+    text_top = top
     for index, line in enumerate(lines):
         is_bangla = news_post.contains_bangla_text(line)
         latin_font = news_post.load_roboto_font(size=font.size, bold=True)
@@ -544,6 +546,7 @@ def draw_short_description(
                 stroke_fill=(0, 0, 0, 130),
             )
         top += line_height
+    return text_top, top
 
 
 def paste_compact_logo(canvas: Image.Image) -> None:
@@ -648,15 +651,19 @@ def paste_lower_media(
     source_path: Path,
     *,
     show_border: bool = True,
+    media_top: int = MEDIA_TOP,
+    media_bottom: int = MEDIA_BOTTOM,
 ) -> None:
+    if media_bottom <= media_top:
+        raise ValueError("Media layout has no space between the text and footer.")
     with Image.open(source_path) as source:
         media = ImageOps.exif_transpose(source).convert("RGBA")
         media.thumbnail(
-            (CANVAS_SIZE[0] - CARD_MARGIN * 2, MEDIA_BOTTOM - MEDIA_TOP),
+            (CANVAS_SIZE[0] - CARD_MARGIN * 2, media_bottom - media_top),
             Image.Resampling.LANCZOS,
         )
     x = (CANVAS_SIZE[0] - media.width) // 2
-    y = MEDIA_TOP + (MEDIA_BOTTOM - MEDIA_TOP - media.height) // 2
+    y = media_top + (media_bottom - media_top - media.height) // 2
     radius = 28
 
     shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
@@ -700,8 +707,18 @@ def compose_media_secondary(
         (CARD_MARGIN + 150, 54, CARD_MARGIN + 330, 63),
         fill=news_post.BRAND_MINT,
     )
-    draw_short_description(draw, short_description, center_y=285)
-    paste_lower_media(canvas, source_path, show_border=show_media_border)
+    _, description_bottom = draw_short_description(
+        draw,
+        short_description,
+        center_y=285,
+    )
+    paste_lower_media(
+        canvas,
+        source_path,
+        show_border=show_media_border,
+        media_top=description_bottom + MEDIA_VERTICAL_GAP,
+        media_bottom=MEDIA_BOTTOM - MEDIA_VERTICAL_GAP,
+    )
     add_brand_chrome(canvas, post_date, compact=True)
     return canvas.convert("RGB")
 

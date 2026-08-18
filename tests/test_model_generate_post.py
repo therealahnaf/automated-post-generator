@@ -5,7 +5,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from tools.models import generate_post
 
@@ -100,34 +100,48 @@ class ModelGeneratePostTests(unittest.TestCase):
     def test_media_secondary_centers_short_image_between_text_and_footer(self) -> None:
         media_color = (231, 117, 43)
         media_height = 120
-        with tempfile.TemporaryDirectory() as directory:
-            source_path = Path(directory) / "short.png"
-            Image.new("RGB", (900, media_height), media_color).save(source_path)
-            result = generate_post.compose_media_secondary(
-                source_path,
-                "The embedded image stays centered in its available media area.",
-                date(2026, 7, 23),
-                background_bytes=self.background_bytes,
-                show_media_border=False,
-            )
+        descriptions = (
+            "A concise contextual detail.",
+            "The embedded image stays centered in its available media area.",
+            (
+                "This longer descriptive carousel detail explains what happened "
+                "and why the technology matters to readers around the world."
+            ),
+        )
+        for description in descriptions:
+            with (
+                self.subTest(description=description),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                source_path = Path(directory) / "short.png"
+                Image.new("RGB", (900, media_height), media_color).save(source_path)
+                result = generate_post.compose_media_secondary(
+                    source_path,
+                    description,
+                    date(2026, 7, 23),
+                    background_bytes=self.background_bytes,
+                    show_media_border=False,
+                )
 
-        expected_y = generate_post.MEDIA_TOP + (
-            generate_post.MEDIA_BOTTOM
-            - generate_post.MEDIA_TOP
-            - media_height
-        ) // 2
-        self.assertEqual(
-            result.getpixel((540, expected_y + media_height // 2)),
-            media_color,
-        )
-        old_bottom_aligned_center = (
-            generate_post.MEDIA_BOTTOM - media_height // 2
-        )
-        self.assertNotEqual(
-            result.getpixel((540, old_bottom_aligned_center)),
-            media_color,
-        )
-        self.assert_has_codeastrix_footer(result)
+                measurement = Image.new("RGB", generate_post.CANVAS_SIZE)
+                _, text_bottom = generate_post.draw_short_description(
+                    ImageDraw.Draw(measurement),
+                    description,
+                    center_y=285,
+                )
+
+            media_rows = [
+                y
+                for y in range(text_bottom, generate_post.MEDIA_BOTTOM)
+                if result.getpixel((540, y)) == media_color
+            ]
+            self.assertTrue(media_rows)
+            media_top = min(media_rows)
+            media_bottom = max(media_rows) + 1
+            gap_after_text = media_top - text_bottom
+            gap_before_footer = generate_post.MEDIA_BOTTOM - media_bottom
+            self.assertLessEqual(abs(gap_after_text - gap_before_footer), 1)
+            self.assert_has_codeastrix_footer(result)
 
     def test_no_media_summary_reuses_primary_background(self) -> None:
         primary = generate_post.compose_primary(
