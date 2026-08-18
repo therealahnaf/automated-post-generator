@@ -97,6 +97,38 @@ class ModelGeneratePostTests(unittest.TestCase):
         self.assertGreater(blue_pixels, 100_000)
         self.assert_has_codeastrix_footer(result)
 
+    def test_media_secondary_centers_short_image_between_text_and_footer(self) -> None:
+        media_color = (231, 117, 43)
+        media_height = 120
+        with tempfile.TemporaryDirectory() as directory:
+            source_path = Path(directory) / "short.png"
+            Image.new("RGB", (900, media_height), media_color).save(source_path)
+            result = generate_post.compose_media_secondary(
+                source_path,
+                "The embedded image stays centered in its available media area.",
+                date(2026, 7, 23),
+                background_bytes=self.background_bytes,
+                show_media_border=False,
+            )
+
+        expected_y = generate_post.MEDIA_TOP + (
+            generate_post.MEDIA_BOTTOM
+            - generate_post.MEDIA_TOP
+            - media_height
+        ) // 2
+        self.assertEqual(
+            result.getpixel((540, expected_y + media_height // 2)),
+            media_color,
+        )
+        old_bottom_aligned_center = (
+            generate_post.MEDIA_BOTTOM - media_height // 2
+        )
+        self.assertNotEqual(
+            result.getpixel((540, old_bottom_aligned_center)),
+            media_color,
+        )
+        self.assert_has_codeastrix_footer(result)
+
     def test_no_media_summary_reuses_primary_background(self) -> None:
         primary = generate_post.compose_primary(
             self.background_bytes,

@@ -79,11 +79,37 @@ class NewsGenerateCarouselCopyTests(unittest.TestCase):
             )
         )
         result = generate_carousel_copy.generate_short_descriptions(
-            client, "A finalized description.", 2
+            client,
+            "Company launches its new platform",
+            "The launch includes lower pricing and wider availability.",
+            "The platform cuts costs and will reach five new markets.",
+            2,
         )
         self.assertEqual(result, ["First detail", "Second detail"])
         self.assertEqual(calls[0]["model"], "gpt-5.6-luna")
-        self.assertIn("exactly 2", calls[0]["input"][1]["content"])
+        prompt = calls[0]["input"][1]["content"]
+        self.assertIn("exactly 2", prompt)
+        self.assertIn("Company launches its new platform", prompt)
+        self.assertIn("lower pricing and wider availability", prompt)
+        self.assertIn("cuts costs and will reach five new markets", prompt)
+        self.assertIn("do not repeat or closely", prompt)
+
+    def test_reads_english_headline_from_post_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = Path(directory) / "post.json"
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "title": "বাংলা শিরোনাম",
+                        "english_title": "The original English headline",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            headline = generate_carousel_copy.read_english_headline(metadata)
+
+        self.assertEqual(headline, "The original English headline")
 
 
 if __name__ == "__main__":

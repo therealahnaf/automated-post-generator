@@ -656,7 +656,7 @@ def paste_lower_media(
             Image.Resampling.LANCZOS,
         )
     x = (CANVAS_SIZE[0] - media.width) // 2
-    y = MEDIA_BOTTOM - media.height
+    y = MEDIA_TOP + (MEDIA_BOTTOM - MEDIA_TOP - media.height) // 2
     radius = 28
 
     shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))

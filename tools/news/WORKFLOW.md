@@ -76,14 +76,17 @@ downloaded media; do not fetch or classify the story again.
    `tools/news/generate_carousel_copy.py` with the fetched tweet JSON, the
    primary post's JSON sidecar, and the finalized bilingual description. It
    uses one fixed `gpt-5.6-luna` call to create concise, ordered,
-   source-grounded story segments. Exclude only the exact photo embedded in the
-   primary, then create one segment for every remaining downloaded photo in
-   source order. If the first photo was not embedded, retain it as the first
-   detail card. Cap the secondary set at nine so the primary plus detail cards
-   never exceed 10 items. If the tweet has no downloaded photos, create exactly
-   one summary segment for a text-only second carousel item. If the tweet's
-   only photo is already embedded in the primary, keep a one-item carousel and
-   do not generate redundant detail copy.
+   source-grounded story segments. Its prompt must include the approved English
+   headline, complete tweet/thread and nested-quote text, and finalized English
+   description. Every segment must add information beyond the headline and
+   must not repeat or closely paraphrase the headline's claim. Exclude only the
+   exact photo embedded in the primary, then create one segment for every
+   remaining downloaded photo in source order. If the first photo was not
+   embedded, retain it as the first detail card. Cap the secondary set at nine
+   so the primary plus detail cards never exceed 10 items. If the tweet has no
+   downloaded photos, create exactly one summary segment for a text-only second
+   carousel item. If the tweet's only photo is already embedded in the primary,
+   keep a one-item carousel and do not generate redundant detail copy.
 10. If either platform selects Bangla and detail copy exists, run
     `tools/news/translate_carousel_copy.py` once and reuse that translated copy
     for every Bangla platform. Render each distinct platform package with
@@ -91,7 +94,9 @@ downloaded media; do not fetch or classify the story again.
     already-rendered primary image and the language-matched copy JSON. The
     primary remains the headline card. Every media detail card places its short
     description above the complete uncropped tweet image with rounded corners,
-    a subtle shadow, and no border, over a stably selected local
+    a subtle shadow, and no border. Center the image vertically in the available
+    media region below the description and above the footer regardless of its
+    fitted height, over a stably selected local
     `assets/fonts/images/bg-*.png` background. The no-media summary card
     centers its segment over a local background. Reuse the same background seed
     across platform-language variants and revisions. Every card retains the
