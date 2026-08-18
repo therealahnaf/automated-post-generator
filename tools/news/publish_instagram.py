@@ -34,6 +34,7 @@ MAX_CAROUSEL_ITEMS = 10
 CONTAINER_CREATE_TIMEOUT_SECONDS = 180
 PUBLISH_TIMEOUT_SECONDS = 180
 DEFAULT_RECEIPT_DIR = PROJECT_ROOT / ".automation/instagram-publish"
+PUBLISH_METHODS = {"graph", "music"}
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,15 @@ class InstagramConfig:
     user_id: str
     access_token: str
     graph_version: str
+
+
+def load_publish_method() -> str:
+    method = os.getenv("INSTAGRAM_PUBLISH_METHOD", "graph").strip().lower()
+    if method not in PUBLISH_METHODS:
+        raise RuntimeError(
+            "INSTAGRAM_PUBLISH_METHOD must be either 'music' or 'graph'."
+        )
+    return method
 
 
 def load_config() -> InstagramConfig:
@@ -436,6 +446,32 @@ def main(argv: list[str] | None = None) -> int:
             args.image_url, args.secondary_image_url
         )
         caption = read_caption(args)
+        publish_method = load_publish_method()
+        if publish_method == "music":
+            project_root = str(PROJECT_ROOT)
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from tools.instagram import publish_with_music
+
+            overlap_duration_ms = publish_with_music.load_overlap_duration_ms()
+            fingerprint = publish_with_music.source_fingerprint(
+                image_urls,
+                caption,
+                overlap_duration_ms=overlap_duration_ms,
+            )
+            receipt_path = args.receipt_file or (
+                publish_with_music.default_url_receipt_path(fingerprint)
+            )
+            result = publish_with_music.publish_urls_with_music(
+                image_urls,
+                caption,
+                publish=args.publish,
+                confirmation=args.confirm,
+                receipt_file=receipt_path,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
         fingerprint = publish_fingerprint(image_urls, caption)
         receipt_path = args.receipt_file or default_receipt_path(fingerprint)
         receipt = load_receipt(receipt_path, fingerprint)

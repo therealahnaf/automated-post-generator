@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,60 @@ class PublishInstagramTests(unittest.TestCase):
             publish_instagram.require_publish_confirmation(True, "YES")
         publish_instagram.require_publish_confirmation(True, "yes")
         publish_instagram.require_publish_confirmation(False, None)
+
+    def test_publish_method_is_selected_from_environment(self) -> None:
+        with patch.dict(os.environ, {"INSTAGRAM_PUBLISH_METHOD": "music"}):
+            self.assertEqual(publish_instagram.load_publish_method(), "music")
+        with patch.dict(os.environ, {"INSTAGRAM_PUBLISH_METHOD": "invalid"}):
+            with self.assertRaisesRegex(RuntimeError, "music.*graph"):
+                publish_instagram.load_publish_method()
+
+    def test_main_dispatches_music_backend_without_graph_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            caption = root / "caption.txt"
+            receipt = root / "receipt.json"
+            caption.write_text("Approved caption", encoding="utf-8")
+            result = {
+                "status": "published",
+                "publish_method": "music",
+                "instagram_media_id": "media-1",
+                "instagram_permalink": "https://www.instagram.com/p/example/",
+            }
+            with (
+                patch.dict(os.environ, {"INSTAGRAM_PUBLISH_METHOD": "music"}),
+                patch(
+                    "tools.instagram.publish_with_music.publish_urls_with_music",
+                    return_value=result,
+                ) as music_publish,
+                patch.object(
+                    publish_instagram,
+                    "load_config",
+                    side_effect=AssertionError("Graph config must not be loaded"),
+                ),
+                patch("builtins.print") as mocked_print,
+            ):
+                exit_code = publish_instagram.main(
+                    [
+                        "--image-url",
+                        "https://example.com/post.png",
+                        "--caption-file",
+                        str(caption),
+                        "--receipt-file",
+                        str(receipt),
+                        "--publish",
+                        "--confirm",
+                        "yes",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        music_publish.assert_called_once()
+        self.assertEqual(
+            music_publish.call_args.kwargs["receipt_file"],
+            receipt,
+        )
+        self.assertEqual(json.loads(mocked_print.call_args.args[0]), result)
 
     def test_graph_error_preserves_recovery_details(self) -> None:
         response = Mock()
