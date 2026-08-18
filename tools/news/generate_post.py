@@ -1180,8 +1180,9 @@ def main(argv: list[str] | None = None) -> int:
                     feature_image_path = candidate
                 else:
                     print(
-                        "First tweet photo is below the 640x480 primary-inset "
-                        "minimum; keeping it as secondary media only.",
+                        "First tweet photo does not satisfy the primary-inset "
+                        "size or aspect-ratio constraints; keeping it as "
+                        "secondary media only.",
                         file=sys.stderr,
                     )
         if args.translated_title:
@@ -1198,10 +1199,10 @@ def main(argv: list[str] | None = None) -> int:
             print("Reusing local editorial background...", file=sys.stderr)
             background_bytes = args.background_input.read_bytes()
             background_source = str(args.background_input.resolve())
-        elif background_photo is not None:
+        elif feature_image_path is not None:
             local_background = select_news_background_for_photo(
                 tweet_json=args.tweet_json,
-                feature_image_path=background_photo,
+                feature_image_path=feature_image_path,
                 background_dir=args.background_dir,
             )
             if local_background is None:

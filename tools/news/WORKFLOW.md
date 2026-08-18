@@ -20,12 +20,13 @@ downloaded media; do not fetch or classify the story again.
    additional fixed `gpt-5.6-luna` call to translate the approved English
    headline into concise Bangla. Reuse that translation when both platforms
    select Bangla. For English, render the approved English headline directly.
-3. Run `tools/news/generate_post.py --headline`. When the tweet has one or more
-   downloaded photos, do not call the image model: select a stable random
-   `bg-*.png` from `assets/fonts/images` and reuse it across platform-language
-   variants and revisions. Only when the tweet has no downloaded photos,
-   generate one text-free editorial background with the image model. Pillow
-   owns all gradient and typography rendering. Use `--style brand-block` with
+3. Run `tools/news/generate_post.py --headline`. When the first downloaded
+   photo is eligible for the primary inset, do not call the image model: select
+   a stable random `bg-*.png` from `assets/fonts/images` and reuse it across
+   platform-language variants and revisions. When there is no downloaded photo,
+   or the first photo is ineligible for the primary inset, generate one
+   text-free editorial background with the image model. Pillow owns all gradient
+   and typography rendering. Use `--style brand-block` with
    `#FF5757` and `#C2FFE1`. Render `Bits Today | <date>` and the transparent
    bottom-right logo. Use bundled Roboto for English headlines and the byline;
    retain the Bengali-capable Nirmala UI/Noto Sans Bengali path for Bangla.
@@ -39,9 +40,10 @@ downloaded media; do not fetch or classify the story again.
    the lower portion of the selected local background only when its
    orientation-independent source dimensions are at least 640x480 pixels and
    its fitted inset retains a useful minimum footprint. Never upscale it. A
-   smaller or extreme-aspect-ratio photo remains secondary only. Keep an inset
-   photo out of the secondary set so the carousel never repeats an image
-   already visible in the generated primary.
+   smaller or extreme-aspect-ratio photo remains secondary only, while the
+   primary uses the generated editorial background. Keep an inset photo out of
+   the secondary set so the carousel never repeats an image already visible in
+   the generated primary.
 6. Generate the bilingual description with
    `tools/news/generate_description.py`. The first fixed `gpt-5.6-luna` call
    creates consequential but source-grounded English copy; the second

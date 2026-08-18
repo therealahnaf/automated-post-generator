@@ -354,6 +354,68 @@ class GeneratePostTests(unittest.TestCase):
         self.assertEqual(metadata["background_source"], "openai-image-api")
         self.assertIsNone(metadata["feature_image_source"])
 
+    def test_ineligible_tweet_photo_generates_editorial_background(self) -> None:
+        background = Image.new("RGB", (1024, 1280), "navy")
+        payload = io.BytesIO()
+        background.save(payload, format="PNG")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            photo_path = root / "small-photo.png"
+            Image.new("RGB", (320, 240), "white").save(photo_path)
+            tweet_json = root / "tweet.json"
+            tweet_json.write_text(
+                json.dumps(
+                    {
+                        "requested_urls": ["https://x.com/example/status/789"],
+                        "post_language": "english",
+                        "headline_highlight": "cyan",
+                        "items": [
+                            {
+                                "id": "789",
+                                "downloaded_photos": [
+                                    {"local_path": str(photo_path)}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "post.png"
+
+            with (
+                mock.patch.dict(
+                    generate_post.os.environ,
+                    {"OPENAI_API_KEY": "test-key"},
+                ),
+                mock.patch.object(generate_post, "make_client") as make_client,
+                mock.patch.object(
+                    generate_post,
+                    "generate_background",
+                    return_value=payload.getvalue(),
+                ) as generate_background,
+            ):
+                result = generate_post.main(
+                    [
+                        "A source story",
+                        "--headline",
+                        "A concise headline",
+                        "--tweet-json",
+                        str(tweet_json),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+            metadata = json.loads(output.with_suffix(".json").read_text("utf-8"))
+
+        self.assertEqual(result, 0)
+        make_client.assert_called_once_with()
+        generate_background.assert_called_once()
+        self.assertEqual(metadata["background_source"], "openai-image-api")
+        self.assertIsNone(metadata["feature_image_source"])
+
     def test_small_feature_photo_is_ineligible_and_never_upscaled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             photo_path = Path(temporary_directory) / "small.png"
