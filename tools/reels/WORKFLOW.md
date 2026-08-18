@@ -26,7 +26,8 @@ tweet JSON and never reclassify it during revisions or publishing.
    distinct platform headline, reusing the same source download. It
    safely selects a downloadable `video.twimg.com` MP4 and renders:
 
-   - 1080x1920, square-pixel 9:16 H.264 at 30 fps with AAC source audio;
+   - 1080x1920, square-pixel 9:16 H.264 preserving the source frame rate,
+     with AAC source audio;
    - at most 59.5 seconds total;
    - the complete landscape/portrait source contained without cropping over a
      blurred, darkened moving fill of the same video;
@@ -47,8 +48,9 @@ tweet JSON and never reclassify it during revisions or publishing.
    launch another generator for the same output. The generator serializes
    duplicate invocations and exposes the final MP4 only after FFmpeg succeeds.
 5. Inspect the MP4 and its JSON sidecar. Confirm 1080x1920, duration no greater
-   than 59.5 seconds, 30 fps, playable H.264 video, and AAC audio when the
-   source had audio. Report `items_ready` with the duration.
+   than 59.5 seconds, the same frame rate as the source, playable H.264 video,
+   and AAC audio when the source had audio. Report `items_ready` with the
+   duration.
 6. Follow the shared Telegram preview and exact `yes` approval contract in
    `AGENTS.md`. Preview each distinct platform package with
    `tools/news/notify_telegram.py --video --platform`.

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,6 +50,40 @@ class GenerateReelTests(unittest.TestCase):
         selected = generate_reel.choose_video_format(tweet)
         self.assertEqual(selected["bitrate"], 2176000)
 
+    @patch("tools.reels.generate_reel.subprocess.run")
+    def test_probe_video_preserves_measured_source_frame_rate(self, mock_run) -> None:
+        mock_run.return_value = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps(
+                {
+                    "format": {"duration": "4.0"},
+                    "streams": [
+                        {
+                            "index": 0,
+                            "codec_type": "video",
+                            "width": 1280,
+                            "height": 720,
+                            "avg_frame_rate": "60000/1001",
+                            "r_frame_rate": "60/1",
+                        }
+                    ],
+                }
+            ),
+        )
+
+        info = generate_reel.probe_video(Path("source.mp4"))
+
+        self.assertEqual(info["frame_rate"], "60000/1001")
+        self.assertAlmostEqual(info["fps"], 59.94005994)
+
+    def test_frame_rate_falls_back_to_nominal_rate(self) -> None:
+        frame_rate, fps = generate_reel.read_stream_frame_rate(
+            {"avg_frame_rate": "0/0", "r_frame_rate": "24/1"}
+        )
+        self.assertEqual(frame_rate, "24/1")
+        self.assertEqual(fps, 24.0)
+
     def test_timing_caps_long_video_and_reserves_outro(self) -> None:
         content, total = generate_reel.reel_timing(63.62)
         self.assertEqual(content, 56.5)
@@ -77,15 +112,18 @@ class GenerateReelTests(unittest.TestCase):
             content_end=10,
             total_duration=10,
             has_audio=False,
+            frame_rate="60/1",
         )
         command = mock_run.call_args.args[0]
         filter_complex = command[command.index("-filter_complex") + 1]
         self.assertNotIn("coral", filter_complex)
         self.assertNotIn("typeout", " ".join(str(item) for item in command))
         self.assertNotIn("fps=5", filter_complex)
-        self.assertIn("[bg]fps=15", filter_complex)
-        self.assertIn("[fg]fps=30", filter_complex)
+        self.assertIn("[bg]fps=60/1", filter_complex)
+        self.assertIn("[fg]fps=60/1", filter_complex)
+        self.assertIn("fps=60/1,setsar=1", filter_complex)
         self.assertIn("scale=270:480", filter_complex)
+        self.assertEqual(command[command.index("-r") + 1], "60/1")
         self.assertEqual(command[command.index("-threads") + 1], "2")
         self.assertEqual(command[command.index("-preset") + 1], "veryfast")
         self.assertIn("footer", filter_complex)
@@ -108,12 +146,18 @@ class GenerateReelTests(unittest.TestCase):
             content_end=12,
             total_duration=15,
             has_audio=True,
+            frame_rate="60000/1001",
         )
 
         command = mock_run.call_args.args[0]
         filter_complex = command[command.index("-filter_complex") + 1]
         self.assertIn("[v5][footer]overlay=0:0", filter_complex)
         self.assertIn("frame-%03d.png", " ".join(str(item) for item in command))
+        self.assertEqual(
+            command[command.index("-framerate") + 1],
+            "60000/1001",
+        )
+        self.assertEqual(command[command.index("-r") + 1], "60000/1001")
         self.assertEqual(command.count("-i"), 7)
 
     def test_atomic_render_does_not_expose_failed_output(self) -> None:
@@ -132,6 +176,7 @@ class GenerateReelTests(unittest.TestCase):
                         content_end=10,
                         total_duration=10,
                         has_audio=False,
+                        frame_rate="30/1",
                     )
             self.assertEqual(output.read_bytes(), b"previous-good-render")
             self.assertEqual(list(Path(temp_dir).glob("*.incomplete.mp4")), [])
@@ -155,6 +200,7 @@ class GenerateReelTests(unittest.TestCase):
                     content_end=10,
                     total_duration=10,
                     has_audio=False,
+                    frame_rate="30/1",
                 )
             self.assertEqual(output.read_bytes(), b"new-complete-render")
 

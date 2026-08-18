@@ -13,6 +13,7 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import date, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlparse
@@ -36,8 +37,9 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-FPS = 30
-BACKGROUND_FPS = 15
+RENDER_VERSION = 2
+MIN_FRAME_RATE = Fraction(1, 1)
+MAX_FRAME_RATE = Fraction(240, 1)
 MAX_DURATION = 59.5
 OUTRO_DURATION = 3.0
 OUTRO_MINIMUM_SOURCE_DURATION = 15.0
@@ -151,7 +153,8 @@ def probe_video(path: Path) -> dict[str, Any]:
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=index,codec_type,width,height,r_frame_rate",
+            "format=duration:stream="
+            "index,codec_type,width,height,avg_frame_rate,r_frame_rate",
             "-of",
             "json",
             str(path),
@@ -170,15 +173,49 @@ def probe_video(path: Path) -> dict[str, Any]:
     ]
     if not video_streams or duration < MIN_VIDEO_DURATION:
         raise ValueError(f"Source video must be at least {MIN_VIDEO_DURATION:.0f} seconds.")
+    video_stream = video_streams[0]
+    frame_rate, fps = read_stream_frame_rate(video_stream)
     return {
         "duration": duration,
-        "width": int(video_streams[0].get("width") or 0),
-        "height": int(video_streams[0].get("height") or 0),
+        "width": int(video_stream.get("width") or 0),
+        "height": int(video_stream.get("height") or 0),
+        "frame_rate": frame_rate,
+        "fps": fps,
         "has_audio": any(
             stream.get("codec_type") == "audio"
             for stream in payload.get("streams") or []
         ),
     }
+
+
+def normalize_frame_rate(value: Any) -> tuple[str, float]:
+    """Validate and normalize an FFmpeg frame-rate expression."""
+    try:
+        rate = Fraction(str(value).strip())
+    except (ValueError, ZeroDivisionError) as exc:
+        raise ValueError(f"Invalid video frame rate: {value!r}.") from exc
+    if not MIN_FRAME_RATE <= rate <= MAX_FRAME_RATE:
+        raise ValueError(
+            "Video frame rate must be between "
+            f"{float(MIN_FRAME_RATE):g} and {float(MAX_FRAME_RATE):g} fps."
+        )
+    return f"{rate.numerator}/{rate.denominator}", float(rate)
+
+
+def read_stream_frame_rate(stream: dict[str, Any]) -> tuple[str, float]:
+    """Prefer the measured average rate, falling back to the nominal rate."""
+    errors: list[ValueError] = []
+    for field in ("avg_frame_rate", "r_frame_rate"):
+        raw_value = stream.get(field)
+        if raw_value in (None, ""):
+            continue
+        try:
+            return normalize_frame_rate(raw_value)
+        except ValueError as exc:
+            errors.append(exc)
+    if errors:
+        raise ValueError("FFprobe returned no usable video frame rate.") from errors[-1]
+    raise ValueError("FFprobe did not return a video frame rate.")
 
 
 def reel_timing(source_duration: float) -> tuple[float, float]:
@@ -197,8 +234,10 @@ def make_layers(
     headline: str,
     post_date: date,
     highlight: str,
+    frame_rate: str,
     include_outro: bool = True,
 ) -> dict[str, Path]:
+    _, fps = normalize_frame_rate(frame_rate)
     directory.mkdir(parents=True, exist_ok=True)
     overlay = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     gradient = Image.new("L", CANVAS, 0)
@@ -268,8 +307,8 @@ def make_layers(
     measure = ImageDraw.Draw(Image.new("RGBA", CANVAS))
     title_x = (1080 - generate_post.text_width(measure, OUTRO_TITLE, title_font)) // 2
     detail_x = (1080 - generate_post.text_width(measure, OUTRO_DETAIL, detail_font)) // 2
-    for frame_index in range(round(OUTRO_DURATION * FPS)):
-        elapsed = frame_index / FPS
+    for frame_index in range(round(OUTRO_DURATION * fps)):
+        elapsed = frame_index / fps
         title_progress = max(0.0, min(1.0, (elapsed - 0.9) / 0.9))
         detail_progress = max(0.0, min(1.0, (elapsed - 1.8) / 0.8))
         visible_title = OUTRO_TITLE[: round(len(OUTRO_TITLE) * title_progress)]
@@ -291,7 +330,7 @@ def make_layers(
             cursor_y, cursor_height = 1088, 48
         else:
             cursor_x, cursor_y, cursor_height = -10, 0, 0
-        if cursor_height and frame_index % 12 < 8:
+        if cursor_height and elapsed % 0.4 < (8 / 30):
             draw.rounded_rectangle(
                 (cursor_x + 5, cursor_y, cursor_x + 10, cursor_y + cursor_height),
                 radius=2,
@@ -315,19 +354,21 @@ def render_reel(
     content_end: float,
     total_duration: float,
     has_audio: bool,
+    frame_rate: str,
 ) -> None:
+    frame_rate, _ = normalize_frame_rate(frame_rate)
     output.parent.mkdir(parents=True, exist_ok=True)
     start = content_end
     has_outro = content_end < total_duration
     base_filter = (
         "[0:v]trim=duration={total},setpts=PTS-STARTPTS,split=2[bg][fg];"
-        "[bg]fps={background_fps},"
+        "[bg]fps={fps},"
         "scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10:2,scale=1080:1920,"
         "eq=brightness=-0.20:saturation=0.85[bg2];"
         "[fg]fps={fps},scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
         "[bg2][fg2]overlay=(W-w)/2:(H-h)/2[base];"
-    ).format(total=total_duration, background_fps=BACKGROUND_FPS, fps=FPS)
+    ).format(total=total_duration, fps=frame_rate)
     if has_outro:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
@@ -344,16 +385,16 @@ def render_reel(
         "[6:v]setpts=PTS-STARTPTS+{start}/TB[text];"
         "[v4][text]overlay=0:0:eof_action=pass:enable='gte(t,{start})'[v5];"
         "[v5][footer]overlay=0:0,"
-        "fps=30,setsar=1,format=yuv420p[vout]"
-        ).format(start=start, fade_start=start + 0.35)
+        "fps={fps},setsar=1,format=yuv420p[vout]"
+        ).format(start=start, fade_start=start + 0.35, fps=frame_rate)
     else:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
             "[2:v]format=rgba[footer];"
             "[base][headline]overlay=0:0[v1];"
             "[v1][footer]overlay=0:0,"
-            "fps=30,setsar=1,format=yuv420p[vout]"
-        )
+            "fps={fps},setsar=1,format=yuv420p[vout]"
+        ).format(fps=frame_rate)
     command = ["ffmpeg", "-y", "-i", str(source)]
     layer_keys = (
         ("headline", "coral", "mint", "center", "footer")
@@ -366,7 +407,7 @@ def render_reel(
         command.extend(
             [
                 "-framerate",
-                str(FPS),
+                frame_rate,
                 "-i",
                 str(layers["frames"] / "frame-%03d.png"),
             ]
@@ -395,7 +436,7 @@ def render_reel(
             "-t",
             str(total_duration),
             "-r",
-            str(FPS),
+            frame_rate,
             "-c:v",
             "libx264",
             "-threads",
@@ -464,6 +505,7 @@ def atomic_render_reel(
     content_end: float,
     total_duration: float,
     has_audio: bool,
+    frame_rate: str,
 ) -> None:
     """Render beside the destination and expose it only after FFmpeg succeeds."""
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -482,6 +524,7 @@ def atomic_render_reel(
             content_end=content_end,
             total_duration=total_duration,
             has_audio=has_audio,
+            frame_rate=frame_rate,
         )
         os.replace(temporary, output)
     finally:
@@ -537,6 +580,7 @@ def reusable_render(
         if not isinstance(metadata, dict):
             return None
         expected = {
+            "render_version": RENDER_VERSION,
             "workflow_type": "reel",
             "tweet_id": tweet_id,
             "headline": headline,
@@ -563,6 +607,8 @@ def reusable_render(
             rendered_info["width"] != CANVAS[0]
             or rendered_info["height"] != CANVAS[1]
             or rendered_info["duration"] > MAX_DURATION + 0.05
+            or rendered_info["frame_rate"] != metadata.get("frame_rate")
+            or metadata.get("source_frame_rate") != metadata.get("frame_rate")
         ):
             return None
         return metadata
@@ -628,6 +674,7 @@ def main(argv: list[str] | None = None) -> int:
                     headline=headline,
                     post_date=post_date,
                     highlight=highlight,
+                    frame_rate=str(source_info["frame_rate"]),
                     include_outro=has_outro,
                 )
                 atomic_render_reel(
@@ -637,9 +684,16 @@ def main(argv: list[str] | None = None) -> int:
                     content_end=content_end,
                     total_duration=total_duration,
                     has_audio=bool(source_info["has_audio"]),
+                    frame_rate=str(source_info["frame_rate"]),
                 )
             rendered_info = probe_video(output)
+            if rendered_info["frame_rate"] != source_info["frame_rate"]:
+                raise RuntimeError(
+                    "Rendered reel frame rate does not match the source: "
+                    f"{rendered_info['frame_rate']} != {source_info['frame_rate']}."
+                )
             metadata = {
+                "render_version": RENDER_VERSION,
                 "workflow_type": "reel",
                 "tweet_id": str(tweet["id"]),
                 "source_url": str(tweet.get("url") or ""),
@@ -655,7 +709,9 @@ def main(argv: list[str] | None = None) -> int:
                 "duration": rendered_info["duration"],
                 "width": rendered_info["width"],
                 "height": rendered_info["height"],
-                "fps": FPS,
+                "source_frame_rate": source_info["frame_rate"],
+                "frame_rate": rendered_info["frame_rate"],
+                "fps": rendered_info["fps"],
                 "outro_title": OUTRO_TITLE if has_outro else None,
                 "outro_detail": OUTRO_DETAIL if has_outro else None,
                 "output": str(output),
