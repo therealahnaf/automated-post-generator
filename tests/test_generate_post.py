@@ -208,13 +208,36 @@ class GeneratePostTests(unittest.TestCase):
             )
 
         self.assertEqual(result.size, (1080, 1350))
-        # A large portrait source is reduced to 465x620 without cropping.
-        red, green, _ = result.getpixel((540, 555))
-        self.assertLess(red, 40)
-        self.assertGreater(green, 170)
-        # The photo's top-left is rounded instead of remaining a square corner.
-        corner = result.getpixel((307, 550))
-        self.assertFalse(corner[0] < 40 and corner[1] > 170)
+        # The portrait expands into the available region instead of retaining
+        # the old oversized gap below the headline.
+        green_rows = [
+            y
+            for y in range(180, generate_post.codeastrix_footer.footer_top(result.size))
+            if any(
+                result.getpixel((x, y))[0] < 40
+                and result.getpixel((x, y))[1] > 170
+                and result.getpixel((x, y))[2] < 80
+                for x in range(180, 900, 8)
+            )
+        ]
+        self.assertTrue(green_rows)
+        self.assertLess(min(green_rows), 550)
+
+    def test_feature_photo_has_equal_space_above_and_below(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            photo_path = Path(temporary_directory) / "square.jpg"
+            Image.new("RGB", (805, 805), "white").save(photo_path)
+            canvas = Image.new("RGBA", (1080, 1350), "black")
+
+            _, y, _, height = generate_post.paste_feature_photo(
+                canvas,
+                photo_path,
+                content_top=430,
+            )
+
+        footer_top = generate_post.codeastrix_footer.footer_top(canvas.size)
+        self.assertLessEqual(abs((y - 430) - (footer_top - y - height)), 1)
+        self.assertGreater(height, 620)
 
     def test_photo_tweet_uses_stable_local_background_without_image_api(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

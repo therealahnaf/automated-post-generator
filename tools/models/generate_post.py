@@ -643,7 +643,12 @@ def add_top_gradient(canvas: Image.Image) -> None:
     canvas.alpha_composite(overlay)
 
 
-def paste_lower_media(canvas: Image.Image, source_path: Path) -> None:
+def paste_lower_media(
+    canvas: Image.Image,
+    source_path: Path,
+    *,
+    show_border: bool = True,
+) -> None:
     with Image.open(source_path) as source:
         media = ImageOps.exif_transpose(source).convert("RGBA")
         media.thumbnail(
@@ -662,13 +667,14 @@ def paste_lower_media(canvas: Image.Image, source_path: Path) -> None:
     )
     canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(16)))
 
-    border = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
-    ImageDraw.Draw(border).rounded_rectangle(
-        (x - 4, y - 4, x + media.width + 4, y + media.height + 4),
-        radius=radius + 4,
-        fill=news_post.BRAND_MINT,
-    )
-    canvas.alpha_composite(border)
+    if show_border:
+        border = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
+        ImageDraw.Draw(border).rounded_rectangle(
+            (x - 4, y - 4, x + media.width + 4, y + media.height + 4),
+            radius=radius + 4,
+            fill=news_post.BRAND_MINT,
+        )
+        canvas.alpha_composite(border)
     mask = Image.new("L", media.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle(
         (0, 0, media.width - 1, media.height - 1),
@@ -684,6 +690,7 @@ def compose_media_secondary(
     post_date: date,
     *,
     background_bytes: bytes,
+    show_media_border: bool = True,
 ) -> Image.Image:
     canvas = news_post.add_scrim(open_background(background_bytes))
     add_top_gradient(canvas)
@@ -694,7 +701,7 @@ def compose_media_secondary(
         fill=news_post.BRAND_MINT,
     )
     draw_short_description(draw, short_description, center_y=285)
-    paste_lower_media(canvas, source_path)
+    paste_lower_media(canvas, source_path, show_border=show_media_border)
     add_brand_chrome(canvas, post_date, compact=True)
     return canvas.convert("RGB")
 

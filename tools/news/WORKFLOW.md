@@ -42,18 +42,7 @@ downloaded media; do not fetch or classify the story again.
    smaller or extreme-aspect-ratio photo remains secondary only. Keep an inset
    photo out of the secondary set so the carousel never repeats an image
    already visible in the generated primary.
-6. Run every downloaded photo through
-   `tools/news/brand_tweet_images.py --post-metadata <primary-post.json>`.
-   The primary post's JSON sidecar records `feature_image_source`; the branding
-   command must exclude that exact photo and retain all other photos in
-   original source order. If no photo was embedded because the first photo was
-   smaller than 640x480, exclude nothing. Contain every remaining source
-   without cropping inside a 1080x1350 `#212121` frame that fills unused 4:5
-   space above the reserved Codeastrix sponsor footer. Add the transparent Bits
-   Today logo at bottom-right of the content region without a background plate,
-   then render the approved footer. Place these branded images after the
-   generated primary, within the 10-image total.
-7. Generate the bilingual description with
+6. Generate the bilingual description with
    `tools/news/generate_description.py`. The first fixed `gpt-5.6-luna` call
    creates consequential but source-grounded English copy; the second
    translates and summarizes it into concise Bangla. Include the complete
@@ -63,15 +52,11 @@ downloaded media; do not fetch or classify the story again.
    original poster's `@username` only when they are unmistakably a major public
    figure or major official account; otherwise omit both their account name and
    handle. This does not suppress people explicitly named in the story text.
-8. After finalization, run `tools/news/prepare_platform_descriptions.py`.
-   English-selected platforms receive English first; Bangla-selected platforms
-   receive Bangla first, then `---`, then the other language. Do not configure
-   text models through `.env` or command-line flags.
-9. Search the internet for useful additional context. If useful details are
+7. Search the internet for useful additional context. If useful details are
    found, enhance the English description and revise the Bangla
    translation-summary to match. If not, retain the generated copy. Never force
    irrelevant context into the post.
-10. Run `tools/news/finalize_description.py`. End with:
+8. Run `tools/news/finalize_description.py`. End with:
 
     ```text
     Sources:
@@ -85,11 +70,39 @@ downloaded media; do not fetch or classify the story again.
     for research sources, deduplicate repeated publishers, and keep the
     complete bilingual copy and source block within the configured platform
     limit.
-11. Render and inspect each distinct platform package, then follow the shared
-    Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
-    contract in `AGENTS.md`. Pass `--platform facebook` or `--platform
-    instagram` to `generate_post.py`; reuse `--background-input` between
-    platform variants and for revisions that do not require a new background.
+9. After research and source finalization, run
+   `tools/news/generate_carousel_copy.py` with the fetched tweet JSON, the
+   primary post's JSON sidecar, and the finalized bilingual description. It
+   uses one fixed `gpt-5.6-luna` call to create concise, ordered,
+   source-grounded story segments. Exclude only the exact photo embedded in the
+   primary, then create one segment for every remaining downloaded photo in
+   source order. If the first photo was not embedded, retain it as the first
+   detail card. Cap the secondary set at nine so the primary plus detail cards
+   never exceed 10 items. If the tweet has no downloaded photos, create exactly
+   one summary segment for a text-only second carousel item. If the tweet's
+   only photo is already embedded in the primary, keep a one-item carousel and
+   do not generate redundant detail copy.
+10. If either platform selects Bangla and detail copy exists, run
+    `tools/news/translate_carousel_copy.py` once and reuse that translated copy
+    for every Bangla platform. Render each distinct platform package with
+    `tools/news/generate_carousel.py --platform <platform>`, supplying its
+    already-rendered primary image and the language-matched copy JSON. The
+    primary remains the headline card. Every media detail card places its short
+    description above the complete uncropped tweet image with rounded corners,
+    a subtle shadow, and no border, over a stably selected local
+    `assets/fonts/images/bg-*.png` background. The no-media summary card
+    centers its segment over a local background. Reuse the same background seed
+    across platform-language variants and revisions. Every card retains the
+    approved shared Codeastrix footer.
+11. Run `tools/news/prepare_platform_descriptions.py` after source finalization.
+    English-selected platforms receive English first; Bangla-selected platforms
+    receive Bangla first, then `---`, then the other language. Do not configure
+    text models through `.env` or command-line flags. Render and inspect each
+    distinct platform package, then follow the shared Telegram preview,
+    revision, exact `yes` approval, Facebook, and Instagram contract in
+    `AGENTS.md`. Pass `--platform facebook` or `--platform instagram` to both
+    renderers as applicable; reuse `--background-input` for the primary and the
+    persisted carousel background seed between platform variants and revisions.
 
 Never store tokens in source, output metadata, shell scripts, or command
 arguments.

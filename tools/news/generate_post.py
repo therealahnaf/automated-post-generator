@@ -68,8 +68,9 @@ INK = (12, 17, 21, 255)
 WHITE = (250, 250, 248, 255)
 STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
 FEATURE_IMAGE_MIN_SIZE = (640, 480)
-FEATURE_IMAGE_MAX_RENDERED_SIZE = (940, 620)
+FEATURE_IMAGE_MAX_RENDERED_SIZE = (940, 940)
 FEATURE_IMAGE_MIN_RENDERED_SIDE = 240
+FEATURE_IMAGE_VERTICAL_GAP = 22
 
 
 @dataclass(frozen=True)
@@ -601,19 +602,41 @@ def paste_feature_photo(
     feature_image_path: Path,
     *,
     top: int = 550,
+    content_top: int | None = None,
     max_size: tuple[int, int] = FEATURE_IMAGE_MAX_RENDERED_SIZE,
     radius: int = 28,
-) -> None:
+) -> tuple[int, int, int, int]:
     """Overlay a complete, uncropped tweet photo in a rounded editorial frame."""
     if not feature_image_path.is_file():
         raise FileNotFoundError(f"Feature image not found: {feature_image_path}")
 
     with Image.open(feature_image_path) as source:
         photo = ImageOps.exif_transpose(source).convert("RGBA")
-        photo.thumbnail(max_size, Image.Resampling.LANCZOS)
+        bounded_size = max_size
+        if content_top is not None:
+            available_height = (
+                codeastrix_footer.footer_top(canvas.size)
+                - content_top
+                - FEATURE_IMAGE_VERTICAL_GAP * 2
+            )
+            if available_height <= 0:
+                raise ValueError("Headline leaves no room for the feature image.")
+            bounded_size = (max_size[0], min(max_size[1], available_height))
+        photo.thumbnail(bounded_size, Image.Resampling.LANCZOS)
 
     x = (canvas.width - photo.width) // 2
-    y = min(top, canvas.height - 160 - photo.height)
+    if content_top is None:
+        y = min(
+            top,
+            codeastrix_footer.footer_top(canvas.size)
+            - FEATURE_IMAGE_VERTICAL_GAP
+            - photo.height,
+        )
+    else:
+        available_region = (
+            codeastrix_footer.footer_top(canvas.size) - content_top
+        )
+        y = content_top + (available_region - photo.height) // 2
 
     rounded_mask = Image.new("L", photo.size, 0)
     ImageDraw.Draw(rounded_mask).rounded_rectangle(
@@ -633,6 +656,7 @@ def paste_feature_photo(
 
     photo.putalpha(combined_alpha)
     canvas.alpha_composite(photo, (x, y))
+    return x, y, photo.width, photo.height
 
 
 def draw_byline(
@@ -644,7 +668,7 @@ def draw_byline(
     *,
     source_color: tuple[int, int, int, int],
     detail_color: tuple[int, int, int, int],
-) -> None:
+) -> int:
     bold_font = load_roboto_font(size=24, bold=True)
     regular_font = load_roboto_font(size=24, bold=False)
     brand = build_byline(source)
@@ -655,6 +679,10 @@ def draw_byline(
         separator_and_date,
         font=regular_font,
         fill=detail_color,
+    )
+    return max(
+        draw.textbbox((x, y), brand, font=bold_font)[3],
+        draw.textbbox((x, y), separator_and_date, font=regular_font)[3],
     )
 
 
@@ -701,7 +729,7 @@ def draw_brand_block(
     highlight_style: str = "dual",
     *,
     top_y: int = 58,
-) -> None:
+) -> int:
     margin = 62
     max_width = CANVAS_SIZE[0] - margin * 2
     if contains_bangla_text(title):
@@ -797,7 +825,7 @@ def draw_brand_block(
             )
         y += line_height
 
-    draw_byline(
+    return draw_byline(
         draw,
         source,
         post_date,
@@ -968,14 +996,12 @@ def compose_post(
             centering=(0.5, 0.5),
         )
     canvas = add_scrim(background)
-    if feature_image_path is not None:
-        paste_feature_photo(canvas, feature_image_path)
     draw = ImageDraw.Draw(canvas)
 
     if style not in STYLE_CHOICES:
         raise ValueError(f"Unknown post style: {style}")
     if style == "brand-block":
-        draw_brand_block(
+        headline_bottom = draw_brand_block(
             draw,
             title,
             source,
@@ -983,7 +1009,15 @@ def compose_post(
             font_override,
             headline_highlight,
         )
+        if feature_image_path is not None:
+            paste_feature_photo(
+                canvas,
+                feature_image_path,
+                content_top=headline_bottom,
+            )
     else:
+        if feature_image_path is not None:
+            paste_feature_photo(canvas, feature_image_path)
         renderer = {
             "editorial-italic": draw_editorial_italic,
             "split-signal": draw_split_signal,
