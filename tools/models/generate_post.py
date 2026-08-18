@@ -155,7 +155,13 @@ def wrap_centered(
 ) -> tuple[Any, list[str], int]:
     for size in range(start_size, minimum_size - 1, -2):
         font = load_text_font(text, size=size, bold=True)
-        lines = news_post.wrap_headline(draw, text, font, max_width)
+        if news_post.contains_bangla_text(text):
+            latin_font = news_post.load_roboto_font(size=size, bold=True)
+            lines = news_post.wrap_mixed_headline(
+                draw, text, font, latin_font, max_width
+            )
+        else:
+            lines = news_post.wrap_headline(draw, text, font, max_width)
         line_height = size + 18
         if len(lines) <= max_lines:
             return font, lines, line_height
@@ -196,7 +202,9 @@ def wrap_signal_name(
         font = load_signal_font(variant, size)
         lines = news_post.wrap_headline(draw, text, font, 840)
         line_height = size + (10 if variant == "condensed" else 16)
-        if len(lines) <= 2:
+        if len(lines) <= 2 and all(
+            news_post.text_width(draw, line, font) <= 840 for line in lines
+        ):
             return font, lines, line_height
     raise ValueError("Model name is too long for the signal-stack card.")
 
@@ -211,7 +219,12 @@ def fit_company_credit(
     credit = f"{prefix} {normalize_company_name(company_name)}"
     for size in range(44, 25, -2):
         font = load_text_font(credit, size=size, bold=True)
-        if news_post.text_width(draw, credit, font) <= max_width:
+        if news_post.contains_bangla_text(credit):
+            latin_font = news_post.load_roboto_font(size=size, bold=True)
+            width = news_post.mixed_text_width(draw, credit, font, latin_font)
+        else:
+            width = news_post.text_width(draw, credit, font)
+        if width <= max_width:
             return font, credit
     raise ValueError("Company name is too long for the model-launch credit.")
 
@@ -232,15 +245,26 @@ def draw_company_credit(
         prefix=prefix,
     )
     if centered:
-        x = (CANVAS_SIZE[0] - news_post.text_width(draw, credit, font)) // 2
-    draw.text(
-        (x, y),
-        credit,
-        font=font,
-        fill=news_post.BRAND_CORAL,
-        stroke_width=1,
-        stroke_fill=(0, 0, 0, 130),
-    )
+        if news_post.contains_bangla_text(credit):
+            latin_font = news_post.load_roboto_font(size=font.size, bold=True)
+            width = news_post.mixed_text_width(draw, credit, font, latin_font)
+        else:
+            width = news_post.text_width(draw, credit, font)
+        x = (CANVAS_SIZE[0] - width) // 2
+    if news_post.contains_bangla_text(credit):
+        latin_font = news_post.load_roboto_font(size=font.size, bold=True)
+        news_post.draw_mixed_headline_text(
+            draw, (x, y), credit, font, latin_font, news_post.BRAND_CORAL
+        )
+    else:
+        draw.text(
+            (x, y),
+            credit,
+            font=font,
+            fill=news_post.BRAND_CORAL,
+            stroke_width=1,
+            stroke_fill=(0, 0, 0, 130),
+        )
 
 
 def draw_centered_blocks(
@@ -495,19 +519,30 @@ def draw_short_description(
     )
     top = center_y - (len(lines) * line_height) // 2
     for index, line in enumerate(lines):
-        width = news_post.text_width(draw, line, font)
+        is_bangla = news_post.contains_bangla_text(line)
+        latin_font = news_post.load_roboto_font(size=font.size, bold=True)
+        width = (
+            news_post.mixed_text_width(draw, line, font, latin_font)
+            if is_bangla
+            else news_post.text_width(draw, line, font)
+        )
         x = (CANVAS_SIZE[0] - width) // 2
         fill = news_post.WHITE
         if index == 0:
             fill = news_post.BRAND_MINT
-        draw.text(
-            (x, top),
-            line,
-            font=font,
-            fill=fill,
-            stroke_width=1,
-            stroke_fill=(0, 0, 0, 130),
-        )
+        if is_bangla:
+            news_post.draw_mixed_headline_text(
+                draw, (x, top), line, font, latin_font, fill
+            )
+        else:
+            draw.text(
+                (x, top),
+                line,
+                font=font,
+                fill=fill,
+                stroke_width=1,
+                stroke_fill=(0, 0, 0, 130),
+            )
         top += line_height
 
 

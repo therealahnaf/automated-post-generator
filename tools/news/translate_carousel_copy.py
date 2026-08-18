@@ -62,7 +62,9 @@ def copy_strings(payload: dict[str, Any]) -> tuple[list[str], bool]:
 def build_prompt(values: list[str]) -> str:
     return (
         "Translate this JSON array to Bangla while preserving its length and "
-        "order:\n\n" + json.dumps(values, ensure_ascii=False)
+        "order. Keep every translated string to 160 characters or fewer so "
+        "it remains usable on its corresponding carousel card:\n\n"
+        + json.dumps(values, ensure_ascii=False)
     )
 
 

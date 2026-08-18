@@ -91,6 +91,7 @@ def fit_kicker(draw: ImageDraw.ImageDraw, language: str = "english"):
 def wrap_intro(
     draw: ImageDraw.ImageDraw,
     intro_headline: str,
+    language: str,
 ) -> tuple[Any, list[str], int]:
     intro_headline = normalize_intro_headline(intro_headline)
     for size in range(50, 31, -2):
@@ -99,7 +100,13 @@ def wrap_intro(
             size=size,
             bold=True,
         )
-        lines = news_post.wrap_headline(draw, intro_headline, font, 880)
+        if language == "bangla":
+            latin_font = news_post.load_roboto_font(size=size, bold=True)
+            lines = news_post.wrap_mixed_headline(
+                draw, intro_headline, font, latin_font, 880
+            )
+        else:
+            lines = news_post.wrap_headline(draw, intro_headline, font, 880)
         if len(lines) <= 2:
             return font, lines, size + 16
     raise ValueError("Product intro headline is too long for the primary card.")
@@ -123,12 +130,12 @@ def compose_primary(
         product_name,
         variant="condensed",
     )
-    intro_font, intro_lines, intro_line_height = wrap_intro(draw, intro_headline)
-    company_font, company_credit = model_post.fit_company_credit(
-        draw,
-        company_name,
-        prefix="তৈরি করেছে" if language == "bangla" else "by",
+    intro_font, intro_lines, intro_line_height = wrap_intro(
+        draw, intro_headline, language
     )
+    company_credit = f"{'তৈরি করেছে' if language == 'bangla' else 'by'} {company_name}"
+    company_font = model_post.load_text_font(company_credit, size=38, bold=True)
+    company_latin_font = news_post.load_roboto_font(size=38, bold=True)
 
     kicker_height = kicker_font.size + 18
     total_height = (
@@ -172,27 +179,56 @@ def compose_primary(
     top += 38
 
     for line in intro_lines:
-        width = news_post.text_width(draw, line, intro_font)
-        draw.text(
-            ((CANVAS_SIZE[0] - width) // 2, top),
-            line,
-            font=intro_font,
-            fill=news_post.BRAND_MINT,
-            stroke_width=1,
-            stroke_fill=(0, 0, 0, 130),
-        )
+        if language == "bangla":
+            intro_latin_font = news_post.load_roboto_font(
+                size=intro_font.size, bold=True
+            )
+            width = news_post.mixed_text_width(
+                draw, line, intro_font, intro_latin_font
+            )
+            news_post.draw_mixed_headline_text(
+                draw,
+                ((CANVAS_SIZE[0] - width) // 2, top),
+                line,
+                intro_font,
+                intro_latin_font,
+                news_post.BRAND_MINT,
+            )
+        else:
+            width = news_post.text_width(draw, line, intro_font)
+            draw.text(
+                ((CANVAS_SIZE[0] - width) // 2, top),
+                line,
+                font=intro_font,
+                fill=news_post.BRAND_MINT,
+                stroke_width=1,
+                stroke_fill=(0, 0, 0, 130),
+            )
         top += intro_line_height
     top += 34
 
-    company_width = news_post.text_width(draw, company_credit, company_font)
-    draw.text(
-        ((CANVAS_SIZE[0] - company_width) // 2, top),
-        company_credit,
-        font=company_font,
-        fill=news_post.BRAND_CORAL,
-        stroke_width=1,
-        stroke_fill=(0, 0, 0, 130),
-    )
+    if language == "bangla":
+        company_width = news_post.mixed_text_width(
+            draw, company_credit, company_font, company_latin_font
+        )
+        news_post.draw_mixed_headline_text(
+            draw,
+            ((CANVAS_SIZE[0] - company_width) // 2, top),
+            company_credit,
+            company_font,
+            company_latin_font,
+            news_post.BRAND_CORAL,
+        )
+    else:
+        company_width = news_post.text_width(draw, company_credit, company_font)
+        draw.text(
+            ((CANVAS_SIZE[0] - company_width) // 2, top),
+            company_credit,
+            font=company_font,
+            fill=news_post.BRAND_CORAL,
+            stroke_width=1,
+            stroke_fill=(0, 0, 0, 130),
+        )
     model_post.add_brand_chrome(canvas, post_date)
     return canvas.convert("RGB")
 

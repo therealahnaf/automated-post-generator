@@ -16,6 +16,8 @@ SOURCES_HEADING = "Sources:"
 PUBLISHER_LABELS = {
     "apnews.com": "AP News",
     "arxiv.org": "arXiv",
+    "aisi.gov.uk": "UK AI Security Institute",
+    "cas.cn": "Chinese Academy of Sciences",
     "bbc.co.uk": "BBC",
     "bbc.com": "BBC",
     "bloomberg.com": "Bloomberg",
@@ -26,6 +28,7 @@ PUBLISHER_LABELS = {
     "huggingface.co": "Hugging Face",
     "microsoft.com": "Microsoft",
     "nature.com": "Nature",
+    "news.cn": "Xinhua",
     "news.ycombinator.com": "Hacker News",
     "nytimes.com": "The New York Times",
     "openai.com": "OpenAI",
@@ -34,6 +37,8 @@ PUBLISHER_LABELS = {
     "theguardian.com": "The Guardian",
     "theverge.com": "The Verge",
     "wired.com": "WIRED",
+    "x.ai": "xAI",
+    "ycombinator.com": "Y Combinator",
 }
 GENERIC_DOMAIN_LABELS = {
     "ai": "AI",

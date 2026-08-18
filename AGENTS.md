@@ -65,6 +65,12 @@ The selected workflow owns its copy, research, visual assets, layout, and
 ordered carousel construction. Do not mix layouts or generation rules between
 workflows.
 
+Every generated visual item must include the approved shared Codeastrix sponsor
+footer from `tools/news/codeastrix_footer.py`. This includes news primary cards,
+branded tweet-media secondary cards, every model/product/informative carousel
+card, and every frame of a reel. Keep content above the reserved footer area;
+no workflow may omit, cover, erase, or replace the footer.
+
 Generate the English and Bangla copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to
 create Facebook and Instagram caption files in their selected order. If both

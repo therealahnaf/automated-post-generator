@@ -16,7 +16,6 @@ try:
 except ImportError:
     import codeastrix_footer
 
-
 DEFAULT_BORDER_COLOR = "#212121"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOGO = PROJECT_ROOT / "bitstodaylogo-trans.png"

@@ -355,7 +355,7 @@ def is_english_name_token(token: str) -> bool:
     Bangla display fonts are not guaranteed to include Latin glyphs. Proper
     names deliberately retained in English therefore need explicit fallback.
     """
-    return bool(re.fullmatch(r"[A-Za-z0-9]+", token))
+    return bool(re.fullmatch(r"[A-Za-z0-9$]+", token))
 
 
 def mixed_script_runs(token: str) -> list[tuple[str, bool]]:
@@ -368,7 +368,7 @@ def mixed_script_runs(token: str) -> list[tuple[str, bool]]:
     """
     return [
         (run, is_english_name_token(run))
-        for run in re.findall(r"[A-Za-z0-9]+|[^A-Za-z0-9]+", token)
+        for run in re.findall(r"[A-Za-z0-9$]+|[^A-Za-z0-9$]+", token)
     ]
 
 
@@ -671,7 +671,7 @@ def paste_brand_logo(canvas: Image.Image, logo_path: Path | None) -> None:
         logo.thumbnail((118, 118), Image.Resampling.LANCZOS)
     margin = 46
     x = canvas.width - margin - logo.width
-    y = canvas.height - margin - logo.height
+    y = codeastrix_footer.footer_top(canvas.size) - margin - logo.height
     canvas.alpha_composite(logo, (x, y))
 
 
@@ -775,7 +775,13 @@ def draw_brand_block(
                 fill=background_color,
             )
         else:
-            fill = BRAND_MINT if index == len(lines) - 1 else WHITE
+            # The non-highlighted lines stay neutral for the single-colour
+            # treatments. Mint italic emphasis is reserved for the dual mode.
+            fill = (
+                BRAND_MINT
+                if index == len(lines) - 1 and highlight_style == "dual"
+                else WHITE
+            )
         if is_bangla and latin_font is not None:
             draw_mixed_headline_text(
                 draw, (margin, y), line, headline_font, latin_font, fill
@@ -1061,6 +1067,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not add a tweet photo to the main post.",
     )
     parser.add_argument(
+        "--translated-title",
+        help="Reuse an already approved localized headline instead of translating again.",
+    )
+    parser.add_argument(
         "--source",
         default=os.getenv("POST_SOURCE", DEFAULT_POST_SOURCE),
         help=f"Brand name rendered below the headline (default: POST_SOURCE or '{DEFAULT_POST_SOURCE}').",
@@ -1140,7 +1150,9 @@ def main(argv: list[str] | None = None) -> int:
                         "minimum; keeping it as secondary media only.",
                         file=sys.stderr,
                     )
-        if post_language == "bangla":
+        if args.translated_title:
+            title = normalize_news_text(args.translated_title).strip(" \"'“”").rstrip(".")
+        elif post_language == "bangla":
             require_api_key()
             print("Translating approved headline to Bangla...", file=sys.stderr)
             title = translate_headline_to_bangla(make_client(), english_title)

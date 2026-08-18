@@ -31,7 +31,9 @@ SYSTEM_INSTRUCTIONS = """You are the model-launch copy editor for Bits Today.
 Turn the supplied finalized English description into concise, ordered
 carousel-card segments. Each segment must communicate one distinct, important
 capability, price change, efficiency claim, availability detail, or positioning
-statement while collectively covering the description without repetition.
+statement. Cover the description without repetition when multiple cards are
+available; when exactly one card is required, select only the most important
+source-grounded announcement details that fit the stated character limit.
 Preserve names, numbers, attribution, and uncertainty. Do not add outside facts,
 hype, hashtags, headings, URLs, or markdown. Return only a JSON array of strings.
 """
@@ -119,7 +121,8 @@ Maximum characters per description: {MAX_SHORT_DESCRIPTION_CHARACTERS}
 Split the finalized description into {count_instruction} concise segments in
 the same narrative order. Use {minimum_count} when the description is concise
 and {maximum_count} when it contains enough distinct detail. Do not repeat facts
-merely to reach the larger count.
+merely to reach the larger count. Aim for 120 characters per segment; never
+exceed the stated maximum.
 
 DESCRIPTION START
 {source_text.strip()}

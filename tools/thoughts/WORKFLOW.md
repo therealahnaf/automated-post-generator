@@ -53,7 +53,8 @@ reel layouts in this workflow.
    - never calls an image model and never uses tweet media;
    - uses the bundled English or Bangla font and the coral/mint palette;
    - keeps the cover title on one small line and keeps paragraph cards free of
-     headers, rails, and footers;
+     headers and rails while retaining the approved shared Codeastrix sponsor
+     footer;
    - writes ordered PNGs, `post.json`, and `preview-contact-sheet.png`.
 
    Use `--seed <integer>` only to deliberately override the stable sequence,

@@ -159,6 +159,12 @@ class GeneratePostTests(unittest.TestCase):
             if red > 200 and green < 50 and blue < 60
         )
         self.assertEqual(footer_red_pixels, 0)
+        footer_colors = footer.getcolors(
+            maxcolors=footer.width * footer.height
+        ) or []
+        footer_values = {color for _, color in footer_colors}
+        self.assertIn(generate_post.codeastrix_footer.BLUE_LIGHT[:3], footer_values)
+        self.assertIn(generate_post.codeastrix_footer.WHITE[:3], footer_values)
 
     def test_first_tweet_photo_is_discovered_and_rounded_without_cropping(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))

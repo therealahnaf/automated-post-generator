@@ -32,8 +32,8 @@ downloaded media; do not fetch or classify the story again.
 4. Apply the persisted highlight treatment: `cyan` highlights only the first
    line in mint, `red` highlights only the first line in coral, and `dual`
    highlights the first line in coral and the second in mint. Do not add
-   `Desk`, an AI-generated credit, a footer, an extra badge, or an experimental
-   preset.
+   `Desk`, an AI-generated credit, an extra badge, or an experimental preset.
+   Always retain the approved shared Codeastrix sponsor footer.
 5. The generated post is always primary. If the tweet has photos, place the
    first downloaded photo uncropped in a borderless rounded-corner inset over
    the lower portion of the selected local background only when its
@@ -49,9 +49,10 @@ downloaded media; do not fetch or classify the story again.
    original source order. If no photo was embedded because the first photo was
    smaller than 640x480, exclude nothing. Contain every remaining source
    without cropping inside a 1080x1350 `#212121` frame that fills unused 4:5
-   space. Add the transparent Bits Today logo at bottom-right without a
-   background plate. Place these branded images after the generated primary,
-   within the 10-image total.
+   space above the reserved Codeastrix sponsor footer. Add the transparent Bits
+   Today logo at bottom-right of the content region without a background plate,
+   then render the approved footer. Place these branded images after the
+   generated primary, within the 10-image total.
 7. Generate the bilingual description with
    `tools/news/generate_description.py`. The first fixed `gpt-5.6-luna` call
    creates consequential but source-grounded English copy; the second
