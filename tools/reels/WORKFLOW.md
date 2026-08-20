@@ -17,11 +17,9 @@ tweet JSON and never reclassify it during revisions or publishing.
    translation when both platforms select it.
 3. Generate and research the bilingual description by following news workflow
    steps 7–10. Use thread and quote text. Add useful context when found, keep
-   both languages synchronized, and end with the original X account first
-   under `Sources:` as `@username on X`, followed by recognizable labels for
-   every research publisher actually used. Do not place raw links in the
-   caption. This source block tells viewers which X account carries the full
-   original video.
+   both languages synchronized, and end with recognizable labels for every
+   research publisher actually used under `Sources:`. Omit the original X
+   account attribution and do not place raw links in the caption.
 4. Run `tools/reels/generate_reel.py --tweet-json --headline --output` once per
    distinct platform headline, reusing the same source download. It
    safely selects a downloadable `video.twimg.com` MP4 and renders:

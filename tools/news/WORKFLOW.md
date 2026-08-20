@@ -93,16 +93,15 @@ downloaded media; do not fetch or classify the story again.
 
     ```text
     Sources:
-    @<original poster> on X
     <each research publisher actually used>
     ```
 
     Pass the supplied X URL and each research URL actually used to the
-    finalizer for validation, but never place a raw link in the caption. Keep
-    the original X account label first, use recognizable publisher/site labels
-    for research sources, deduplicate repeated publishers, and keep the
-    complete bilingual copy and source block within the configured platform
-    limit.
+    finalizer for validation, but omit the X account attribution and never
+    place a raw link in the caption. Use recognizable publisher/site labels for
+    research sources, deduplicate repeated publishers, and keep the complete
+    bilingual copy and source block within the configured platform limit. If no
+    research source is used, omit the `Sources:` block entirely.
 9. After research and source finalization, run
    `tools/news/generate_carousel_copy.py` with the fetched tweet JSON, the
    primary post's JSON sidecar, and the finalized bilingual description. It

@@ -20,7 +20,6 @@ class FinalizeDescriptionTests(unittest.TestCase):
         self.assertEqual(
             result,
             "English.\n\n---\n\nবাংলা।\n\nSources:\n"
-            "@example on X\n"
             "Example",
         )
 
@@ -32,7 +31,7 @@ class FinalizeDescriptionTests(unittest.TestCase):
 
         self.assertEqual(
             result,
-            "Copy.\n\nSources:\n@new_account on X",
+            "Copy.",
         )
 
     def test_formats_social_accounts_and_known_publishers_without_links(self) -> None:
@@ -49,7 +48,6 @@ class FinalizeDescriptionTests(unittest.TestCase):
         self.assertEqual(
             result,
             "Copy.\n\nSources:\n"
-            "@Polymarket on X\n"
             "@openai on Instagram\n"
             "Reuters\n"
             "OpenAI",
@@ -66,6 +64,17 @@ class FinalizeDescriptionTests(unittest.TestCase):
         )
 
         self.assertEqual(result, "Copy.\n\nSources:\nReuters")
+
+    def test_omits_sources_block_when_only_x_urls_are_supplied(self) -> None:
+        result = finalize_description.append_sources(
+            "Copy.",
+            [
+                "https://x.com/example/status/123",
+                "https://twitter.com/example/status/456",
+            ],
+        )
+
+        self.assertEqual(result, "Copy.")
 
     def test_reads_requested_x_urls_from_tweet_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -82,6 +82,11 @@ def normalized_host(url: str) -> str:
     return host
 
 
+def is_x_source_url(url: str) -> bool:
+    """Return whether a validated source points to X/Twitter."""
+    return normalized_host(url) in {"x.com", "twitter.com"}
+
+
 def url_path_parts(url: str) -> list[str]:
     return [
         unquote(part).strip()
@@ -230,6 +235,8 @@ def append_sources(
     seen_labels: set[str] = set()
     for value in source_urls:
         url = validate_source_url(value)
+        if is_x_source_url(url):
+            continue
         url_identity = url.casefold()
         if url_identity in seen_urls:
             continue
@@ -241,7 +248,7 @@ def append_sources(
         seen_labels.add(label_identity)
         ordered_labels.append(label)
     if not ordered_labels:
-        raise ValueError("At least one source URL is required.")
+        return body
 
     final = f"{body}\n\n{SOURCES_HEADING}\n" + "\n".join(ordered_labels)
     if len(final) > max_characters:
@@ -255,8 +262,8 @@ def append_sources(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Append caption-safe X account and research-publisher labels to a "
-            "Bits Today description."
+            "Append caption-safe research-publisher labels to a Bits Today "
+            "description, excluding X/Twitter attribution."
         )
     )
     parser.add_argument(
@@ -268,7 +275,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tweet-json",
         type=Path,
-        help="Add requested X URLs from fetch_tweets.py output first.",
+        help=(
+            "Read requested X URLs from fetch_tweets.py output for validation; "
+            "they are excluded from the caption."
+        ),
     )
     parser.add_argument(
         "--source-url",
