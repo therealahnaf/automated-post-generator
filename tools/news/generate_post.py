@@ -1157,7 +1157,7 @@ def main(argv: list[str] | None = None) -> int:
         source_text = normalize_news_text(args.news)
         if not source_text:
             raise ValueError("The news sentence cannot be empty.")
-        title = normalize_news_text(args.headline).strip(" \"'“”").rstrip(".")
+        title = normalize_news_text(args.headline).strip().rstrip(".")
         if not title:
             raise ValueError("The headline cannot be empty.")
         image_prompt = build_image_prompt(source_text, title)
@@ -1190,7 +1190,7 @@ def main(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
         if args.translated_title:
-            title = normalize_news_text(args.translated_title).strip(" \"'“”").rstrip(".")
+            title = normalize_news_text(args.translated_title).strip().rstrip(".")
         elif post_language == "bangla":
             require_api_key()
             print("Translating approved headline to Bangla...", file=sys.stderr)

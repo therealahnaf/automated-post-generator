@@ -37,13 +37,18 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 MIN_FRAME_RATE = Fraction(1, 1)
 MAX_FRAME_RATE = Fraction(240, 1)
-MAX_DURATION = 59.5
+# Leave one source frame of headroom: FFmpeg timestamps a frame on its end
+# boundary, so a nominal 59.5-second output can probe a few milliseconds over.
+MAX_DURATION = 59.45
 OUTRO_DURATION = 3.0
 OUTRO_MINIMUM_SOURCE_DURATION = 15.0
-MIN_VIDEO_DURATION = 4.0
+# Short source clips retain their natural duration without an outro. A single
+# valid video frame is enough for that path; workflow policy does not impose a
+# four-second minimum.
+MIN_VIDEO_DURATION = 0.001
 MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
 OUTRO_TITLE = "Full Video Linked in Description"
 OUTRO_DETAIL = "Stay ahead with Bits Today"
@@ -216,6 +221,13 @@ def read_stream_frame_rate(stream: dict[str, Any]) -> tuple[str, float]:
     if errors:
         raise ValueError("FFprobe returned no usable video frame rate.") from errors[-1]
     raise ValueError("FFprobe did not return a video frame rate.")
+
+
+def frame_rates_match(left: str, right: str) -> bool:
+    """Compare FFprobe rates without rejecting equivalent muxer time bases."""
+    _, left_fps = normalize_frame_rate(left)
+    _, right_fps = normalize_frame_rate(right)
+    return abs(left_fps - right_fps) <= 0.001
 
 
 def reel_timing(source_duration: float) -> tuple[float, float]:
@@ -607,8 +619,11 @@ def reusable_render(
             rendered_info["width"] != CANVAS[0]
             or rendered_info["height"] != CANVAS[1]
             or rendered_info["duration"] > MAX_DURATION + 0.05
-            or rendered_info["frame_rate"] != metadata.get("frame_rate")
-            or metadata.get("source_frame_rate") != metadata.get("frame_rate")
+            or not frame_rates_match(rendered_info["frame_rate"], str(metadata.get("frame_rate") or ""))
+            or not frame_rates_match(
+                str(metadata.get("source_frame_rate") or ""),
+                str(metadata.get("frame_rate") or ""),
+            )
         ):
             return None
         return metadata
@@ -687,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
                     frame_rate=str(source_info["frame_rate"]),
                 )
             rendered_info = probe_video(output)
-            if rendered_info["frame_rate"] != source_info["frame_rate"]:
+            if not frame_rates_match(rendered_info["frame_rate"], source_info["frame_rate"]):
                 raise RuntimeError(
                     "Rendered reel frame rate does not match the source: "
                     f"{rendered_info['frame_rate']} != {source_info['frame_rate']}."
