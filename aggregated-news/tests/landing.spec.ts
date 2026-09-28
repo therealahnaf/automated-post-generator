@@ -83,6 +83,16 @@ test("home shows the mixed feed and latest model and thought highlights", async 
   await expect(page.locator("video")).toHaveCount(0);
 });
 
+test("home uses insight rankings when available", async ({ page }) => {
+  const ranked = fixtures.find((post) => post.workflow_type === "news" && post.id !== fixtures[0]!.id)!;
+  await page.route("**/api/posts/rankings?*", (route) => route.fulfill({
+    json: { items: [ranked], total: 1, kind: "trending_week" },
+  }));
+  await page.goto("/");
+  await expect(page.locator(".edition-lead h1")).toHaveText(ranked.title);
+  await expect(page.getByText("Instagram engagement · past 7 days")).toBeVisible();
+});
+
 test("detail view uses a saved generated image as the background", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("link", { name: /View full story/ }).click();

@@ -62,3 +62,18 @@ CREATE TABLE IF NOT EXISTS content_post_publications (
     UNIQUE (platform, media_id)
 );
 INSERT INTO content_schema_version(version) VALUES (3) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS content_instagram_insights (
+    post_id uuid NOT NULL REFERENCES content_posts(id) ON DELETE CASCADE,
+    media_id text NOT NULL,
+    collected_at timestamptz NOT NULL,
+    views bigint CHECK (views >= 0),
+    reach bigint CHECK (reach >= 0),
+    likes bigint CHECK (likes >= 0),
+    comments bigint CHECK (comments >= 0),
+    saved bigint CHECK (saved >= 0),
+    shares bigint CHECK (shares >= 0),
+    PRIMARY KEY (post_id, collected_at)
+);
+CREATE INDEX IF NOT EXISTS content_ig_insights_recent
+    ON content_instagram_insights (post_id, collected_at DESC);
+INSERT INTO content_schema_version(version) VALUES (4) ON CONFLICT DO NOTHING;

@@ -6,12 +6,15 @@ import { toArticle, type ApiPost } from "./useArticles";
 export function useHomeEdition(enabled: boolean) {
   const [edition, setEdition] = useState<{
     news: Article[];
+    weekNews: Article[];
     reels: Article[];
+    trending: Article[];
+    popular: Article[];
     model: Article | null;
     thought: Article | null;
     product: Article | null;
     asOf: number;
-  }>(() => ({ news: [], reels: [], model: null, thought: null, product: null, asOf: Date.now() }));
+  }>(() => ({ news: [], weekNews: [], reels: [], trending: [], popular: [], model: null, thought: null, product: null, asOf: Date.now() }));
 
   useEffect(() => {
     if (!enabled) return;
@@ -19,6 +22,7 @@ export function useHomeEdition(enabled: boolean) {
     async function refresh() {
       const feeds = [
         ["news", "section=news&limit=12"],
+        ["weekNews", `section=news&limit=100&published_since=${encodeURIComponent(new Date(Date.now() - 7 * 86400000).toISOString())}`],
         ["reels", "workflow_type=reel&limit=3"],
         ["model", "workflow_type=model&limit=1"],
         ["thought", "workflow_type=informative&limit=1"],
@@ -34,9 +38,16 @@ export function useHomeEdition(enabled: boolean) {
           setEdition((previous) => ({
             ...previous,
             asOf: Date.now(),
-            [key]: key === "news" || key === "reels" ? articles : articles[0] ?? null,
+            [key]: key === "news" || key === "weekNews" || key === "reels" ? articles : articles[0] ?? null,
           }));
         }
+      }));
+      await Promise.allSettled((["trending", "popular"] as const).map(async (key) => {
+        const kind = key === "trending" ? "trending_week" : "popular_all_time";
+        const response = await fetch(`/api/posts/rankings?kind=${kind}&limit=6`, { signal: controller.signal });
+        if (!response.ok) throw new Error("Rankings unavailable");
+        const payload = await response.json() as { items: ApiPost[] };
+        if (!controller.signal.aborted) setEdition((previous) => ({ ...previous, [key]: payload.items.map(toArticle) }));
       }));
     }
     void refresh();

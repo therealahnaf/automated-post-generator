@@ -79,8 +79,8 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
 }) {
   const news = edition.news.length ? edition.news : articles.filter((article) => article.workflowType === "news" || article.workflowType === "reel");
   const weekStart = edition.asOf - 7 * 24 * 60 * 60 * 1000;
-  const thisWeek = news.filter((article) => article.publishedAt && Date.parse(article.publishedAt) >= weekStart && Date.parse(article.publishedAt) <= edition.asOf);
-  const topStories = (thisWeek.length ? thisWeek : news.length ? news : articles).slice(0, 4);
+  const thisWeek = (edition.weekNews.length ? edition.weekNews : news).filter((article) => article.publishedAt && Date.parse(article.publishedAt) >= weekStart && Date.parse(article.publishedAt) <= edition.asOf);
+  const topStories = (edition.trending.length ? edition.trending : thisWeek.length ? thisWeek : news.length ? news : articles).slice(0, 4);
   const lead = topStories[0];
   const topIds = new Set(topStories.map((article) => article.id));
   const latest = thisWeek.filter((article) => !topIds.has(article.id)).slice(0, 4);
@@ -92,7 +92,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   const other = articles.filter((article) => !featuredIds.has(article.id));
   return <div className="edition">
     <section aria-label="Trending this week">
-      <SectionHeading title="Trending this week" note="Latest posts for now" />
+      <SectionHeading title="Trending this week" note={edition.trending.length ? "Instagram engagement · past 7 days" : "Latest stories until rankings are available"} />
       {lead && <div className={`edition-top ${topStories.length === 1 ? "edition-top--single" : ""}`}>
         <article className="edition-lead">
           <div className="edition-lead-copy">
@@ -119,9 +119,9 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
     <div className="edition-middle">
       <div className="edition-middle-main">
         <section aria-label="All-time trending">
-          <SectionHeading title="All-time trending" note="Latest posts for now" />
-          {news.length ? <ol className="edition-ranked">
-            {news.slice(0, 6).map((article, index) => <li key={article.id}>
+          <SectionHeading title="All-time trending" note={edition.popular.length ? "Instagram engagement" : "Latest stories until rankings are available"} />
+          {(edition.popular.length || news.length) ? <ol className="edition-ranked">
+            {(edition.popular.length ? edition.popular : news).slice(0, 6).map((article, index) => <li key={article.id}>
               <span className="edition-rank" aria-hidden="true">{index + 1}</span>
               <StoryLink article={article} onOpen={onOpen}>{article.title}</StoryLink>
             </li>)}

@@ -10,12 +10,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 import psycopg
+import requests
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import (
     Depends,
@@ -43,7 +45,7 @@ from pydantic import (
 )
 
 from .config import api_key, database_url
-from . import storage
+from . import instagram_insights, storage
 
 Workflow = Literal["news", "model", "product", "informative", "reel"]
 MAX_FILE_BYTES = 128 * 1024 * 1024
@@ -191,6 +193,7 @@ def list_posts(
     offset: int = Query(0, ge=0, le=100000),
     workflow_type: Workflow | None = None,
     section: Literal["news", "models", "products", "thoughts"] | None = None,
+    published_since: AwareDatetime | None = None,
 ):
     if section and workflow_type:
         raise HTTPException(422, "Use section or workflow_type, not both.")
@@ -207,6 +210,9 @@ def list_posts(
         else:
             where = "WHERE workflow_type = %s" if workflow_type else ""
             params = [workflow_type] if workflow_type else []
+        if published_since:
+            where += " AND published_at >= %s" if where else "WHERE published_at >= %s"
+            params.append(published_since)
         total = conn.execute(
             f"SELECT count(*) AS count FROM content_posts {where}", params
         ).fetchone()["count"]
@@ -215,6 +221,120 @@ def list_posts(
             [*params, limit, offset],
         ).fetchall()
         return {"items": [serialize_post(conn, row) for row in rows], "total": total}
+
+
+def _engagement(metrics: dict, baseline: dict | None = None) -> tuple[int, int]:
+    def delta(name: str) -> int:
+        value = metrics.get(name)
+        if value is None:
+            return 0
+        return max(0, value - ((baseline or {}).get(name) or 0))
+    return (delta("likes") + 3 * delta("comments") + 4 * delta("saved")
+            + 4 * delta("shares"), delta("views"))
+
+
+@app.get("/api/posts/rankings")
+def post_rankings(
+    kind: Literal["trending_week", "popular_all_time"],
+    limit: int = Query(6, ge=1, le=20),
+):
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=7)
+    with connect() as conn:
+        candidates = conn.execute(
+            """SELECT p.id, p.published_at,
+                      latest.views, latest.reach, latest.likes, latest.comments,
+                      latest.saved, latest.shares, latest.collected_at,
+                      older.views AS old_views, older.likes AS old_likes,
+                      older.comments AS old_comments, older.saved AS old_saved,
+                      older.shares AS old_shares, older.collected_at AS old_collected_at
+               FROM content_posts p
+               JOIN content_post_publications pub ON pub.post_id = p.id AND pub.platform = 'instagram'
+               JOIN LATERAL (
+                   SELECT * FROM content_instagram_insights i
+                   WHERE i.post_id = p.id AND i.media_id = pub.media_id
+                   ORDER BY i.collected_at DESC LIMIT 1
+               ) latest ON true
+               LEFT JOIN LATERAL (
+                   SELECT * FROM content_instagram_insights i
+                   WHERE i.post_id = p.id AND i.media_id = pub.media_id
+                     AND i.collected_at <= %s
+                   ORDER BY i.collected_at DESC LIMIT 1
+               ) older ON true
+               WHERE p.workflow_type IN ('news', 'reel') AND NOT p.is_demo""",
+            (cutoff,),
+        ).fetchall()
+        scored = []
+        for item in candidates:
+            if kind == "trending_week" and item["published_at"] < cutoff and not item["old_collected_at"]:
+                continue
+            if all(item[name] is None for name in ("views", "likes", "comments", "saved", "shares")):
+                continue
+            baseline = ({name: item[f"old_{name}"] for name in ("views", "likes", "comments", "saved", "shares")}
+                        if kind == "trending_week" and item["published_at"] < cutoff else None)
+            score, views = _engagement(item, baseline)
+            scored.append((score, views, item["published_at"], item["id"], item["collected_at"]))
+        scored.sort(reverse=True)
+        results = []
+        for score, _, _, post_id, collected_at in scored[:limit]:
+            row = conn.execute("SELECT * FROM content_posts WHERE id = %s", (post_id,)).fetchone()
+            results.append({**serialize_post(conn, row), "ranking_score": score,
+                            "insights_collected_at": collected_at})
+        return {"kind": kind, "as_of": now, "total": len(scored), "items": results}
+
+
+@app.post("/api/internal/instagram-insights/refresh", dependencies=[Depends(authorize)])
+def refresh_instagram_insights(
+    limit: int = Query(25, ge=1, le=50),
+    after: UUID | None = None,
+):
+    try:
+        token, version = instagram_insights.config()
+    except instagram_insights.InsightsError as exc:
+        raise HTTPException(503, exc.code) from None
+    with connect() as lock_conn:
+        acquired = lock_conn.execute("SELECT pg_try_advisory_lock(9382714) AS acquired").fetchone()["acquired"]
+        if not acquired:
+            raise HTTPException(409, "Insight refresh already running.")
+        try:
+            rows = lock_conn.execute(
+                """SELECT post_id, media_id FROM content_post_publications
+                   WHERE platform = 'instagram' AND (%s::uuid IS NULL OR post_id > %s::uuid)
+                   ORDER BY post_id LIMIT %s""",
+                (after, after, limit),
+            ).fetchall()
+            lock_conn.commit()
+            failures = []
+            succeeded = 0
+            fatal = False
+            with requests.Session() as session:
+                for row in rows:
+                    try:
+                        metrics = instagram_insights.fetch_metrics(session, row["media_id"], token, version)
+                        collected_at = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+                        with connect() as conn:
+                            conn.execute(
+                                """INSERT INTO content_instagram_insights
+                                   (post_id, media_id, collected_at, views, reach, likes, comments, saved, shares)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   ON CONFLICT (post_id, collected_at) DO UPDATE SET
+                                     media_id=excluded.media_id, views=excluded.views, reach=excluded.reach,
+                                     likes=excluded.likes, comments=excluded.comments,
+                                     saved=excluded.saved, shares=excluded.shares""",
+                                (row["post_id"], row["media_id"], collected_at,
+                                 *(metrics[name] for name in instagram_insights.METRICS)),
+                            )
+                        succeeded += 1
+                    except instagram_insights.InsightsError as exc:
+                        failures.append({"post_id": row["post_id"], "reason": exc.code})
+                        if exc.code in {"rate_limited", "permission_or_token"}:
+                            fatal = True
+                            break
+            return {"processed": succeeded + len(failures), "succeeded": succeeded,
+                    "failed": len(failures), "failures": failures,
+                    "next_after": rows[-1]["post_id"] if len(rows) == limit and not fatal else None}
+        finally:
+            lock_conn.execute("SELECT pg_advisory_unlock(9382714)")
 
 
 @app.get("/api/posts/{post_id}")

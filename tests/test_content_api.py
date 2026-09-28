@@ -3,7 +3,7 @@
 import io
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -16,6 +16,7 @@ from psycopg.rows import dict_row
 
 from content_api.app import app
 from content_api import storage
+from content_api import instagram_insights
 from content_api.config import database_url
 
 
@@ -178,6 +179,37 @@ class ContentApiTests(unittest.TestCase):
                          {"facebook", "instagram"})
         self.assertEqual(detail["publications"][1]["media_id"], mapping["media_id"])
         self.assertEqual(self.upload(payload).json()["status"], "already_stored")
+
+    def test_insight_refresh_and_rankings(self):
+        key = str(uuid4())
+        post = self.upload(self.payload(archive_key=key)).json()["post"]
+        headers = {"Authorization": "Bearer " + "a" * 48}
+        mapped = self.client.post("/api/publications/instagram", json={
+            "archive_key": key, "media_id": "ig-" + uuid4().hex,
+        }, headers=headers)
+        self.assertEqual(mapped.status_code, 200)
+        self.assertEqual(self.client.post("/api/internal/instagram-insights/refresh").status_code, 401)
+        with patch.object(instagram_insights, "config", return_value=("test-token", "v25.0")), \
+             patch.object(instagram_insights, "fetch_metrics", return_value={
+                 "views": 300, "reach": 240, "likes": 20, "comments": 4,
+                 "saved": 3, "shares": 2,
+             }):
+            result = self.client.post("/api/internal/instagram-insights/refresh?limit=50", headers=headers)
+        self.assertEqual(result.status_code, 200)
+        self.assertGreaterEqual(result.json()["succeeded"], 1)
+        with app_connect_for_test(self.schema) as conn:
+            snapshot = conn.execute("SELECT * FROM content_instagram_insights WHERE post_id=%s", (post["id"],)).fetchone()
+        self.assertEqual(snapshot["views"], 300)
+        self.assertEqual(snapshot["likes"], 20)
+        weekly = self.client.get("/api/posts/rankings?kind=trending_week").json()
+        self.assertEqual(weekly["items"][0]["id"], post["id"])
+        self.assertEqual(weekly["items"][0]["ranking_score"], 52)
+        all_time = self.client.get("/api/posts/rankings?kind=popular_all_time").json()
+        self.assertEqual(all_time["items"][0]["id"], post["id"])
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        self.assertIn(post["id"], [item["id"] for item in self.client.get(
+            "/api/posts", params={"section": "news", "published_since": since},
+        ).json()["items"]])
 
     def test_schema_migration_can_be_reapplied_without_losing_mappings(self):
         archive_key = str(uuid4())

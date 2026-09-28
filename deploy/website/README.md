@@ -89,3 +89,27 @@ renewal, `install_certificate.py` copies only this site's certificate/key into
 the shared proxy's existing certificate mount and updates its dynamic TLS
 configuration in place. It backs up changes and never restarts the proxy or
 other applications. Keep that directory private and preserve it during updates.
+
+## Instagram insight refresh
+
+The API stores an hourly lifetime-metric snapshot for every archived post with
+an Instagram media ID. `POST /api/internal/instagram-insights/refresh` requires
+the private `CONTENT_API_KEY`, accepts `limit` (max 50) and `after` (post UUID),
+and returns per-post success/failure counts and a `next_after` cursor. Only the
+loopback API is allowed to receive that key. `run_instagram_insights.py` pages
+through all mappings; one bad media item does not prevent later items, while
+rate limiting or invalid credentials stop the run. The cron entry in
+`thebitstoday-instagram-insights.cron` runs every six hours under `flock`.
+
+Copy the publisher's existing `INSTAGRAM_ACCESS_TOKEN` into the website's
+private Compose environment with `configure_instagram_insights.py`; neither
+script prints it. The token needs Instagram insights permission. After the
+deployment, install the cron file to `/etc/cron.d/` and run the wrapper once
+to verify access. `GET /api/posts?published_since=<ISO-8601>` serves the news
+published this week; `GET /api/posts/rankings?kind=trending_week` and
+`kind=popular_all_time` serve Instagram-engagement rankings. Older posts need a
+snapshot from at least seven days ago before they can enter the weekly ranking;
+new posts use their lifetime counts until they age into that window. Posts
+without a working Instagram mapping remain in the archive but do not enter
+metric-based rankings. The homepage falls back to recent stories until
+rankings exist.

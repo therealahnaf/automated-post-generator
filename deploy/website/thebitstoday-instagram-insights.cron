@@ -1,0 +1,2 @@
+# Refresh every mapped Instagram post every six hours; flock prevents overlapping runs.
+17 */6 * * * root /usr/bin/flock -n /run/lock/thebitstoday-instagram-insights.lock /root/automated-post-generator/.venv/bin/python /root/automated-post-generator/deploy/website/run_instagram_insights.py >> /var/log/thebitstoday-instagram-insights.log 2>&1
