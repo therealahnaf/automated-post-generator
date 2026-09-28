@@ -10,14 +10,17 @@ before deployment, then run `git pull --ff-only origin main` in
 python3 deploy/website/deploy_release.py "$(git rev-parse HEAD)"
 ```
 
-The deployer refuses dirty tracked files or a mismatched commit. It exports that
+The deployer refuses dirty tracked files or a mismatched commit. Docker images
+are tagged with `RELEASE_SHA`, preserving the previous images for rollback. It exports that
 exact commit into `/opt/thebitstoday/releases/<sha>`, builds frontend and API in
 Docker, backs up the database, switches the `app` symlink and checks health.
 Private configuration and certificate state live under `/opt/thebitstoday/shared`.
 The publisher's `.env`, virtualenv and job files stay outside Git. Watchers and
 unrelated services are not restarted. Old releases remain available for rollback.
 If health fails, deployment reports the previous release path; do not call it
-successful. Restore the `app` link and run Compose for that release to roll back.
+successful. Restore the `app` link and run Compose with `RELEASE_SHA` set to that
+release's commit to roll back. Legacy releases without versioned image tags
+must be rebuilt before rollback.
 Never deploy by overwriting individual source files again.
 
 Independent Docker Compose stack: nginx, FastAPI, PostgreSQL 16. The database has

@@ -22,6 +22,7 @@ def main():
     commit = run('git', 'rev-parse', 'HEAD', cwd=repo)
     if args.commit != commit or run('git', 'status', '--porcelain', '--untracked-files=no', cwd=repo):
         raise RuntimeError('Publisher must be clean and at the requested commit.')
+    os.environ['RELEASE_SHA'] = commit
     release = base / 'releases' / commit
     release.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as temporary:
