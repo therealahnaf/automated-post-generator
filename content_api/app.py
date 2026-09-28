@@ -38,6 +38,7 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     HttpUrl,
     ValidationError,
@@ -107,6 +108,12 @@ class InstagramPublication(BaseModel):
     published_at: AwareDatetime | None = None
 
 
+class NewsletterSignup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr = Field(max_length=254)
+    website: str = Field(default="", max_length=200)
+
+
 def connect():
     return psycopg.connect(database_url(), connect_timeout=5, row_factory=dict_row)
 
@@ -132,6 +139,19 @@ def health():
             "SELECT version FROM content_schema_version WHERE version = 1"
         ).fetchone()
     return {"status": "ok"}
+
+
+@app.post("/api/newsletter/subscriptions")
+def newsletter_signup(signup: NewsletterSignup):
+    # Honeypot: do not store automated submissions or reveal whether an email exists.
+    if not signup.website:
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO content_newsletter_signups (email) VALUES (%s)
+                   ON CONFLICT (email) DO NOTHING""",
+                (str(signup.email).strip().lower(),),
+            )
+    return {"status": "accepted"}
 
 
 def serialize_post(conn, row: dict) -> dict:

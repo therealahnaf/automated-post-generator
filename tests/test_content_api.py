@@ -210,6 +210,22 @@ class ContentApiTests(unittest.TestCase):
             "/api/posts", params={"section": "news", "published_since": since},
         ).json()["items"]])
 
+    def test_newsletter_signup_is_public_validated_and_idempotent(self):
+        endpoint = "/api/newsletter/subscriptions"
+        self.assertEqual(self.client.post(endpoint, json={"email": "bad"}).status_code, 422)
+        email = "Reader-" + uuid4().hex + "@Example.com"
+        for value in (email, email.lower()):
+            response = self.client.post(endpoint, json={"email": value})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"status": "accepted"})
+        with app_connect_for_test(self.schema) as conn:
+            rows = conn.execute("SELECT email, verified_at FROM content_newsletter_signups WHERE email=%s", (email.lower(),)).fetchall()
+        self.assertEqual(rows, [(email.lower(), None)])
+        self.assertEqual(self.client.post(endpoint, json={"email": "other@example.com", "website": "bot"}).status_code, 200)
+        with app_connect_for_test(self.schema) as conn:
+            count = conn.execute("SELECT count(*) FROM content_newsletter_signups").fetchone()[0]
+        self.assertEqual(count, 1)
+
     def test_schema_migration_can_be_reapplied_without_losing_mappings(self):
         archive_key = str(uuid4())
         post = self.upload(self.payload(

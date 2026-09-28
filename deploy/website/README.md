@@ -107,9 +107,18 @@ script prints it. The token needs Instagram insights permission. After the
 deployment, install the cron file to `/etc/cron.d/` and run the wrapper once
 to verify access. `GET /api/posts?published_since=<ISO-8601>` serves the news
 published this week; `GET /api/posts/rankings?kind=trending_week` and
-`kind=popular_all_time` serve Instagram-engagement rankings. Older posts need a
+`kind=popular_all_time` serve engagement-based rankings. Older posts need a
 snapshot from at least seven days ago before they can enter the weekly ranking;
 new posts use their lifetime counts until they age into that window. Posts
 without a working Instagram mapping remain in the archive but do not enter
 metric-based rankings. The homepage falls back to recent stories until
 rankings exist.
+
+## Newsletter signup
+
+The public nginx route permits POST only to
+`/api/newsletter/subscriptions`; other content writes remain private. The API
+validates and normalizes addresses, stores one row per email in
+`content_newsletter_signups`, and returns the same response for new and repeat
+requests. It does not send mail or expose a subscriber-list endpoint. Schema
+version 5 is applied by the normal additive API migration on deployment.

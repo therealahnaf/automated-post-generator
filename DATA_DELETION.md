@@ -1,9 +1,9 @@
 # The Bits Today Data Deletion Instructions
 
-**Effective date:** July 23, 2026
+**Effective date:** September 29, 2026
 
-The Bits Today is a private, single-user application and does not provide public
-user accounts or an automated account-deletion portal. You may still request
+The Bits Today has a public website but does not provide public user accounts
+or an automated account-deletion portal. You may request
 deletion of information associated with the application by following the steps
 below.
 
@@ -11,8 +11,9 @@ below.
 
 1. Email [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com).
 2. Use the subject line **The Bits Today Data Deletion Request**.
-3. Include enough information to identify the relevant Facebook Page,
-   Instagram account, or publishing activity. Do not send passwords, access
+3. Include the email address used for newsletter signup, or enough information
+   to identify the relevant Facebook Page, Instagram account, or publishing
+   activity. Do not send passwords, access
    tokens, application secrets, or other sensitive credentials.
 4. Describe the information or content you want deleted.
 
@@ -28,6 +29,7 @@ Where applicable, a deletion request may cover:
 - locally stored access tokens and authentication credentials;
 - generated images, videos, captions, and descriptions;
 - publishing identifiers, URLs, and local diagnostic records; and
+- an email address submitted through the website newsletter signup; and
 - other information locally retained by The Bits Today in connection with the
   identified account or publishing activity.
 

@@ -117,6 +117,7 @@ export function ArticleDetail({
     : null;
   const paragraphs = article.description.split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
   const sources = article.sources.filter(visibleSource);
+  const hasSidebar = originalPhotos.length > 0 || media[0]?.kind === "video" || media.length > 1 || sources.length > 0;
 
   return (
     <article className="story-detail">
@@ -136,46 +137,33 @@ export function ArticleDetail({
         </header>
       </div>
 
-      {originalPhotos.length > 0 && <SourceCarousel key={article.id} images={originalPhotos} title={article.title} />}
-
-      {media[0]?.kind === "video" && (
-        <section className="detail-watch" aria-label="Watch the video">
-          <h2>Watch the video</h2>
-          <MediaItem item={media[0]} title={article.title} index={1} total={media.length} />
-        </section>
-      )}
-
-      <div className={`detail-body ${sources.length ? "" : "detail-body--single"}`}>
+      <div className={`detail-body ${hasSidebar ? "" : "detail-body--single"}`}>
         <section className="detail-copy panel" aria-label="Full story">
           <h2>The story</h2>
           {paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
         </section>
-        {sources.length > 0 && <aside className="detail-sources panel">
-          <h2>Sources</h2>
-          <ol>
-            {sources.map((source, index) => (
+        {hasSidebar && <aside className="detail-aside" aria-label="Story media and sources">
+          {originalPhotos.length > 0 && <SourceCarousel key={article.id} images={originalPhotos} title={article.title} />}
+          {media[0]?.kind === "video" && <section className="detail-watch" aria-label="Watch the video">
+            <h2>Watch the video</h2>
+            <MediaItem item={media[0]} title={article.title} index={1} total={media.length} />
+          </section>}
+          {originalPhotos.length === 0 && media.length > 1 && <section className="detail-gallery" aria-label="More media from this story">
+            <h2>More from this story</h2>
+            <div className="detail-gallery-grid">{media.slice(1).map((item, index) => (
+              <MediaItem key={`${item.url}-${index}`} item={item} title={article.title} index={index + 2} total={media.length} />
+            ))}</div>
+          </section>}
+          {sources.length > 0 && <div className="detail-sources panel">
+            <h2>Sources</h2>
+            <ol>{sources.map((source, index) => (
               <li key={`${source.label}-${index}`}>
-                {source.url ? (
-                  <a href={source.url} target="_blank" rel="noopener noreferrer">
-                    {source.label}<span aria-hidden="true">↗</span>
-                  </a>
-                ) : <span>{source.label}</span>}
+                {source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.label}<span aria-hidden="true">↗</span></a> : <span>{source.label}</span>}
               </li>
-            ))}
-          </ol>
+            ))}</ol>
+          </div>}
         </aside>}
       </div>
-
-      {originalPhotos.length === 0 && media.length > 1 && (
-        <section className="detail-gallery" aria-label="More media from this story">
-          <h2>More from this story</h2>
-          <div className="detail-gallery-grid">
-            {media.slice(1).map((item, index) => (
-              <MediaItem key={`${item.url}-${index}`} item={item} title={article.title} index={index + 2} total={media.length} />
-            ))}
-          </div>
-        </section>
-      )}
     </article>
   );
 }

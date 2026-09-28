@@ -90,7 +90,7 @@ test("home uses insight rankings when available", async ({ page }) => {
   }));
   await page.goto("/");
   await expect(page.locator(".edition-lead h1")).toHaveText(ranked.title);
-  await expect(page.getByText("Instagram engagement · past 7 days")).toBeVisible();
+  await expect(page.getByText(/Instagram engagement/)).toHaveCount(0);
 });
 
 test("detail view uses a saved generated image as the background", async ({ page }) => {
@@ -106,6 +106,7 @@ test("generated background and original X photos appear in their separate places
   await page.route(`**/api/posts/${post.id}`, (route) => route.fulfill({
     json: {
       ...post,
+      sources: [{ label: "Research", url: "https://example.com/story" }],
       source_media: [
         { kind: "image", mime_type: "image/png", url: "/api/media/fixture-1" },
         { kind: "image", mime_type: "image/png", url: "/api/media/fixture-2" },
@@ -115,6 +116,8 @@ test("generated background and original X photos appear in their separate places
   await page.goto(`/?post=${post.id}`);
   const carousel = page.getByRole("region", { name: "Original photos from the X post" });
   await expect(carousel).toBeVisible();
+  await expect(page.locator(".detail-aside .detail-carousel")).toBeVisible();
+  await expect(page.locator(".detail-aside .detail-sources")).toBeVisible();
   await expect(carousel.getByRole("img")).toHaveAttribute("src", "/api/media/fixture-1");
   await expect(page.locator(".detail-hero-art img")).toHaveAttribute("src", "/api/media/fixture-0");
   await carousel.getByRole("button", { name: "Next photo" }).click();
@@ -177,9 +180,25 @@ test("weekly news excludes old stories and reels open in the detail page", async
   await expect(page.getByText("No news published in the past seven days.", { exact: false })).toBeVisible();
   const reels = page.getByRole("region", { name: "Reels", exact: true });
   await expect(reels.locator("img")).toHaveAttribute("src", "/api/media/fixture-2");
+  await expect(reels.locator(".edition-play svg")).toBeVisible();
+  await expect(reels.getByText("\u25B6")).toHaveCount(0);
   await expect(page.locator("video")).toHaveCount(0);
   await reels.getByRole("heading", { level: 3 }).getByRole("link").click();
   await expect(page.locator("video")).toBeVisible();
+});
+
+test("newsletter signup collects an email and confirms without promising delivery", async ({ page }) => {
+  let submitted = "";
+  await page.route("**/api/newsletter/subscriptions", async (route) => {
+    submitted = route.request().postDataJSON().email;
+    await route.fulfill({ json: { status: "accepted" } });
+  });
+  await page.goto("/");
+  const signup = page.getByRole("complementary", { name: "Newsletter" });
+  await signup.getByRole("textbox", { name: "Email address" }).fill("reader@example.com");
+  await signup.getByRole("button", { name: "Join the list" }).click();
+  await expect(signup.getByRole("status")).toContainText("newsletter hasn't launched yet");
+  expect(submitted).toBe("reader@example.com");
 });
 
 test("archive pagination and browser back preserve navigation", async ({ page }) => {

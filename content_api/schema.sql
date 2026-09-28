@@ -77,3 +77,10 @@ CREATE TABLE IF NOT EXISTS content_instagram_insights (
 CREATE INDEX IF NOT EXISTS content_ig_insights_recent
     ON content_instagram_insights (post_id, collected_at DESC);
 INSERT INTO content_schema_version(version) VALUES (4) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS content_newsletter_signups (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email text NOT NULL UNIQUE CHECK (length(email) BETWEEN 3 AND 254),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    verified_at timestamptz
+);
+INSERT INTO content_schema_version(version) VALUES (5) ON CONFLICT DO NOTHING;

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Article } from "../types";
 import { sectionHref, type Section } from "../sections";
 import type { useHomeEdition } from "../useHomeEdition";
+import { Newsletter } from "./Newsletter";
 
 type OpenStory = (id: string) => void;
 
@@ -31,7 +32,7 @@ function Artwork({ article, priority = false }: { article: Article; priority?: b
     {article.image
       ? <img src={article.image} alt={article.imageAlt} loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"} />
       : <><img src="/images/bits-today-logo.png" alt="" /><span>The Bits Today<span>.</span></span></>}
-    {article.mediaKind === "video" && <span className="edition-play" aria-label="Video">▶</span>}
+    {article.mediaKind === "video" && <span className="edition-play" aria-label="Video"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5.5 19 12 9 18.5z" /></svg></span>}
   </div>;
 }
 
@@ -92,7 +93,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   const other = articles.filter((article) => !featuredIds.has(article.id));
   return <div className="edition">
     <section aria-label="Trending this week">
-      <SectionHeading title="Trending this week" note={edition.trending.length ? "Instagram engagement · past 7 days" : "Latest stories until rankings are available"} />
+      <SectionHeading title="Trending this week" />
       {lead && <div className={`edition-top ${topStories.length === 1 ? "edition-top--single" : ""}`}>
         <article className="edition-lead">
           <div className="edition-lead-copy">
@@ -119,7 +120,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
     <div className="edition-middle">
       <div className="edition-middle-main">
         <section aria-label="All-time trending">
-          <SectionHeading title="All-time trending" note={edition.popular.length ? "Instagram engagement" : "Latest stories until rankings are available"} />
+          <SectionHeading title="All-time trending" />
           {(edition.popular.length || news.length) ? <ol className="edition-ranked">
             {(edition.popular.length ? edition.popular : news).slice(0, 6).map((article, index) => <li key={article.id}>
               <span className="edition-rank" aria-hidden="true">{index + 1}</span>
@@ -149,10 +150,13 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
       {other.length ? <div className="edition-tiles">{other.map((article) => <EditionCard key={article.id} article={article} onOpen={onOpen} />)}</div>
         : <EmptySection>You’re up to date with this edition. More stories will appear as they’re published.</EmptySection>}
     </section>
-    <section aria-label="Reels">
-      <SectionHeading title="Reels" note="Watch the story" />
-      {reels.length ? <div className="edition-reels">{reels.map((article) => <EditionCard key={article.id} article={article} onOpen={onOpen} variant="video" />)}</div>
-        : <EmptySection>Video stories will appear here after publication.</EmptySection>}
-    </section>
+    <div className="edition-bottom">
+      <section aria-label="Reels">
+        <SectionHeading title="Reels" />
+        {reels.length ? <div className="edition-reels">{reels.map((article) => <EditionCard key={article.id} article={article} onOpen={onOpen} variant="video" />)}</div>
+          : <EmptySection>Video stories will appear here after publication.</EmptySection>}
+      </section>
+      <Newsletter />
+    </div>
   </div>;
 }

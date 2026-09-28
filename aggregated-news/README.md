@@ -1,7 +1,8 @@
 # The Bits Today — news frontend
 
 React + TypeScript + Vite landing page backed by the FastAPI content service.
-The browser only reads public `/api` endpoints and never receives credentials.
+The browser reads public `/api` endpoints and posts newsletter signup emails
+to a public endpoint; it never receives publishing credentials.
 
 ## Development
 
@@ -59,9 +60,9 @@ new section-navigation and pagination behavior before relying on them.
 
 The root Home page is an editorial edition: a lead story and three-story
 sidebar, this week's news, an all-time trending list, model and thought
-features, a product spotlight, other stories, and reels. Trending slots
-temporarily use newest-first ordering and say "Latest posts for now"; no
-engagement rankings or scheduled jobs are implemented yet. The weekly news
+features, a product spotlight, other stories, reels, and a newsletter signup.
+The ranking API orders the featured news when metrics are available; recent
+stories are used as a fallback. The weekly news
 row includes news and reels published in the previous seven days. Independent
 section requests keep model, product, thought, and reel features populated even
 when newer news pushes them out of the main archive page. Missing sections
@@ -72,12 +73,13 @@ All sections use API-backed pagination with 24 posts per page. Each card opens a
 view with the full English description, a blended background, ordered
 media, and source links. Feed cards and detail heroes prefer the archived raw
 AI-generated background, then a selected bundled background. Original X photos
-are never used in listing cards; they appear in a separate detail-page carousel,
+are never used in listing cards; they appear in the detail-page sidebar above sources,
 including when a generated background is also available. Older posts without
 archived backgrounds get a branded CSS fallback. Reel listings retain the video
 poster frame. Polymarket is omitted from the visible source list
-without modifying stored provenance. Search,
-menu, and newsletter are not exposed yet. Video stories use a server-generated
+without modifying stored provenance. Search and menu are not exposed yet.
+Newsletter signup stores validated email addresses
+but does not send messages. Video stories use a server-generated
 still frame in listings, with playback only on their detail page. Homepage
 artwork sits alongside the copy with no overlaid text; original X photos
 remain exclusive to detail pages. The lead story

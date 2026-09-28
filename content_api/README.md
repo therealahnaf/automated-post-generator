@@ -63,6 +63,10 @@ the entire historical archive. The live frontend has no hardcoded story fallback
 - `GET /api/media/{sha256}`: signed R2 redirect; R2 serves bytes and MP4 ranges.
 - `GET /api/media/{sha256}/poster`: cached JPEG preview frame for stored MP4s;
   requires FFmpeg on the API host. The list API includes `poster_url` for videos.
+- `POST /api/newsletter/subscriptions`: public JSON `{email, website?}`. Validated
+  email addresses are normalized and stored once; `website` is a honeypot.
+  The response does not disclose whether an address was already stored. No
+  newsletter is sent by this endpoint, and there is no public subscriber list.
 - `POST /api/posts`: Bearer-authenticated multipart ingestion, `document` JSON
   plus repeated `files` fields in display order. Optional repeated
   `source_files` fields preserve original X photos separately, in source order.
