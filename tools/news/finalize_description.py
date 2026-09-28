@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlparse
 MAX_DESCRIPTION_CHARACTERS = 2200
 SOURCES_HEADING = "Sources:"
 PUBLISHER_LABELS = {
+    "abc.net.au": "ABC News",
     "apnews.com": "AP News",
     "arxiv.org": "arXiv",
     "aisi.gov.uk": "UK AI Security Institute",
@@ -23,9 +24,11 @@ PUBLISHER_LABELS = {
     "bloomberg.com": "Bloomberg",
     "cnn.com": "CNN",
     "deepmind.google": "Google DeepMind",
+    "blog.google": "Google",
     "ft.com": "Financial Times",
     "google.com": "Google",
     "huggingface.co": "Hugging Face",
+    "itnews.com.au": "iTnews",
     "microsoft.com": "Microsoft",
     "nature.com": "Nature",
     "news.cn": "Xinhua",
@@ -41,6 +44,7 @@ PUBLISHER_LABELS = {
     "wired.com": "WIRED",
     "x.ai": "xAI",
     "ycombinator.com": "Y Combinator",
+    "z.ai": "Z.ai",
 }
 GENERIC_DOMAIN_LABELS = {
     "ai": "AI",
