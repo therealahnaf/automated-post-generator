@@ -1,5 +1,25 @@
 # Production website
 
+## Git-based releases
+
+Commit and push reviewed changes to `main`. On the VM, preserve any dirty work
+before deployment, then run `git pull --ff-only origin main` in
+`/root/automated-post-generator`. Run:
+
+```sh
+python3 deploy/website/deploy_release.py "$(git rev-parse HEAD)"
+```
+
+The deployer refuses dirty tracked files or a mismatched commit. It exports that
+exact commit into `/opt/thebitstoday/releases/<sha>`, builds frontend and API in
+Docker, backs up the database, switches the `app` symlink and checks health.
+Private configuration and certificate state live under `/opt/thebitstoday/shared`.
+The publisher's `.env`, virtualenv and job files stay outside Git. Watchers and
+unrelated services are not restarted. Old releases remain available for rollback.
+If health fails, deployment reports the previous release path; do not call it
+successful. Restore the `app` link and run Compose for that release to roll back.
+Never deploy by overwriting individual source files again.
+
 Independent Docker Compose stack: nginx, FastAPI, PostgreSQL 16. The database has
 no host port. Public nginx permits only read requests to `/api`; publishing uses
 the host-only API at `http://127.0.0.1:18501`. Never expose that port publicly.

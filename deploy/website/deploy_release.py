@@ -56,7 +56,16 @@ def main():
     os.replace(pending, app)
     try:
         subprocess.run(compose + ['up', '-d', '--no-deps', 'api', 'web'], check=True)
-        # nginx resolves the API upstream at startup; recreate it after API health.
+        for attempt in range(60):
+            try:
+                with urllib.request.urlopen('http://127.0.0.1:18501/api/health', timeout=5) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(2)
+        else:
+            raise RuntimeError('API health check failed.')
+        # nginx resolves the API upstream at startup; restart after API health.
         subprocess.run(compose + ['restart', 'web'], check=True)
         for attempt in range(30):
             try:
