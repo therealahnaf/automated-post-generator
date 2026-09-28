@@ -1,4 +1,4 @@
-# Bits Today model-announcement workflow
+# The Bits Today model-announcement workflow
 
 Use this workflow for posts announcing or introducing an AI model.
 

@@ -1,4 +1,4 @@
-# Bits Today social post router
+# The Bits Today social post router
 
 Use this router whenever a Telegram or interactive request supplies an
 X/Twitter status URL for a social post. Continue until the selected workflow is
@@ -73,7 +73,11 @@ no workflow may omit, cover, erase, or replace the footer.
 
 Generate the English and Bangla copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to
-create Facebook and Instagram caption files in their selected order. If both
+create Facebook and Instagram caption files in their selected order. Pass
+`--english-title` with the approved English headline (for informative posts,
+the English hook), even when both platforms use Bangla. This writes English
+website manifests next to the captions without another LLM call. Retain the
+`.sources.json` sidecar written by source finalization. If both
 platform languages match, render one package and reuse it. If they differ,
 render separate platform packages using the same workflow-selected background
 assets and source media: Facebook assets use `facebook_language`, Instagram
@@ -131,6 +135,15 @@ All workflows must finish through this same delivery path:
 7. Return both platform post IDs or URLs. If one platform succeeds and the
    other fails, report the partial result accurately and do not create a
    duplicate post.
+
+When `CONTENT_API_URL` is configured, Facebook image/reel publishers archive the
+English title, description, source URLs, workflow type, and approved ordered
+media through the content API after confirmed social publication. Dry runs and
+`--host-only` never archive. A missing English manifest blocks publication before
+any social write. Report `website_archive` status separately: pending delivery
+does not mean Facebook failed. Retry only the saved outbox receipt with
+`tools/news/content_archive.py --receipt <path>`; never republish a successful
+social post to retry website delivery.
 
 For an unattended Telegram queue task only, the exact final instruction
 `NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST` authorizes

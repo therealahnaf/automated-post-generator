@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render Bits Today product-release primary and feature cards."""
+"""Render The Bits Today product-release primary and feature cards."""
 
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def compose_primary(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Render a Bits Today product-release carousel."
+        description="Render a product-release carousel for The Bits Today."
     )
     parser.add_argument("--tweet-json", type=Path, required=True)
     parser.add_argument(

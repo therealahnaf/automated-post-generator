@@ -58,10 +58,12 @@ DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
 TEXT_GENERATION_MODEL = "gpt-5.6-luna"
-DEFAULT_POST_SOURCE = "Bits Today"
+DEFAULT_POST_SOURCE = "The Bits Today"
 DEFAULT_BRAND_LOGO = PROJECT_ROOT / "bitstodaylogo-trans.png"
 ROBOTO_REGULAR = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Variable.ttf"
 ROBOTO_ITALIC = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Italic-Variable.ttf"
+COLOR_EMOJI_FONT = Path("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf")
+COLOR_EMOJI_NATIVE_SIZE = 109
 BRAND_CORAL = (255, 87, 87, 255)
 BRAND_MINT = (194, 255, 225, 255)
 INK = (12, 17, 21, 255)
@@ -83,6 +85,7 @@ class PostMetadata:
     headline_highlight: str
     image_prompt: str
     background_source: str
+    background_asset_path: str | None
     image_model: str
     image_size: str
     image_quality: str
@@ -127,7 +130,7 @@ def make_client() -> Any:
     return OpenAI()
 
 
-HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for Bits Today.
+HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for The Bits Today.
 Translate the supplied approved English news headline into natural, concise
 Bangla suitable for a social-news image. Use plain, immediately understandable
 language for both technical and general readers while preserving the English
@@ -328,8 +331,51 @@ def load_roboto_font(
 
 
 def text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> int:
-    box = draw.textbbox((0, 0), text, font=font)
-    return box[2] - box[0]
+    """Measure headline text, including color-emoji fallbacks when present."""
+    if not COLOR_EMOJI_FONT.is_file() or not any(ord(char) >= 0x1F300 for char in text):
+        box = draw.textbbox((0, 0), text, font=font)
+        return box[2] - box[0]
+    width = 0
+    for char in text:
+        if ord(char) >= 0x1F300:
+            width += round(font.size * 0.9)
+        else:
+            width += draw.textlength(char, font=font)
+    return round(width)
+
+
+def draw_headline_text(
+    draw: ImageDraw.ImageDraw,
+    position: tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+) -> None:
+    """Render text while retaining emoji present in a source headline.
+
+    Roboto deliberately owns the English headline, but it has no color-emoji
+    glyphs. Noto Color Emoji has fixed bitmap strikes, so render each emoji at
+    its supported native strike and scale it to the headline's measured size.
+    """
+    if not COLOR_EMOJI_FONT.is_file() or not any(ord(char) >= 0x1F300 for char in text):
+        draw.text(position, text, font=font, fill=fill, stroke_width=1, stroke_fill=(0, 0, 0, 105))
+        return
+    emoji_font = ImageFont.truetype(str(COLOR_EMOJI_FONT), COLOR_EMOJI_NATIVE_SIZE)
+    x, y = position
+    image = draw._image
+    for char in text:
+        if ord(char) < 0x1F300:
+            draw.text((x, y), char, font=font, fill=fill, stroke_width=1, stroke_fill=(0, 0, 0, 105))
+            x += draw.textlength(char, font=font)
+            continue
+        bbox = emoji_font.getbbox(char)
+        emoji = Image.new("RGBA", (bbox[2], bbox[3]), (0, 0, 0, 0))
+        ImageDraw.Draw(emoji).text((0, 0), char, font=emoji_font, embedded_color=True)
+        rendered_height = max(1, round(font.size * 1.05))
+        rendered_width = max(1, round(font.size * 0.9))
+        emoji.thumbnail((rendered_width, rendered_height), Image.Resampling.LANCZOS)
+        image.alpha_composite(emoji, (round(x), y + max(0, font.size - emoji.height)))
+        x += rendered_width
 
 
 def wrap_headline(
@@ -495,7 +541,7 @@ def find_bangla_font(*, bold: bool) -> tuple[str, int]:
 def build_byline(source: str) -> str:
     """Return the only brand text rendered below the headline."""
     source = normalize_news_text(source).strip(" |")
-    if source.casefold() == "bits today desk":
+    if source.casefold() in {"bits today desk", "the bits today desk"}:
         return DEFAULT_POST_SOURCE
     return source or DEFAULT_POST_SOURCE
 
@@ -819,14 +865,7 @@ def draw_brand_block(
                 draw, (margin, y), line, headline_font, latin_font, fill
             )
         else:
-            draw.text(
-                (margin, y),
-                line,
-                font=font,
-                fill=fill,
-                stroke_width=1,
-                stroke_fill=(0, 0, 0, 105),
-            )
+            draw_headline_text(draw, (margin, y), line, font, fill)
         y += line_height
 
     return draw_byline(
@@ -1246,9 +1285,11 @@ def main(argv: list[str] | None = None) -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         save_png_atomic(post, args.output)
 
-        if args.keep_background:
+        background_asset_path = None
+        if args.keep_background or background_source == "openai-image-api":
             background_path = args.output.with_name(f"{args.output.stem}-background.png")
             background_path.write_bytes(background_bytes)
+            background_asset_path = str(background_path.resolve())
 
         metadata = PostMetadata(
             source_text=source_text,
@@ -1259,6 +1300,7 @@ def main(argv: list[str] | None = None) -> int:
             headline_highlight=headline_highlight,
             image_prompt=image_prompt,
             background_source=background_source,
+            background_asset_path=background_asset_path,
             image_model=args.image_model,
             image_size=args.image_size,
             image_quality=args.image_quality,

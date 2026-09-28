@@ -1,4 +1,4 @@
-"""Select reusable local Bits Today backgrounds for Pillow post renderers."""
+"""Select reusable local backgrounds for The Bits Today Pillow post renderers."""
 
 from __future__ import annotations
 

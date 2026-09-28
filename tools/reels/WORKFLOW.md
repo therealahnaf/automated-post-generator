@@ -1,4 +1,4 @@
-# Bits Today reel workflow
+# The Bits Today reel workflow
 
 Use this workflow only when the Telegram watcher or interactive user manually
 selected `workflow_type: reel`. Persist that trusted selection in the fetched
@@ -29,14 +29,14 @@ tweet JSON and never reclassify it during revisions or publishing.
    - at most 59.5 seconds total;
    - the complete landscape/portrait source contained without cropping over a
      blurred, darkened moving fill of the same video;
-   - the Bits Today news headline treatment and persisted coral/mint highlight;
+   - The Bits Today news headline treatment and persisted coral/mint highlight;
    - original audio fading during the final 0.5 seconds;
    - for source videos 15 seconds or longer, a three-second outro while the
      underlying video keeps moving;
    - coral entering from above, mint entering from below, and a dark
-     semi-transparent center with the transparent Bits Today logo;
+     semi-transparent center with the transparent logo for The Bits Today;
    - type-out text reading `Full Video Linked in Description`, followed by
-     `Stay ahead with Bits Today`.
+     `Stay ahead with The Bits Today`.
 
    Videos longer than 59.5 seconds are trimmed. Source videos shorter than 15
    seconds retain their natural total duration and do not receive the outro

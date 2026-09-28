@@ -17,9 +17,8 @@ reel layouts in this workflow.
    finalize it with `tools/news/finalize_description.py`, and put only
    recognizable labels for research publishers actually used under `Sources:`.
    Omit the supplied X account attribution and do not place raw links in the
-   caption. Then run
-   `tools/news/prepare_platform_descriptions.py` so each platform's selected
-   language appears first.
+   caption. Keep the generated `.sources.json` sidecar for website archival.
+   Prepare the platform captions after the English hook is available in step 3.
 3. Run `tools/thoughts/generate_copy.py --tweet-json <tweet.json> --output
    <english-copy.json>`. Its single fixed `gpt-5.6-luna` call creates:
 
@@ -32,6 +31,10 @@ reel layouts in this workflow.
    lines. Do not invent philosophical claims, quotations, conclusions, or
    outside facts. Treat an ordinary poster's name and handle as metadata and
    omit them under the shared poster-identity policy.
+   Now run `tools/news/prepare_platform_descriptions.py` with
+   `--english-title <English hook>` and the finalized description so each
+   platform's selected language appears first and the English website manifest
+   is created. Preserve this English hook even for Bangla-only visual packages.
 4. If either platform selects Bangla, run
    `tools/news/translate_carousel_copy.py` once on the English copy. Its one
    fixed-model call translates the series title, hook, and every paragraph in

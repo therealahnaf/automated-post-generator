@@ -1,4 +1,4 @@
-# Bits Today news workflow
+# The Bits Today news workflow
 
 Use this workflow only after the `AGENTS.md` router has persisted
 `workflow_type: news` in the fetched tweet JSON. Reuse that JSON and its
@@ -58,7 +58,7 @@ downloaded media; do not fetch or classify the story again.
    or the first photo is ineligible for the primary inset, generate one
    text-free editorial background with the image model. Pillow owns all gradient
    and typography rendering. Use `--style brand-block` with
-   `#FF5757` and `#C2FFE1`. Render `Bits Today | <date>` and the transparent
+   `#FF5757` and `#C2FFE1`. Render `The Bits Today | <date>` and the transparent
    bottom-right logo. Use bundled Roboto for English headlines and the byline;
    retain the Bengali-capable Nirmala UI/Noto Sans Bengali path for Bangla.
 4. Apply the persisted highlight treatment: `cyan` highlights only the first
@@ -132,6 +132,8 @@ downloaded media; do not fetch or classify the story again.
     across platform-language variants and revisions. Every card retains the
     approved shared Codeastrix footer.
 11. Run `tools/news/prepare_platform_descriptions.py` after source finalization.
+    Pass `--english-title` with the approved English headline for the website
+    manifest, regardless of the rendered platform language.
     English-selected platforms receive English first; Bangla-selected platforms
     receive Bangla first, then `---`, then the other language. Do not configure
     text models through `.env` or command-line flags. Render and inspect each

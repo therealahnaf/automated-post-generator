@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append ordered, human-readable source labels to a Bits Today description."""
+"""Append ordered, human-readable source labels to a description for The Bits Today."""
 
 from __future__ import annotations
 
@@ -19,11 +19,14 @@ PUBLISHER_LABELS = {
     "arxiv.org": "arXiv",
     "aisi.gov.uk": "UK AI Security Institute",
     "cas.cn": "Chinese Academy of Sciences",
+    "cern.ch": "CERN",
+    "home.cern": "CERN",
     "bbc.co.uk": "BBC",
     "bbc.com": "BBC",
     "bloomberg.com": "Bloomberg",
     "cnn.com": "CNN",
     "deepmind.google": "Google DeepMind",
+    "zenodo.org": "Zenodo",
     "blog.google": "Google",
     "ft.com": "Financial Times",
     "google.com": "Google",
@@ -266,7 +269,7 @@ def append_sources(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Append caption-safe research-publisher labels to a Bits Today "
+            "Append caption-safe research-publisher labels to a description for The Bits Today "
             "description, excluding X/Twitter attribution."
         )
     )
@@ -320,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(finalized + "\n", encoding="utf-8")
+            # Preserve URLs for the website; social captions still contain labels only.
+            args.output.with_suffix('.sources.json').write_text(
+                json.dumps({'urls': list(dict.fromkeys(source_urls))}, ensure_ascii=False, indent=2),
+                encoding='utf-8',
+            )
             print(args.output.resolve())
         else:
             print(finalized)
