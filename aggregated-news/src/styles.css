@@ -1026,6 +1026,11 @@ svg {
   top: 0;
   box-shadow: 0 0 0 12px var(--ink);
 }
+#root {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
 .page-decoration {
   position: absolute;
   inset: 0;
@@ -1033,6 +1038,26 @@ svg {
   pointer-events: none;
   z-index: -1;
   min-height: 100vh;
+}
+.page-decoration::before,
+.page-decoration::after {
+  content: "";
+  position: absolute;
+  top: 900px;
+  bottom: 0;
+  width: clamp(12px, 3vw, 44px);
+  background-repeat: repeat-y;
+  background-size: 120px 900px;
+}
+.page-decoration::before {
+  left: 0;
+  background-image: url("/images/page-edge-left.svg");
+  background-position: left top;
+}
+.page-decoration::after {
+  right: 0;
+  background-image: url("/images/page-edge-right.svg");
+  background-position: right top;
 }
 .corner-disc {
   width: 190px;
