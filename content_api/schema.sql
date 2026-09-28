@@ -50,3 +50,15 @@ ALTER TABLE content_media ADD COLUMN IF NOT EXISTS object_key text;
 ALTER TABLE content_media ADD COLUMN IF NOT EXISTS poster_key text;
 ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS video_origin text;
 INSERT INTO content_schema_version(version) VALUES (2) ON CONFLICT DO NOTHING;
+ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS archive_key uuid;
+CREATE UNIQUE INDEX IF NOT EXISTS content_posts_archive_key ON content_posts (archive_key);
+CREATE TABLE IF NOT EXISTS content_post_publications (
+    post_id uuid NOT NULL REFERENCES content_posts(id) ON DELETE CASCADE,
+    platform text NOT NULL CHECK (platform IN ('facebook', 'instagram')),
+    media_id text NOT NULL CHECK (length(media_id) BETWEEN 1 AND 200),
+    permalink text,
+    published_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (post_id, platform),
+    UNIQUE (platform, media_id)
+);
+INSERT INTO content_schema_version(version) VALUES (3) ON CONFLICT DO NOTHING;

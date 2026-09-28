@@ -144,6 +144,12 @@ any social write. Report `website_archive` status separately: pending delivery
 does not mean Facebook failed. Retry only the saved outbox receipt with
 `tools/news/content_archive.py --receipt <path>`; never republish a successful
 social post to retry website delivery.
+The paired Facebook and Instagram website manifests share an archive key.
+Instagram image/reel publishers automatically attach their published media ID
+and permalink to the matching website post. Report `website_mapping` separately
+from Instagram publication status. If the website archive is pending, the
+mapping waits in the same outbox and `content_archive.py --retry-pending`
+attaches it later; never republish Instagram to retry this mapping.
 
 For an unattended Telegram queue task only, the exact final instruction
 `NO NEED TO SEND PREVIEW. AUTOMATICALLY POST THE GENERATED POST` authorizes

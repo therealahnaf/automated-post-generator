@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from tools.news import content_archive as archive
 from tools.news import prepare_platform_descriptions as captions
@@ -155,6 +156,7 @@ class ContentArchiveTests(unittest.TestCase):
         self.media = self.root / "approved.png"
         self.media.write_bytes(b"original-media")
         self.document = {
+            "archive_key": str(uuid4()),
             "title": "English title",
             "description": "English copy.",
             "workflow_type": "news",
@@ -185,6 +187,39 @@ class ContentArchiveTests(unittest.TestCase):
             self.assertEqual(archive.deliver(receipt)["status"], "stored")
             self.assertEqual(archive.deliver(receipt)["status"], "already_stored")
             self.assertEqual(request.call_count, 1)
+
+    def test_instagram_mapping_is_durable_and_idempotent(self):
+        key = archive.instagram_archive_key(self.caption)
+        with patch.object(archive.requests, "post", side_effect=ConnectionError):
+            pending = archive.record_instagram_publication(
+                key, "ig-123", "https://www.instagram.com/p/example/"
+            )
+        self.assertEqual(pending["status"], "pending")
+        receipt = Path(pending["receipt"])
+        self.assertEqual(json.loads(receipt.read_text())["media_id"], "ig-123")
+        response = Mock(ok=True)
+        response.json.return_value = {"status": "stored", "post_id": "web-123"}
+        with patch.object(archive.requests, "post", return_value=response) as request:
+            self.assertEqual(archive.deliver_instagram_mapping(receipt)["status"], "stored")
+            self.assertEqual(archive.record_instagram_publication(
+                key, "ig-123", "https://www.instagram.com/p/example/"
+            )["status"], "already_stored")
+            self.assertEqual(request.call_count, 1)
+        with self.assertRaisesRegex(ValueError, "Another Instagram media ID"):
+            archive.record_instagram_publication(key, "ig-456", None)
+
+    def test_instagram_mapping_requires_unchanged_caption(self):
+        self.assertEqual(archive.instagram_archive_key(self.caption), self.document["archive_key"])
+        self.caption.write_text("Changed after approval", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "differs"):
+            archive.instagram_archive_key(self.caption)
+
+    def test_instagram_publication_is_still_reported_if_mapping_checkpoint_fails(self):
+        with patch.object(archive, "record_instagram_publication", side_effect=OSError):
+            result = archive.archive_instagram_published(
+                self.document["archive_key"], "ig-123", None
+            )
+        self.assertEqual(result, {"status": "confirmation_failed", "media_id": "ig-123"})
 
     def test_changed_caption_and_missing_english_title_rejected(self):
         self.caption.write_text("Edited caption", encoding="utf-8")
@@ -278,6 +313,10 @@ class ContentArchiveTests(unittest.TestCase):
         self.assertEqual(manifest["description"], "English copy.")
         self.assertEqual(manifest["workflow_type"], "informative")
         self.assertEqual(len(manifest["sources"]), 2)
+        instagram_manifest = json.loads(
+            (self.root / "captions/instagram-description.website.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["archive_key"], instagram_manifest["archive_key"])
 
     def test_dry_run_and_host_only_never_prepare_archive(self):
         common = ["--image", str(self.media), "--message-file", str(self.caption)]

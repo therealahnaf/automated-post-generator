@@ -58,6 +58,8 @@ the entire historical archive. The live frontend has no hardcoded story fallback
   includes news and reels; `models`, `products`, and `thoughts` map to their
   matching workflows. Use either `section` or `workflow_type`, not both.
 - `GET /api/posts/{uuid}`: English copy, sources, type, date and ordered media.
+  Responses also include `publications` with the Facebook and Instagram media
+  IDs, permalinks, and publish times linked to this website post.
 - `GET /api/media/{sha256}`: signed R2 redirect; R2 serves bytes and MP4 ranges.
 - `GET /api/media/{sha256}/poster`: cached JPEG preview frame for stored MP4s;
   requires FFmpeg on the API host. The list API includes `poster_url` for videos.
@@ -65,12 +67,22 @@ the entire historical archive. The live frontend has no hardcoded story fallback
   plus repeated `files` fields in display order. Optional repeated
   `source_files` fields preserve original X photos separately, in source order.
   No frontend write access.
+- `POST /api/publications/instagram`: Bearer-authenticated JSON containing the
+  shared `archive_key`, `media_id`, and optional `permalink`. It attaches the
+  published Instagram item to the matching website post and rejects a different
+  media ID for an already linked post.
 
 Publication document fields: `external_key`, `workflow_type`, `title`,
 `description`, `sources: [{label, url}]`, `published_at` (timezone required),
 optional `publication_url` and `is_demo`. Identical retries reuse the existing
 record; reusing a key with different copy/media returns 409. One transaction
 stores all media and the post. No partial post appears in the feed.
+New caption manifests also contain a shared `archive_key` UUID. Both platform
+manifests for a job use the same key; older archived posts keep a null key and
+are not backfilled. Facebook ingestion stores its publication ID in a platform
+mapping row. After Instagram publishes, its media ID is attached through the
+shared key. The archive retry timer processes pending Instagram mappings after
+pending Facebook deliveries, without republishing either platform.
 
 The API also returns `assets`, an ordered list of image inputs associated with
 the post. Each asset has a type (`x_photo`, `generated_background`, or
@@ -112,7 +124,8 @@ database backups alone cannot restore objects deleted from the bucket.
    be archived as separate assets.
    After a confirmed Facebook publication, its ID is checkpointed and delivery
    is attempted. All image workflows share this publisher; reels use the same
-   hook. Instagram and host-only calls do not duplicate database records.
+   hook. Instagram attaches its returned media ID to that website record;
+   host-only calls do not create database records.
 5. API failure does not pretend Facebook failed. Inspect `website_archive` in
    publisher output. Retry ONLY archival, never the successful social post:
 

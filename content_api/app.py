@@ -78,6 +78,7 @@ class AssetBatch(BaseModel):
 class Publication(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     external_key: str = Field(min_length=1, max_length=200)
+    archive_key: UUID | None = None
     workflow_type: Workflow
     title: str = Field(min_length=1, max_length=500)
     description: str = Field(min_length=1, max_length=30000)
@@ -94,6 +95,14 @@ class Publication(BaseModel):
         if any("\u0980" <= char <= "\u09ff" for char in value):
             raise ValueError("Website copy must be English, not bilingual/Bangla.")
         return value
+
+
+class InstagramPublication(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    archive_key: UUID
+    media_id: str = Field(min_length=1, max_length=200)
+    permalink: HttpUrl | None = None
+    published_at: AwareDatetime | None = None
 
 
 def connect():
@@ -124,6 +133,11 @@ def health():
 
 
 def serialize_post(conn, row: dict) -> dict:
+    publications = conn.execute(
+        """SELECT platform, media_id, permalink, published_at
+           FROM content_post_publications WHERE post_id = %s ORDER BY platform""",
+        (row["id"],),
+    ).fetchall()
     media = conn.execute(
         """SELECT m.sha256, m.mime_type, m.byte_size, m.object_key, pm.position
            FROM content_post_media pm JOIN content_media m USING(sha256)
@@ -144,7 +158,9 @@ def serialize_post(conn, row: dict) -> dict:
         (row["id"],),
     ).fetchall()
     return {
-        **{key: value for key, value in row.items() if key != "external_key"},
+        **{key: value for key, value in row.items()
+           if key not in {"external_key", "archive_key"}},
+        "publications": publications,
         "storage_backend": "r2" if all(item['object_key'] for item in [*media, *source_media, *assets]) else "database",
         "media": [
             {
@@ -239,6 +255,8 @@ def ingest_post(
         post = Publication.model_validate_json(document)
     except ValidationError:
         raise HTTPException(422, "Invalid publication document.") from None
+    if post.external_key == "facebook:":
+        raise HTTPException(422, "Facebook publication ID is missing.")
     if not 1 <= len(files) <= 10 or len(source_files or []) > 9:
         raise HTTPException(422, "A post must contain 1–10 ordered media files.")
     asset_infos = post.assets or [
@@ -285,6 +303,7 @@ def ingest_post(
                 and existing["sources"] == json.loads(post.model_dump_json())["sources"]
             )
             same = same and existing["is_demo"] == post.is_demo
+            same = same and existing["archive_key"] == post.archive_key
             same = same and [item["sha256"] for item in old["media"]] == [
                 item[0] for item in media
             ]
@@ -295,11 +314,12 @@ def ingest_post(
             return {"status": "already_stored", "post": old}
         post_id = uuid4()
         conn.execute(
-            """INSERT INTO content_posts(id, external_key, workflow_type, title, description, sources,
-                        published_at, publication_url, is_demo, video_origin) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO content_posts(id, external_key, archive_key, workflow_type, title, description, sources,
+                        published_at, publication_url, is_demo, video_origin) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 post_id,
                 post.external_key,
+                post.archive_key,
                 post.workflow_type,
                 post.title,
                 post.description,
@@ -310,6 +330,15 @@ def ingest_post(
                 post.video_origin,
             ),
         )
+        if post.external_key.startswith("facebook:"):
+            conn.execute(
+                """INSERT INTO content_post_publications
+                   (post_id, platform, media_id, permalink, published_at)
+                   VALUES (%s, 'facebook', %s, %s, %s)""",
+                (post_id, post.external_key.removeprefix("facebook:"),
+                 str(post.publication_url) if post.publication_url else None,
+                 post.published_at),
+            )
         for index, (digest, mime, data) in enumerate(media):
             storage.save(conn, digest, mime, data)
             conn.execute(
@@ -337,6 +366,50 @@ def ingest_post(
             "SELECT * FROM content_posts WHERE id = %s", (post_id,)
         ).fetchone()
         return {"status": "stored", "post": serialize_post(conn, row)}
+
+
+@app.post("/api/publications/instagram", dependencies=[Depends(authorize)])
+def attach_instagram_publication(publication: InstagramPublication):
+    with connect() as conn:
+        post = conn.execute(
+            "SELECT id FROM content_posts WHERE archive_key = %s FOR UPDATE",
+            (publication.archive_key,),
+        ).fetchone()
+        if not post:
+            raise HTTPException(404, "Website archive is pending for this publication.")
+        existing = conn.execute(
+            """SELECT media_id, permalink FROM content_post_publications
+               WHERE post_id = %s AND platform = 'instagram'""",
+            (post["id"],),
+        ).fetchone()
+        permalink = str(publication.permalink) if publication.permalink else None
+        if existing:
+            if existing["media_id"] != publication.media_id or (
+                existing["permalink"] and permalink
+                and existing["permalink"] != permalink
+            ):
+                raise HTTPException(409, "Instagram publication already linked to another media item.")
+            if permalink and not existing["permalink"]:
+                conn.execute(
+                    """UPDATE content_post_publications SET permalink = %s
+                       WHERE post_id = %s AND platform = 'instagram'""",
+                    (permalink, post["id"]),
+                )
+            return {"status": "already_stored", "post_id": post["id"]}
+        owner = conn.execute(
+            """SELECT post_id FROM content_post_publications
+               WHERE platform = 'instagram' AND media_id = %s""",
+            (publication.media_id,),
+        ).fetchone()
+        if owner:
+            raise HTTPException(409, "Instagram media item is already linked to another post.")
+        conn.execute(
+            """INSERT INTO content_post_publications
+               (post_id, platform, media_id, permalink, published_at)
+               VALUES (%s, 'instagram', %s, %s, COALESCE(%s, now()))""",
+            (post["id"], publication.media_id, permalink, publication.published_at),
+        )
+        return {"status": "stored", "post_id": post["id"]}
 
 
 @app.post("/api/posts/{post_id}/assets", dependencies=[Depends(authorize)])

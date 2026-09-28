@@ -137,6 +137,65 @@ class ContentApiTests(unittest.TestCase):
         self.assertEqual(detail["sources"], payload["sources"])
         self.assertNotIn("data", detail["media"][0])
 
+    def test_instagram_publication_maps_to_the_exact_facebook_archive(self):
+        archive_key = str(uuid4())
+        facebook_id = "page_" + uuid4().hex
+        payload = self.payload(
+            external_key=f"facebook:{facebook_id}", archive_key=archive_key,
+            publication_url="https://www.facebook.com/example/posts/123",
+        )
+        post = self.upload(payload).json()["post"]
+        self.assertEqual(post["publications"][0]["media_id"], facebook_id)
+        self.assertEqual(post["publications"][0]["platform"], "facebook")
+
+        endpoint = "/api/publications/instagram"
+        mapping = {
+            "archive_key": archive_key,
+            "media_id": "ig-" + uuid4().hex,
+            "permalink": "https://www.instagram.com/p/example/",
+        }
+        headers = {"Authorization": "Bearer " + "a" * 48}
+        self.assertEqual(self.client.post(endpoint, json=mapping).status_code, 401)
+        missing = {**mapping, "archive_key": str(uuid4())}
+        self.assertEqual(self.client.post(endpoint, json=missing, headers=headers).status_code, 404)
+        first = self.client.post(endpoint, json=mapping, headers=headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["post_id"], post["id"])
+        repeat = self.client.post(endpoint, json=mapping, headers=headers)
+        self.assertEqual(repeat.json()["status"], "already_stored")
+        self.assertEqual(
+            self.client.post(endpoint, json={**mapping, "media_id": "another"},
+                             headers=headers).status_code, 409
+        )
+        other_key = str(uuid4())
+        self.upload(self.payload(archive_key=other_key))
+        self.assertEqual(
+            self.client.post(endpoint, json={**mapping, "archive_key": other_key},
+                             headers=headers).status_code, 409
+        )
+        detail = self.client.get("/api/posts/" + post["id"]).json()
+        self.assertEqual({item["platform"] for item in detail["publications"]},
+                         {"facebook", "instagram"})
+        self.assertEqual(detail["publications"][1]["media_id"], mapping["media_id"])
+        self.assertEqual(self.upload(payload).json()["status"], "already_stored")
+
+    def test_schema_migration_can_be_reapplied_without_losing_mappings(self):
+        archive_key = str(uuid4())
+        post = self.upload(self.payload(
+            external_key="facebook:fb-" + uuid4().hex,
+            archive_key=archive_key,
+        )).json()["post"]
+        with app_connect_for_test(self.schema) as conn:
+            conn.execute(Path("content_api/schema.sql").read_text())
+            version = conn.execute(
+                "SELECT version FROM content_schema_version WHERE version = 3"
+            ).fetchone()
+        self.assertEqual(version[0], 3)
+        self.assertEqual(
+            self.client.get("/api/posts/" + post["id"]).json()["publications"][0]["platform"],
+            "facebook",
+        )
+
     def test_video_range_and_type_filter(self):
         data = b"\x00\x00\x00\x18ftypmp42" + b"0" * 100
         response = self.upload(self.payload(workflow_type="reel"), data)

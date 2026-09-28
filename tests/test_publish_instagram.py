@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tools.news import publish_instagram
+from tools.instagram import publish_with_music
 
 
 class PublishInstagramTests(unittest.TestCase):
@@ -43,10 +44,13 @@ class PublishInstagramTests(unittest.TestCase):
             }
             with (
                 patch.dict(os.environ, {"INSTAGRAM_PUBLISH_METHOD": "music"}),
-                patch(
-                    "tools.instagram.publish_with_music.publish_urls_with_music",
+                patch.object(
+                    publish_with_music, "publish_urls_with_music",
                     return_value=result,
                 ) as music_publish,
+                patch.object(publish_instagram, "instagram_archive_key", return_value="archive-key"),
+                patch.object(publish_instagram, "archive_instagram_published",
+                             return_value={"status": "stored", "post_id": "web-1"}) as record,
                 patch.object(
                     publish_instagram,
                     "load_config",
@@ -68,13 +72,16 @@ class PublishInstagramTests(unittest.TestCase):
                     ]
                 )
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 0, mocked_print.call_args_list)
         music_publish.assert_called_once()
         self.assertEqual(
             music_publish.call_args.kwargs["receipt_file"],
             receipt,
         )
-        self.assertEqual(json.loads(mocked_print.call_args.args[0]), result)
+        record.assert_called_once_with(
+            "archive-key", "media-1", "https://www.instagram.com/p/example/"
+        )
+        self.assertEqual(json.loads(mocked_print.call_args.args[0])["website_mapping"]["post_id"], "web-1")
 
     def test_graph_error_preserves_recovery_details(self) -> None:
         response = Mock()

@@ -18,6 +18,11 @@ from urllib.parse import urlparse
 import requests
 from dotenv import load_dotenv
 
+try:
+    from .content_archive import instagram_archive_key, archive_instagram_published
+except ImportError:
+    from content_archive import instagram_archive_key, archive_instagram_published
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Publishing commands may be launched by the persistent Telegram watcher, whose
@@ -446,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             args.image_url, args.secondary_image_url
         )
         caption = read_caption(args)
+        archive_key = instagram_archive_key(args.caption_file) if args.publish else None
         publish_method = load_publish_method()
         if publish_method == "music":
             project_root = str(PROJECT_ROOT)
@@ -469,6 +475,11 @@ def main(argv: list[str] | None = None) -> int:
                 confirmation=args.confirm,
                 receipt_file=receipt_path,
             )
+            if args.publish and result.get("status") == "published":
+                result["website_mapping"] = archive_instagram_published(
+                    archive_key, result["instagram_media_id"],
+                    result.get("instagram_permalink"),
+                )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
 
@@ -539,6 +550,9 @@ def main(argv: list[str] | None = None) -> int:
             receipt["permalink"] = media.get("permalink")
             receipt["status"] = "published"
             save_receipt(receipt_path, receipt)
+            website_mapping = archive_instagram_published(
+                archive_key, media_id, media.get("permalink")
+            )
             print(
                 json.dumps(
                     {
@@ -549,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
                         "instagram_media_id": media_id,
                         "instagram_permalink": media.get("permalink"),
                         "instagram_receipt_file": str(receipt_path.resolve()),
+                        "website_mapping": website_mapping,
                     },
                     indent=2,
                 )

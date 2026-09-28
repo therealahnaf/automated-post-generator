@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -96,6 +97,32 @@ class PublishInstagramReelTests(unittest.TestCase):
             video_path.touch()
             with self.assertRaisesRegex(ValueError, "cannot be empty"):
                 publish_instagram_reel.validate_video_file(video_path)
+
+    def test_published_reel_records_website_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            caption = Path(temp_dir) / "instagram-description.txt"
+            caption.write_text("Approved reel caption", encoding="utf-8")
+            with (
+                patch.object(publish_instagram_reel, "instagram_archive_key", return_value="archive-key"),
+                patch.object(publish_instagram_reel, "load_config", return_value=self.config),
+                patch.object(publish_instagram_reel, "verify_account", return_value={"user_id": self.config.user_id, "username": "bits_t0day"}),
+                patch.object(publish_instagram_reel, "get_publishing_limit", return_value={}),
+                patch.object(publish_instagram_reel, "create_url_reel_container", return_value="container-1"),
+                patch.object(publish_instagram_reel, "wait_for_reel_container"),
+                patch.object(publish_instagram_reel, "publish_container", return_value="media-1"),
+                patch.object(publish_instagram_reel, "get_media_details", return_value={"permalink": "https://www.instagram.com/reel/example/"}),
+                patch.object(publish_instagram_reel, "archive_instagram_published", return_value={"status": "stored", "post_id": "web-1"}) as record,
+                patch("builtins.print") as output,
+            ):
+                status = publish_instagram_reel.main([
+                    "--video-url", "https://media.example/reel.mp4",
+                    "--caption-file", str(caption), "--publish", "--confirm", "yes",
+                ])
+        self.assertEqual(status, 0)
+        record.assert_called_once_with(
+            "archive-key", "media-1", "https://www.instagram.com/reel/example/"
+        )
+        self.assertEqual(json.loads(output.call_args.args[0])["website_mapping"]["post_id"], "web-1")
 
 
 if __name__ == "__main__":

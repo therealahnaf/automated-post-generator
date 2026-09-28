@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
+from uuid import UUID
 
 import requests
 from dotenv import load_dotenv
@@ -106,6 +107,7 @@ def prepare_manifest(
         raise ValueError("Website archive requires at least one source.")
     original_photos = original_photo_assets(tweet)
     return {
+        "archive_key": str(uuid4()),
         "title": title.strip(),
         "description": english,
         "workflow_type": workflow,
@@ -219,8 +221,13 @@ def prepare_delivery(
         raise ValueError(
             "Caption differs from the website manifest. Prepare the final captions again with --english-title."
         )
-    if set(document) != {"title", "description", "workflow_type", "sources"}:
+    if set(document) not in (
+        {"title", "description", "workflow_type", "sources"},
+        {"archive_key", "title", "description", "workflow_type", "sources"},
+    ):
         raise ValueError("Invalid website manifest fields.")
+    if "archive_key" in document:
+        document["archive_key"] = str(UUID(document["archive_key"]))
     if len(original_paths) > 9 or any(not path.is_file() for path in original_paths):
         raise ValueError("Original X photos are missing or exceed the archive limit.")
     if (
@@ -403,23 +410,112 @@ def archive_published(
         }
 
 
+def instagram_archive_key(caption_file: Path | None) -> str | None:
+    """Validate the approved caption's shared identifier before publishing."""
+    if not os.getenv("CONTENT_API_URL", "").strip():
+        return None
+    parsed = urlparse(os.environ["CONTENT_API_URL"])
+    if parsed.scheme != "https" and not (
+        parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise ValueError("CONTENT_API_URL requires HTTPS outside localhost.")
+    if len(os.getenv("CONTENT_API_KEY", "")) < 32:
+        raise ValueError("Set CONTENT_API_KEY before publishing.")
+    if not caption_file or not caption_file.is_file():
+        raise ValueError("An Instagram caption file is required for website mapping.")
+    source = manifest_path(caption_file)
+    if not source.is_file():
+        raise ValueError("Instagram website manifest missing. Prepare platform descriptions first.")
+    manifest = json.loads(source.read_text(encoding="utf-8"))
+    if manifest.get("caption_sha256") != hashlib.sha256(caption_file.read_bytes()).hexdigest():
+        raise ValueError("Instagram caption differs from its website manifest.")
+    try:
+        return str(UUID(manifest["archive_key"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Instagram website manifest has no valid archive key.") from exc
+
+
+def deliver_instagram_mapping(receipt: Path) -> dict:
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    if payload["state"] == "delivered":
+        return {"status": "already_stored", "post_id": payload["post_id"]}
+    if payload["state"] != "pending" or payload.get("type") != "instagram_mapping":
+        raise ValueError("Not a pending Instagram mapping receipt.")
+    try:
+        response = requests.post(
+            os.environ["CONTENT_API_URL"].rstrip("/") + "/api/publications/instagram",
+            headers={"Authorization": f"Bearer {os.environ['CONTENT_API_KEY']}"},
+            json={key: payload[key] for key in
+                  ("archive_key", "media_id", "permalink", "published_at")},
+            timeout=(10, 30),
+        )
+        if not response.ok:
+            raise ValueError(f"Content API HTTP {response.status_code}")
+        post_id = str(response.json()["post_id"])
+        payload.update(state="delivered", post_id=post_id)
+        atomic_json(receipt, payload)
+        return {"status": "stored", "post_id": post_id}
+    except Exception:  # noqa: BLE001 - Instagram has already been published.
+        print(f'Instagram website mapping pending; retry with content_archive.py --receipt "{receipt}".', file=sys.stderr)
+        return {"status": "pending", "receipt": str(receipt)}
+
+
+def record_instagram_publication(
+    archive_key: str | None, media_id: str, permalink: str | None
+) -> dict:
+    if archive_key is None:
+        return {"status": "disabled"}
+    if not media_id:
+        raise ValueError("Instagram returned no published media ID.")
+    receipt = outbox_root() / f"instagram-{UUID(archive_key)}" / "mapping.json"
+    if receipt.exists():
+        previous = json.loads(receipt.read_text(encoding="utf-8"))
+        if previous.get("media_id") != media_id:
+            raise ValueError("Another Instagram media ID is already recorded for this archive.")
+        if previous["state"] == "delivered":
+            return {"status": "already_stored", "post_id": previous["post_id"]}
+        if permalink and not previous.get("permalink"):
+            previous["permalink"] = permalink
+            atomic_json(receipt, previous)
+    else:
+        atomic_json(receipt, {
+            "type": "instagram_mapping", "state": "pending",
+            "archive_key": archive_key, "media_id": media_id,
+            "permalink": permalink,
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return deliver_instagram_mapping(receipt)
+
+
+def archive_instagram_published(
+    archive_key: str | None, media_id: str, permalink: str | None
+) -> dict:
+    try:
+        return record_instagram_publication(archive_key, media_id, permalink)
+    except Exception:  # noqa: BLE001 - Never misreport a published Instagram post.
+        print(
+            f"Instagram published media {media_id}, but its website mapping could not be saved. Reconcile this media ID without republishing.",
+            file=sys.stderr,
+        )
+        return {"status": "confirmation_failed", "media_id": media_id}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--retry-pending", action="store_true")
     args = parser.parse_args()
-    paths = (
-        [args.receipt]
-        if args.receipt
-        else sorted(outbox_root().glob("*/delivery.json"))
-        if args.retry_pending
-        else []
-    )
+    paths = ([args.receipt] if args.receipt else
+             [*sorted(outbox_root().glob("*/delivery.json")),
+              *sorted(outbox_root().glob("instagram-*/mapping.json"))]
+             if args.retry_pending else [])
     failed = False
     for path in paths:
         if json.loads(path.read_text(encoding="utf-8"))["state"] == "prepared":
             continue
-        result = deliver(path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        result = (deliver_instagram_mapping(path) if payload.get("type") == "instagram_mapping"
+                  else deliver(path))
         print(json.dumps(result))
         failed |= result["status"] == "pending"
     return int(failed)

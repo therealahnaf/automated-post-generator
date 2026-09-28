@@ -19,6 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.news.content_archive import instagram_archive_key, archive_instagram_published
+
 SUPPORTED_VIDEO_SUFFIXES = {".mp4", ".mov"}
 
 try:
@@ -207,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.caption_file
             else args.caption
         )
+        archive_key = instagram_archive_key(args.caption_file) if args.publish else None
         config = load_config()
         with requests.Session() as session:
             account = verify_account(session, config)
@@ -242,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
             wait_for_reel_container(session, config, container_id)
             media_id = publish_container(session, config, container_id)
             media = get_media_details(session, config, media_id)
+            website_mapping = archive_instagram_published(
+                archive_key, media_id, media.get("permalink")
+            )
             print(
                 json.dumps(
                     {
@@ -250,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
                         "instagram_container_id": container_id,
                         "instagram_media_id": media_id,
                         "instagram_permalink": media.get("permalink"),
+                        "website_mapping": website_mapping,
                     },
                     indent=2,
                 )
