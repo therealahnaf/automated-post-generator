@@ -149,10 +149,33 @@ test("section tabs and empty state work", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "No stories in this section yet." })).toBeVisible();
 });
 
-test("model listings use their archived background asset", async ({ page }) => {
+test("model and thought cards stay text-led when only template backgrounds exist", async ({ page }) => {
+  await page.goto("/");
+  for (const label of ["Model releases", "Tokens for Thought"]) {
+    const section = page.getByRole("region", { name: label, exact: true });
+    await expect(section.locator(".edition-card--text")).toBeVisible();
+    await expect(section.locator(".edition-card-art")).toHaveCount(0);
+  }
   await page.goto("/?section=models");
-  await expect(page.locator(".featured .editorial-image img"))
-    .toHaveAttribute("src", "/api/media/fixture-1");
+  await expect(page.locator(".featured--text")).toBeVisible();
+  await expect(page.locator(".featured-figure")).toHaveCount(0);
+  await page.getByRole("link", { name: "View details" }).first().click();
+  await expect(page.locator(".detail-hero--text")).toBeVisible();
+  await expect(page.locator(".detail-hero-art")).toHaveCount(0);
+  await expect(page.locator(".detail-gallery")).toHaveCount(0);
+});
+
+test("a genuinely generated model image remains visible", async ({ page }) => {
+  const model = fixtures[1]!;
+  await page.route("**/api/posts?*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("section") === "models") return route.fulfill({ json: {
+      items: [{ ...model, assets: [{ asset_type: "generated_background", mime_type: "image/png", url: "/api/media/fixture-1" }] }], total: 1,
+    } });
+    return route.fallback();
+  });
+  await page.goto("/?section=models");
+  await expect(page.locator(".featured .editorial-image img")).toHaveAttribute("src", "/api/media/fixture-1");
 });
 
 test("layout stays within the viewport", async ({ page }) => {

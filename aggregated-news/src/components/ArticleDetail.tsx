@@ -117,22 +117,24 @@ export function ArticleDetail({
     : null;
   const paragraphs = article.description.split(/\n\s*\n/).map((text) => text.trim()).filter(Boolean);
   const sources = article.sources.filter(visibleSource);
-  const hasSidebar = originalPhotos.length > 0 || media[0]?.kind === "video" || media.length > 1 || sources.length > 0;
+  const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
+  const showGallery = !textOnly && originalPhotos.length === 0 && media.length > 1;
+  const hasSidebar = originalPhotos.length > 0 || media[0]?.kind === "video" || showGallery || sources.length > 0;
+  const visualCount = originalPhotos.length || (article.image || media[0]?.kind === "video" ? 1 : 0);
 
   return (
     <article className="story-detail">
       <div className="detail-topline">
         {backLink}
       </div>
-      <div className="detail-hero panel">
+      <div className={`detail-hero panel${textOnly ? " detail-hero--text" : ""}`}>
         {article.image && media[0]?.kind !== "video" && <div className="detail-hero-art" aria-hidden="true"><EditorialImage article={article} /></div>}
         <header className="detail-header">
           <p className="eyebrow"><span className="square" aria-hidden="true" />{article.sourceName}{article.mediaKind === "video" ? " · Video" : ""}</p>
           <h1>{article.title}</h1>
           <div className="detail-meta">
             {date && <time dateTime={article.publishedAt}>{date}</time>}
-            <span aria-hidden="true">/</span>
-            <span>{media.length} {media.length === 1 ? "visual" : "visuals"}</span>
+            {visualCount > 0 && <><span aria-hidden="true">/</span><span>{visualCount} {visualCount === 1 ? "visual" : "visuals"}</span></>}
           </div>
         </header>
       </div>
@@ -148,7 +150,7 @@ export function ArticleDetail({
             <h2>Watch the video</h2>
             <MediaItem item={media[0]} title={article.title} index={1} total={media.length} />
           </section>}
-          {originalPhotos.length === 0 && media.length > 1 && <section className="detail-gallery" aria-label="More media from this story">
+          {showGallery && <section className="detail-gallery" aria-label="More media from this story">
             <h2>More from this story</h2>
             <div className="detail-gallery-grid">{media.slice(1).map((item, index) => (
               <MediaItem key={`${item.url}-${index}`} item={item} title={article.title} index={index + 2} total={media.length} />

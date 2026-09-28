@@ -40,8 +40,14 @@ export function toArticle(post: ApiPost): Article {
   const first = post.media[0];
   if (!first || !first.url.startsWith("/api/media/"))
     throw new Error("Invalid post media.");
-  const background = post.assets?.find((asset) => asset.asset_type === "generated_background")
-    || post.assets?.find((asset) => asset.asset_type === "bundled_background");
+  const generatedBackground = post.assets?.find((asset) => asset.asset_type === "generated_background");
+  // Bundled backgrounds are social-post templates, not editorial story artwork.
+  // Keep text-led sections free of a fabricated image when no artwork exists.
+  const background = generatedBackground || (
+    ["model", "product", "informative"].includes(post.workflow_type)
+      ? undefined
+      : post.assets?.find((asset) => asset.asset_type === "bundled_background")
+  );
   const preview = background?.url || (first.kind === "video" ? first.poster_url : null);
   if (preview && !preview.startsWith("/api/media/"))
     throw new Error("Invalid post background.");

@@ -64,9 +64,10 @@ export function EditorialImage({
 }
 
 export function FeaturedArticle({ article, onOpen }: { article: Article; onOpen: (postId: string) => void }) {
+  const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
   return (
     <article
-      className={`featured panel ${article.imageTreatment === "published" ? "featured--published" : ""}`}
+      className={`featured panel ${article.imageTreatment === "published" ? "featured--published" : ""}${textOnly ? " featured--text" : ""}`}
       id="front-page"
       aria-labelledby="lead-headline"
     >
@@ -75,9 +76,9 @@ export function FeaturedArticle({ article, onOpen }: { article: Article; onOpen:
         <p>{leadExcerpt(article.description)}</p>
       </div>
       <ViewDetails article={article} onOpen={onOpen} prominent />
-      <figure className="featured-figure">
+      {!textOnly && <figure className="featured-figure">
         <EditorialImage article={article} hero />
-      </figure>
+      </figure>}
     </article>
   );
 }
@@ -91,8 +92,9 @@ export function ArticleCard({
   variant?: "compact" | "bottom" | "search";
   onOpen: (postId: string) => void;
 }) {
+  const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
   return (
-    <article className={`article-card article-card--${variant}`}>
+    <article className={`article-card article-card--${variant}${textOnly ? " article-card--text" : ""}`}>
       <div className="article-card-copy">
         <p className="eyebrow">
           <span className="square" aria-hidden="true" />
@@ -105,9 +107,9 @@ export function ArticleCard({
         </div>
       </div>
       <span className="story-meta">{publicationDate(article)}{article.mediaKind === "video" ? " · Video" : ""}</span>
-      <div className="article-image-link">
+      {!textOnly && <div className="article-image-link">
         <EditorialImage article={article} />
-      </div>
+      </div>}
     </article>
   );
 }

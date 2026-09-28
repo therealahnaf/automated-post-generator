@@ -194,3 +194,33 @@ a:hover > .edition-art > img { transform: scale(1.035); }
 @media (prefers-reduced-motion: reduce) {
   .edition-art > img { transition: none; }
 }
+
+/* Releases and essays without original artwork read as editorial copy, not empty image slots. */
+.edition-card--text {
+  min-height: 180px;
+  padding: 17px 18px;
+  border-top: 2px solid var(--coral);
+  background: linear-gradient(140deg, #c2ffe109, transparent 66%), #0d1110;
+}
+.edition-card--text .edition-card-copy { justify-content: space-between; }
+.edition-card--text h3 {
+  max-width: 32ch;
+  font-size: clamp(18px, 1.5vw, 24px);
+  line-height: 1.13;
+  -webkit-line-clamp: 5;
+}
+.edition-card--text h3 a:hover,
+.edition-card--text h3 a:focus-visible { color: var(--coral); }
+.edition-card--text .edition-summary { max-width: 52ch; -webkit-line-clamp: 3; }
+.edition-card--feature.edition-card--text {
+  display: flex;
+  min-height: 195px;
+  border-left: 1px solid var(--edition-rule);
+  padding: 18px 20px;
+}
+.edition-card--feature.edition-card--text h3 { font-size: clamp(20px, 2vw, 28px); }
+.edition-tiles > .edition-card--text { border-top: 2px solid var(--coral); }
+@media (max-width: 480px) {
+  .edition-card--feature.edition-card--text { min-height: 175px; }
+  .edition-card--text h3 { font-size: 19px; }
+}

@@ -43,8 +43,9 @@ function Category({ article }: { article: Article }) {
 export function EditionCard({ article, onOpen, variant = "tile" }: {
   article: Article; onOpen: OpenStory; variant?: "tile" | "side" | "feature" | "video";
 }) {
-  return <article className={`edition-card edition-card--${variant}`}>
-    <StoryLink article={article} onOpen={onOpen} className="edition-card-art"><Artwork article={article} /></StoryLink>
+  const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
+  return <article className={`edition-card edition-card--${variant}${textOnly ? " edition-card--text" : ""}`}>
+    {!textOnly && <StoryLink article={article} onOpen={onOpen} className="edition-card-art"><Artwork article={article} /></StoryLink>}
     <div className="edition-card-copy">
       <Category article={article} />
       <h3><StoryLink article={article} onOpen={onOpen}>{article.title}</StoryLink></h3>

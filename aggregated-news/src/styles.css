@@ -1965,3 +1965,43 @@ input:disabled {
   background: var(--coral);
   opacity: 1;
 }
+
+/* A text-led story should never gain a decorative stand-in for missing artwork. */
+.featured.featured--text {
+  min-height: 390px;
+  padding: 32px;
+  border-top: 4px solid var(--coral);
+  background: linear-gradient(125deg, #c2ffe10d, transparent 58%), #101514;
+}
+.featured.featured--text::before,
+.article-card.article-card--text::before { display: none; }
+.featured.featured--text h1 {
+  max-width: 22ch;
+  font-size: clamp(37px, 4.5vw, 62px);
+  text-shadow: none;
+}
+.featured.featured--text .featured-copy { max-width: 65ch; padding-bottom: 44px; }
+.featured.featured--text .featured-copy > p { font-size: 16px; line-height: 1.55; }
+.article-card.article-card--text {
+  min-height: 180px;
+  border-top: 2px solid var(--coral);
+  background: linear-gradient(120deg, #c2ffe109, transparent 76%), #0e1311;
+}
+.article-card.article-card--text .article-summary,
+.article-card.article-card--text .article-card-bottom { max-width: 75ch; }
+.article-card.article-card--text h3 { max-width: 31ch; text-shadow: none; }
+.article-card.article-card--text > .story-meta { text-shadow: none; }
+.detail-hero.detail-hero--text {
+  min-height: 220px;
+  border-top: 4px solid var(--coral);
+  background: linear-gradient(120deg, #c2ffe10a, transparent 60%), #0e1311;
+}
+.detail-hero.detail-hero--text::after { display: none; }
+.detail-hero--text .detail-header { min-height: 220px; }
+.detail-hero--text .detail-header h1 { max-width: 30ch; }
+@media (max-width: 480px) {
+  .featured.featured--text { min-height: 340px; padding: 20px; }
+  .featured.featured--text h1 { font-size: clamp(34px, 10vw, 48px); }
+  .featured.featured--text .featured-copy { padding-bottom: 60px; }
+  .detail-hero--text .detail-header h1 { max-width: 100%; }
+}
