@@ -48,9 +48,12 @@ export function toArticle(post: ApiPost): Article {
       ? undefined
       : post.assets?.find((asset) => asset.asset_type === "bundled_background")
   );
+  const templateBackground = post.assets?.find((asset) => asset.asset_type === "bundled_background")?.url;
   const preview = background?.url || (first.kind === "video" ? first.poster_url : null);
   if (preview && !preview.startsWith("/api/media/"))
     throw new Error("Invalid post background.");
+  if (templateBackground && !templateBackground.startsWith("/api/media/"))
+    throw new Error("Invalid template background.");
   return {
     id: post.id,
     workflowType: post.workflow_type,
@@ -62,6 +65,7 @@ export function toArticle(post: ApiPost): Article {
     sources: post.sources,
     publicationUrl: post.publication_url,
     image: preview || null,
+    templateBackground: templateBackground || null,
     imageAlt: first.kind === "video" && !background ? `Preview frame for ${post.title}` : `Editorial background for ${post.title}`,
     imageCaption: `${labels[post.workflow_type]} / The Bits Today`,
     imageTreatment: "published",

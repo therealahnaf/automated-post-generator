@@ -159,9 +159,14 @@ test("model and thought cards stay text-led when only template backgrounds exist
     await expect(section.locator(".edition-card--text")).toBeVisible();
     await expect(section.locator(".edition-card-art")).toHaveCount(0);
   }
+  await expect(page.getByRole("region", { name: "Model releases", exact: true }).locator(".edition-card--text"))
+    .toHaveCSS("background-image", /fixture-1/);
+  await expect(page.getByRole("region", { name: "Tokens for Thought", exact: true }).locator(".edition-card--text"))
+    .toHaveCSS("background-image", /editorial-placeholder\.png/);
   await page.goto("/?section=models");
   await expect(page.locator(".featured--text")).toBeVisible();
   await expect(page.locator(".featured-figure")).toHaveCount(0);
+  await expect(page.locator(".featured--text")).toHaveCSS("background-image", /fixture-1/);
   await page.getByRole("link", { name: "View details" }).first().click();
   await expect(page.locator(".detail-hero--text")).toBeVisible();
   await expect(page.locator(".detail-hero-art")).toHaveCount(0);

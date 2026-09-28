@@ -1971,7 +1971,9 @@ input:disabled {
   min-height: 390px;
   padding: 32px;
   border-top: 4px solid var(--coral);
-  background: linear-gradient(125deg, #c2ffe10d, transparent 58%), #101514;
+  background-color: #101514;
+  background-position: center;
+  background-size: cover;
 }
 .featured.featured--text::before,
 .article-card.article-card--text::before { display: none; }
@@ -1985,7 +1987,9 @@ input:disabled {
 .article-card.article-card--text {
   min-height: 180px;
   border-top: 2px solid var(--coral);
-  background: linear-gradient(120deg, #c2ffe109, transparent 76%), #0e1311;
+  background-color: #0e1311;
+  background-position: center;
+  background-size: cover;
 }
 .article-card.article-card--text .article-summary,
 .article-card.article-card--text .article-card-bottom { max-width: 75ch; }

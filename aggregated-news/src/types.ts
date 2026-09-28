@@ -10,6 +10,7 @@ export interface Article {
   sources: { label: string; url: string | null }[];
   publicationUrl?: string | null;
   image: string | null;
+  templateBackground?: string | null;
   imageAlt: string;
   imageCaption: string;
   imageTreatment?: "photo" | "graphic" | "published";

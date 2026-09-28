@@ -68,6 +68,7 @@ export function FeaturedArticle({ article, onOpen }: { article: Article; onOpen:
   return (
     <article
       className={`featured panel ${article.imageTreatment === "published" ? "featured--published" : ""}${textOnly ? " featured--text" : ""}`}
+      style={textOnly ? { backgroundImage: `url("${article.templateBackground || "/images/editorial-placeholder.png"}")` } : undefined}
       id="front-page"
       aria-labelledby="lead-headline"
     >
@@ -94,7 +95,10 @@ export function ArticleCard({
 }) {
   const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
   return (
-    <article className={`article-card article-card--${variant}${textOnly ? " article-card--text" : ""}`}>
+    <article
+      className={`article-card article-card--${variant}${textOnly ? " article-card--text" : ""}`}
+      style={textOnly ? { backgroundImage: `url("${article.templateBackground || "/images/editorial-placeholder.png"}")` } : undefined}
+    >
       <div className="article-card-copy">
         <p className="eyebrow">
           <span className="square" aria-hidden="true" />

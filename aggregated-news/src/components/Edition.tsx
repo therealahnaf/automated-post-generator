@@ -44,7 +44,10 @@ export function EditionCard({ article, onOpen, variant = "tile" }: {
   article: Article; onOpen: OpenStory; variant?: "tile" | "side" | "feature" | "video";
 }) {
   const textOnly = !article.image && ["model", "product", "informative"].includes(article.workflowType);
-  return <article className={`edition-card edition-card--${variant}${textOnly ? " edition-card--text" : ""}`}>
+  return <article
+    className={`edition-card edition-card--${variant}${textOnly ? " edition-card--text" : ""}`}
+    style={textOnly ? { backgroundImage: `url("${article.templateBackground || "/images/editorial-placeholder.png"}")` } : undefined}
+  >
     {!textOnly && <StoryLink article={article} onOpen={onOpen} className="edition-card-art"><Artwork article={article} /></StoryLink>}
     <div className="edition-card-copy">
       <Category article={article} />
