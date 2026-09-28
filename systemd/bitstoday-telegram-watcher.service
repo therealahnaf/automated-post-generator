@@ -1,5 +1,5 @@
 [Unit]
-Description=Bits Today Telegram Codex watcher
+Description=The Bits Today Telegram Codex watcher
 Wants=network-online.target
 After=network-online.target
 

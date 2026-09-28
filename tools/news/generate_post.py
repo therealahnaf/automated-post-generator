@@ -58,7 +58,7 @@ DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1280"
 DEFAULT_IMAGE_QUALITY = "medium"
 TEXT_GENERATION_MODEL = "gpt-5.6-luna"
-DEFAULT_POST_SOURCE = "Bits Today"
+DEFAULT_POST_SOURCE = "The Bits Today"
 DEFAULT_BRAND_LOGO = PROJECT_ROOT / "bitstodaylogo-trans.png"
 ROBOTO_REGULAR = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Variable.ttf"
 ROBOTO_ITALIC = PROJECT_ROOT / "assets" / "fonts" / "Roboto-Italic-Variable.ttf"
@@ -83,6 +83,7 @@ class PostMetadata:
     headline_highlight: str
     image_prompt: str
     background_source: str
+    background_asset_path: str | None
     image_model: str
     image_size: str
     image_quality: str
@@ -127,7 +128,7 @@ def make_client() -> Any:
     return OpenAI()
 
 
-HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for Bits Today.
+HEADLINE_TRANSLATION_INSTRUCTIONS = """You are the Bangla headline translator for The Bits Today.
 Translate the supplied approved English news headline into natural, concise
 Bangla suitable for a social-news image. Use plain, immediately understandable
 language for both technical and general readers while preserving the English
@@ -495,7 +496,7 @@ def find_bangla_font(*, bold: bool) -> tuple[str, int]:
 def build_byline(source: str) -> str:
     """Return the only brand text rendered below the headline."""
     source = normalize_news_text(source).strip(" |")
-    if source.casefold() == "bits today desk":
+    if source.casefold() in {"bits today desk", "the bits today desk"}:
         return DEFAULT_POST_SOURCE
     return source or DEFAULT_POST_SOURCE
 
@@ -1246,9 +1247,11 @@ def main(argv: list[str] | None = None) -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         save_png_atomic(post, args.output)
 
-        if args.keep_background:
+        background_asset_path = None
+        if args.keep_background or background_source == "openai-image-api":
             background_path = args.output.with_name(f"{args.output.stem}-background.png")
             background_path.write_bytes(background_bytes)
+            background_asset_path = str(background_path.resolve())
 
         metadata = PostMetadata(
             source_text=source_text,
@@ -1259,6 +1262,7 @@ def main(argv: list[str] | None = None) -> int:
             headline_highlight=headline_highlight,
             image_prompt=image_prompt,
             background_source=background_source,
+            background_asset_path=background_asset_path,
             image_model=args.image_model,
             image_size=args.image_size,
             image_quality=args.image_quality,

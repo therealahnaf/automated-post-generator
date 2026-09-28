@@ -18,6 +18,11 @@ import requests
 from dotenv import load_dotenv
 from PIL import Image
 
+try:
+    from .content_archive import prepare_delivery, archive_published
+except ImportError:
+    from content_archive import prepare_delivery, archive_published
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -283,11 +288,12 @@ def read_message(args: argparse.Namespace) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate an approved Bits Today Facebook image post. Publishing is "
+            "Validate an approved Facebook image post for The Bits Today. Publishing is "
             "disabled unless --publish and --confirm yes are both supplied."
         )
     )
     parser.add_argument("--image", required=True, type=Path)
+    parser.add_argument('--website-manifest', type=Path, help='Override caption-adjacent English website manifest.')
     parser.add_argument(
         "--secondary-image",
         action="append",
@@ -370,9 +376,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if len(images) == 1:
+                archive_receipt = prepare_delivery(args.message_file, images, args.website_manifest)
                 result = publish_photo(session, config, images[0], message)
                 photo_ids = [str(result.get("id", ""))]
                 post_id = str(result.get("post_id", ""))
+                archive_result = archive_published(archive_receipt, post_id or photo_ids[0])
                 photo_details = (
                     [get_photo_details(session, config, photo_ids[0])]
                     if photo_ids[0]
@@ -380,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 permalink = photo_details[0].get("link") if photo_details else None
             else:
+                archive_receipt = prepare_delivery(args.message_file, images, args.website_manifest)
                 photo_ids = [
                     upload_unpublished_photo(session, config, image)
                     for image in images
@@ -387,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
                 post_id = publish_multi_photo_post(
                     session, config, photo_ids, message
                 )
+                archive_result = archive_published(archive_receipt, post_id)
                 photo_details = [
                     get_photo_details(session, config, photo_id)
                     for photo_id in photo_ids
@@ -410,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
                         "facebook_photo_id": photo_ids[0],
                         "facebook_photo_ids": photo_ids,
                         "facebook_post_id": post_id,
+                        "website_archive": archive_result,
                         "facebook_permalink": permalink,
                         "facebook_image_url": image_urls[0],
                         "facebook_image_urls": image_urls,

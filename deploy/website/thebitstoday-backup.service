@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up The Bits Today website database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/thebitstoday/app/deploy/website/backup.sh

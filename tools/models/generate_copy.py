@@ -27,7 +27,7 @@ MAX_CARDS = 9
 NO_MEDIA_MIN_CARDS = 2
 NO_MEDIA_MAX_CARDS = 3
 
-SYSTEM_INSTRUCTIONS = """You are the model-launch copy editor for Bits Today.
+SYSTEM_INSTRUCTIONS = """You are the model-launch copy editor for The Bits Today.
 Turn the supplied finalized English description into concise, ordered
 carousel-card segments. Each segment must communicate one distinct, important
 capability, price change, efficiency claim, availability detail, or positioning

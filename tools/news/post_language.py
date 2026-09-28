@@ -1,4 +1,4 @@
-"""Select and persist the primary language for a Bits Today news post."""
+"""Select and persist the primary language for a news post by The Bits Today."""
 
 from __future__ import annotations
 

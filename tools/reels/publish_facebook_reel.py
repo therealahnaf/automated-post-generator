@@ -162,6 +162,7 @@ def sha256_file(path: Path) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video", required=True, type=Path)
+    parser.add_argument('--website-manifest', type=Path)
     copy = parser.add_mutually_exclusive_group(required=True)
     copy.add_argument("--description")
     copy.add_argument("--description-file", type=Path)
@@ -198,16 +199,20 @@ def main(argv: list[str] | None = None) -> int:
             if not args.publish:
                 print(json.dumps({"status": "validated_not_published", **common}, indent=2))
                 return 0
+            from tools.news.content_archive import prepare_delivery, archive_published
+            archive_receipt = prepare_delivery(args.description_file, [video], args.website_manifest)
             video_id, upload_url = start_upload(session, config)
             upload_binary(session, config, upload_url, video)
             finish = finish_upload(session, config, video_id, description)
             details = wait_for_published_video(session, config, video_id)
+            archive_result = archive_published(archive_receipt, video_id, details.get('permalink_url'))
             print(
                 json.dumps(
                     {
                         "status": "published",
                         **common,
                         "facebook_video_id": video_id,
+                        "website_archive": archive_result,
                         "facebook_permalink": details.get("permalink_url"),
                         "facebook_video_url": details.get("source"),
                         "facebook_finish": finish,

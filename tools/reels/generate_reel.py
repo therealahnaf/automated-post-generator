@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download an X video and render a branded Bits Today 9:16 reel."""
+"""Download an X video and render a branded 9:16 reel for The Bits Today."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ OUTRO_MINIMUM_SOURCE_DURATION = 15.0
 MIN_VIDEO_DURATION = 4.0
 MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
 OUTRO_TITLE = "Full Video Linked in Description"
-OUTRO_DETAIL = "Stay ahead with Bits Today"
+OUTRO_DETAIL = "Stay ahead with The Bits Today"
 
 
 def load_tweet(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -250,7 +250,7 @@ def make_layers(
     generate_post.draw_brand_block(
         ImageDraw.Draw(overlay),
         headline,
-        "Bits Today",
+        "The Bits Today",
         post_date,
         None,
         highlight,

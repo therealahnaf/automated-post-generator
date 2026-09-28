@@ -185,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         primary_path = args.output_dir / "01-headline.png"
         if args.primary_image.resolve() != primary_path.resolve():
             shutil.copy2(args.primary_image, primary_path)
+            # Preserve raw-background provenance beside the packaged primary so
+            # website archival does not depend on its former directory/name.
+            source_metadata = args.primary_image.with_suffix(".json")
+            packaged_metadata = primary_path.with_suffix(".json")
+            if source_metadata.is_file():
+                shutil.copy2(source_metadata, packaged_metadata)
+            elif packaged_metadata.exists():
+                packaged_metadata.unlink()
 
         secondary_paths: list[Path] = []
         for offset, description in enumerate(descriptions):

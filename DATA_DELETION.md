@@ -1,8 +1,8 @@
-# Bits Today Data Deletion Instructions
+# The Bits Today Data Deletion Instructions
 
 **Effective date:** July 23, 2026
 
-Bits Today is a private, single-user application and does not provide public
+The Bits Today is a private, single-user application and does not provide public
 user accounts or an automated account-deletion portal. You may still request
 deletion of information associated with the application by following the steps
 below.
@@ -10,7 +10,7 @@ below.
 ## Request deletion
 
 1. Email [ahnafhassan6516@gmail.com](mailto:ahnafhassan6516@gmail.com).
-2. Use the subject line **Bits Today Data Deletion Request**.
+2. Use the subject line **The Bits Today Data Deletion Request**.
 3. Include enough information to identify the relevant Facebook Page,
    Instagram account, or publishing activity. Do not send passwords, access
    tokens, application secrets, or other sensitive credentials.
@@ -28,7 +28,7 @@ Where applicable, a deletion request may cover:
 - locally stored access tokens and authentication credentials;
 - generated images, videos, captions, and descriptions;
 - publishing identifiers, URLs, and local diagnostic records; and
-- other information locally retained by Bits Today in connection with the
+- other information locally retained by The Bits Today in connection with the
   identified account or publishing activity.
 
 ## Revoke Meta access
@@ -46,7 +46,7 @@ Content already published to Facebook or Instagram can be deleted directly by
 an administrator of the relevant Page or account, or you may identify that
 content in your deletion request.
 
-Bits Today cannot directly delete information independently retained by Meta,
+The Bits Today cannot directly delete information independently retained by Meta,
 OpenAI, Telegram, FxTwitter/FxEmbed, or another third-party service. Requests
 concerning information controlled by those services may also need to be made
 under the service provider's own privacy and deletion procedures.

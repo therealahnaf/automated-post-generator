@@ -77,7 +77,7 @@ class GeneratePostTests(unittest.TestCase):
         result = generate_post.compose_post(
             payload.getvalue(),
             "দেশীয় চিপে ১ গিগাওয়াট ডেটা সেন্টার চালু",
-            source="Bits Today",
+            source="The Bits Today",
             post_date=date(2026, 7, 22),
             credit="",
             style="brand-block",
@@ -105,16 +105,16 @@ class GeneratePostTests(unittest.TestCase):
             self.assertLessEqual(generate_post.text_width(draw, line, font), 480)
 
     def test_build_byline_renders_brand_only(self) -> None:
-        self.assertEqual(generate_post.build_byline("Bits Today Desk"), "Bits Today")
-        self.assertEqual(generate_post.build_byline("  Bits Today  "), "Bits Today")
-        self.assertEqual(generate_post.build_byline(""), "Bits Today")
+        self.assertEqual(generate_post.build_byline("The Bits Today Desk"), "The Bits Today")
+        self.assertEqual(generate_post.build_byline("  The Bits Today  "), "The Bits Today")
+        self.assertEqual(generate_post.build_byline(""), "The Bits Today")
 
     def test_build_byline_text_places_date_beside_brand(self) -> None:
         self.assertEqual(
             generate_post.build_byline_text(
-                "Bits Today Desk", date(2026, 7, 21)
+                "The Bits Today Desk", date(2026, 7, 21)
             ),
-            "Bits Today | 21 Jul 2026",
+            "The Bits Today | 21 Jul 2026",
         )
 
     def test_image_prompt_is_story_specific_not_hardcoded(self) -> None:
@@ -134,7 +134,7 @@ class GeneratePostTests(unittest.TestCase):
         result = generate_post.compose_post(
             payload.getvalue(),
             "China’s Z.AI opens gigawatt-scale domestic-chip data center",
-            source="Bits Today",
+            source="The Bits Today",
             post_date=date(2026, 7, 21),
             credit="",
         )
@@ -204,7 +204,7 @@ class GeneratePostTests(unittest.TestCase):
             result = generate_post.compose_post(
                 payload.getvalue(),
                 "A short headline",
-                source="Bits Today",
+                source="The Bits Today",
                 post_date=date(2026, 7, 23),
                 credit="",
                 logo_path=None,
@@ -486,7 +486,7 @@ class GeneratePostTests(unittest.TestCase):
                 result = generate_post.compose_post(
                     payload.getvalue(),
                     "China Z.AI opens gigawatt-scale domestic-chip data center",
-                    source="Bits Today",
+                    source="The Bits Today",
                     post_date=date(2026, 7, 21),
                     credit="",
                     style=style,

@@ -25,7 +25,7 @@ TEXT_GENERATION_MODEL = "gpt-5.6-luna"
 MAX_SHORT_DESCRIPTION_CHARACTERS = 160
 MAX_SECONDARY_CARDS = 9
 
-SYSTEM_INSTRUCTIONS = """You are the news-carousel copy editor for Bits Today.
+SYSTEM_INSTRUCTIONS = """You are the news-carousel copy editor for The Bits Today.
 Use the supplied headline, complete tweet/thread text, and finalized English
 news description to create the exact requested number of concise, ordered
 story-detail segments. Each segment must communicate one distinct and important

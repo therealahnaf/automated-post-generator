@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a Bits Today review package to the configured Telegram chat."""
+"""Send a review package for The Bits Today to the configured Telegram chat."""
 
 from __future__ import annotations
 
@@ -352,7 +352,7 @@ def send_video_review_package(
             data={
                 "chat_id": config.chat_id,
                 "caption": (
-                    f"Bits Today — {label} — "
+                    f"The Bits Today — {label} — "
                     f"{platform.upper() + ' ' if platform else ''}REEL"
                 ),
                 "supports_streaming": "true",
@@ -364,7 +364,7 @@ def send_video_review_package(
     text_results = []
     platform_label = f" — {platform.upper()}" if platform else ""
     for chunk in split_message(
-        f"Bits Today — {label}{platform_label}\n\n{description}"
+        f"The Bits Today — {label}{platform_label}\n\n{description}"
     ):
         text_results.append(
             call_telegram(
@@ -425,7 +425,7 @@ def send_review_package(
                     "sendPhoto",
                     data={
                         "chat_id": config.chat_id,
-                        "caption": f"Bits Today — {label} — {image_label}",
+                        "caption": f"The Bits Today — {label} — {image_label}",
                         **reply_parameters(reply_to_message_id),
                     },
                     files={
@@ -435,7 +435,7 @@ def send_review_package(
             )
 
     platform_label = f" — {platform.upper()}" if platform else ""
-    text = f"Bits Today — {label}{platform_label}\n\n{description}"
+    text = f"The Bits Today — {label}{platform_label}\n\n{description}"
     text_results = []
     for chunk in split_message(text):
         text_results.append(
@@ -481,7 +481,7 @@ def read_description(args: argparse.Namespace) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate or send a Bits Today image-and-description review package "
+            "Validate or send an image-and-description review package for The Bits Today "
             "to Telegram. Sending is disabled unless --send is supplied."
         )
     )

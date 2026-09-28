@@ -975,7 +975,7 @@ def render_progress(connection: sqlite3.Connection, job_id: int) -> str:
         job["instagram_language"] or "awaiting selection"
     )
     lines = [
-        f"Bits Today · Job {job_id}",
+        f"The Bits Today · Job {job_id}",
         f"Workflow: {WORKFLOW_LABELS.get(workflow, workflow.title())}",
         f"Facebook: {facebook_language.title()}",
         f"Instagram: {instagram_language.title()}",
@@ -1790,7 +1790,7 @@ def handle_update(
                         config,
                         callback.message_id,
                         (
-                            f"Bits Today · Job {job_id}\n\n"
+                            f"The Bits Today · Job {job_id}\n\n"
                             "Cancelled after preview. Nothing was published."
                         ),
                     )
@@ -1842,7 +1842,7 @@ def handle_update(
                     session,
                     config,
                     callback.message_id,
-                    f"Bits Today · Job {job_id}\n\n! Cancelled before generation.",
+                    f"The Bits Today · Job {job_id}\n\n! Cancelled before generation.",
                 )
             return
         if language_match is not None:
@@ -1889,7 +1889,7 @@ def handle_update(
                         config,
                         callback.message_id,
                         (
-                            f"Bits Today · Job {job_id}\n"
+                            f"The Bits Today · Job {job_id}\n"
                             f"Workflow: "
                             f"{WORKFLOW_LABELS[str(selected_job['workflow_type'])]}\n"
                             f"Facebook: {choice.title()}\n\n"
@@ -1937,7 +1937,7 @@ def handle_update(
                 config,
                 callback.message_id,
                 (
-                    f"Bits Today · Job {job_id}\n"
+                    f"The Bits Today · Job {job_id}\n"
                     f"Workflow: {WORKFLOW_LABELS[choice]}\n\n"
                     "Choose the Facebook language flow."
                 ),
@@ -1993,7 +1993,7 @@ def handle_update(
                 session,
                 config,
                 (
-                    f"Bits Today · Job {job_id}\n"
+                    f"The Bits Today · Job {job_id}\n"
                     f"Workflow: {WORKFLOW_LABELS[workflow_type]}\n\n"
                     "Choose the Facebook language flow."
                 ),
@@ -2115,7 +2115,7 @@ def handle_update(
         send_text(
             session,
             config,
-            "Send an X/Twitter status URL to start a Bits Today post.",
+            "Send an X/Twitter status URL to start a post for The Bits Today.",
             reply_to_message_id=message.message_id,
         )
         return
@@ -2125,7 +2125,7 @@ def handle_update(
             session,
             config,
             (
-                f"Bits Today · Job {job_id}\n\n"
+                f"The Bits Today · Job {job_id}\n\n"
                 "Choose the workflow for this X post. Auto Detect uses the existing "
                 "news/model/product classifier."
             ),

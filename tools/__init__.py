@@ -1,1 +1,1 @@
-"""Bits Today post-generation tool packages."""
+"""The Bits Today post-generation tool packages."""

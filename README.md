@@ -1,4 +1,4 @@
-# Bits Today post generator
+# The Bits Today post generator
 
 `tools/news/generate_post.py` turns a tech-news sentence and an approved headline into a
 1080×1350 social post:
@@ -6,7 +6,7 @@
 1. The operator supplies a reviewed headline with `--headline`.
 2. OpenAI Image API creates a text-free editorial background.
 3. Pillow crops the image and adds the dark news-style gradient, branded
-   headline, `Bits Today | <date>` byline, and bottom-right logo.
+   headline, `The Bits Today | <date>` byline, and bottom-right logo.
 
 The image model never renders the headline. All typography is added
 programmatically by Pillow. The palette uses coral `#FF5757` and mint
@@ -188,7 +188,7 @@ the `FXTWITTER_API_BASE` environment variable.
 `tools/news/brand_tweet_images.py` creates publishing-ready 1080x1350 copies of downloaded
 tweet media. It contains the complete source without cropping or unnecessary
 upscaling, lets a `#212121` frame fill the unused 4:5 canvas area, and places the
-Bits Today transparent logo in the bottom-right corner. Source files are not
+The Bits Today transparent logo in the bottom-right corner. Source files are not
 overwritten, and multiple inputs retain the order supplied on the command line.
 
 ```powershell

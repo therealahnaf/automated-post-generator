@@ -26,7 +26,7 @@ MAX_INTRO_HEADLINE_CHARACTERS = 100
 MAX_SHORT_DESCRIPTION_CHARACTERS = model_copy.MAX_SHORT_DESCRIPTION_CHARACTERS
 MAX_CARDS = model_copy.MAX_CARDS
 
-SYSTEM_INSTRUCTIONS = """You are the product-launch copy editor for Bits Today.
+SYSTEM_INSTRUCTIONS = """You are the product-launch copy editor for The Bits Today.
 Return a JSON object with exactly two keys:
 1. "intro_headline": one concrete 5-12 word sentence fragment explaining what
    the product does or the primary outcome it enables.

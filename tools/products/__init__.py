@@ -1,1 +1,1 @@
-"""Bits Today product-release workflow tools."""
+"""The Bits Today product-release workflow tools."""

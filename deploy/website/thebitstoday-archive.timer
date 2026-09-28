@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry The Bits Today archive delivery every five minutes
+
+[Timer]
+OnBootSec=3m
+OnUnitInactiveSec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

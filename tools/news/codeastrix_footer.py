@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared Codeastrix sponsor footer for Bits Today image and reel renders."""
+"""Shared Codeastrix sponsor footer for The Bits Today image and reel renders."""
 
 from __future__ import annotations
 

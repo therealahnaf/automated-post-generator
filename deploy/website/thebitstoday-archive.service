@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry confirmed social publications pending website archival
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/automated-post-generator
+ExecStart=/root/automated-post-generator/.venv/bin/python tools/news/content_archive.py --retry-pending
+TimeoutStartSec=600
+UMask=0077

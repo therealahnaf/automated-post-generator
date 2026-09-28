@@ -29,7 +29,7 @@ class FakeClient:
     def account_info(self) -> SimpleNamespace:
         return SimpleNamespace(
             username=self.username,
-            full_name="Bits Today",
+            full_name="The Bits Today",
             is_private=False,
             is_verified=False,
         )

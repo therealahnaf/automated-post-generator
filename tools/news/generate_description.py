@@ -34,7 +34,7 @@ MAX_ENGLISH_DESCRIPTION_CHARACTERS = 1300
 MAX_BANGLA_DESCRIPTION_CHARACTERS = 700
 MAX_COMBINED_DESCRIPTION_CHARACTERS = 2200
 
-SYSTEM_INSTRUCTIONS = """You are a high-stakes newsroom copy editor for Bits Today.
+SYSTEM_INSTRUCTIONS = """You are a high-stakes newsroom copy editor for The Bits Today.
 Write urgent, dramatic, consequence-first social post descriptions from only the
 supplied source material. Make the story feel important and hard to ignore, but
 do not add facts, dates, allegations, figures, locations, background context, or
@@ -46,7 +46,7 @@ poster-identity rule in the user prompt exactly; account metadata is private by
 default unless the original poster clearly qualifies as a major public figure.
 """
 
-BANGLA_SYSTEM_INSTRUCTIONS = """You are the Bangla-language copy editor for Bits Today.
+BANGLA_SYSTEM_INSTRUCTIONS = """You are the Bangla-language copy editor for The Bits Today.
 Translate and summarize the supplied English news description into natural,
 clear Bangla. Preserve the central actor, action, important names, numbers,
 attribution, and uncertainty. Use only facts present in the English description.
@@ -211,7 +211,7 @@ Example {index} description:
 {example["description"]}"""
         )
 
-    return f"""Write a Bits Today description with the same paragraph structure and
+    return f"""Write a description for The Bits Today with the same paragraph structure and
 source-grounded reporting discipline as the examples, but with a sharper,
 higher-stakes opening. The examples teach attribution and paragraphing only. Do
 not reuse their facts for the current story.
@@ -265,8 +265,8 @@ def build_bangla_prompt(english_description: str) -> str:
     english_description = english_description.strip()
     if not english_description:
         raise ValueError("English description cannot be empty.")
-    return f"""Create a concise Bangla translation-summary of the English Bits Today
-description between DESCRIPTION START and DESCRIPTION END.
+    return f"""Create a concise Bangla translation-summary of the English description
+for The Bits Today between DESCRIPTION START and DESCRIPTION END.
 
 Requirements:
 - Preserve every important name, number, attribution, and uncertainty used in
@@ -469,7 +469,7 @@ def generate_bilingual_description(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a news-style Bits Today description from source text."
+        description="Generate a news-style The Bits Today description from source text."
     )
     parser.add_argument("news", nargs="?", help="Source news text.")
     parser.add_argument("--input-file", type=Path, help="Read source text from a file.")

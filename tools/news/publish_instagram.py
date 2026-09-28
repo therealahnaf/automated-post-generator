@@ -397,7 +397,7 @@ def ensure_carousel_parent(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate an approved Bits Today Instagram image post. Publishing "
+            "Validate an approved Instagram image post for The Bits Today. Publishing "
             "is disabled unless --publish and --confirm yes are both supplied."
         )
     )

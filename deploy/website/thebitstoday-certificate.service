@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew The Bits Today HTTPS certificate
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/thebitstoday/app/deploy/website/renew_certificate.sh
+TimeoutStartSec=600
+UMask=0077

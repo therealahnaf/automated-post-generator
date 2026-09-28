@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render Bits Today model-announcement primary and feature cards."""
+"""Render The Bits Today model-announcement primary and feature cards."""
 
 from __future__ import annotations
 
@@ -572,7 +572,7 @@ def add_brand_chrome(
     byline_y = codeastrix_footer.footer_top(CANVAS_SIZE) - (58 if compact else 66)
     news_post.draw_byline(
         draw,
-        "Bits Today",
+        "The Bits Today",
         post_date,
         CARD_MARGIN,
         byline_y,
@@ -740,7 +740,7 @@ def compose_fallback_secondary(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Render a Bits Today model-announcement carousel."
+        description="Render a model-announcement carousel for The Bits Today."
     )
     parser.add_argument("--tweet-json", type=Path, required=True)
     parser.add_argument(

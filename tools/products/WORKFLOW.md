@@ -1,4 +1,4 @@
-# Bits Today product-release workflow
+# The Bits Today product-release workflow
 
 Use this workflow only after the `AGENTS.md` router has persisted
 `workflow_type: product` in the fetched tweet JSON. Reuse that JSON and its
@@ -50,7 +50,7 @@ Use this workflow only after the `AGENTS.md` router has persisted
    by <company name>
    ```
 
-   Keep this centered hierarchy and the coral/mint Bits Today palette.
+   Keep this centered hierarchy and The Bits Today's coral/mint palette.
 6. For every downloaded photo, create a secondary card with its short
    description at the top and the complete, uncropped photo aligned toward the
    bottom over its selected local background. Preserve source order. The

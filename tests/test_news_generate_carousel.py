@@ -40,6 +40,8 @@ class NewsGenerateCarouselTests(unittest.TestCase):
             tweet = self.make_tweet(root)
             primary = root / "primary.png"
             Image.new("RGB", (1080, 1350), (5, 10, 15)).save(primary)
+            primary_metadata = {"background_source": str(backgrounds / "bg-1.png")}
+            primary.with_suffix(".json").write_text(json.dumps(primary_metadata))
             media = root / "media.png"
             Image.new("RGB", (900, 500), (20, 80, 220)).save(media)
             copy = root / "copy.json"
@@ -70,6 +72,7 @@ class NewsGenerateCarouselTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             self.assertTrue((output / "01-headline.png").is_file())
+            self.assertEqual(json.loads((output / "01-headline.json").read_text()), primary_metadata)
             self.assertTrue((output / "02-detail-1.png").is_file())
             metadata = json.loads((output / "carousel.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["secondary_mode"], "media")

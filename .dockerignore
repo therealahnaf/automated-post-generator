@@ -1,0 +1,14 @@
+.git
+.env
+**/.env
+**/.env.*
+**/node_modules
+**/__pycache__
+**/*.pyc
+.venv
+.automation
+output
+work
+deploy/website/backups
+deploy/website/letsencrypt
+deploy/website/acme

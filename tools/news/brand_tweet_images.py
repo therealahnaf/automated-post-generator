@@ -202,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Place tweet media uncropped inside a fixed 4:5 #212121 frame with "
-            "the Bits Today corner logo."
+            "the corner logo for The Bits Today."
         )
     )
     parser.add_argument("images", nargs="+", type=Path, help="Tweet image files.")
