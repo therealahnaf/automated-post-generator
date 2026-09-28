@@ -198,9 +198,8 @@ class ContentApiTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertGreaterEqual(result.json()["succeeded"], 1)
         with app_connect_for_test(self.schema) as conn:
-            snapshot = conn.execute("SELECT * FROM content_instagram_insights WHERE post_id=%s", (post["id"],)).fetchone()
-        self.assertEqual(snapshot["views"], 300)
-        self.assertEqual(snapshot["likes"], 20)
+            snapshot = conn.execute("SELECT views, likes FROM content_instagram_insights WHERE post_id=%s", (post["id"],)).fetchone()
+        self.assertEqual(snapshot, (300, 20))
         weekly = self.client.get("/api/posts/rankings?kind=trending_week").json()
         self.assertEqual(weekly["items"][0]["id"], post["id"])
         self.assertEqual(weekly["items"][0]["ranking_score"], 52)
