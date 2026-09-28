@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Article } from "./types";
 import type { Section } from "./sections";
 
-export const PAGE_SIZE = 6;
+export const PAGE_SIZE = 24;
 
 export interface ApiPost {
   id: string;

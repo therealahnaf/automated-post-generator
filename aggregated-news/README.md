@@ -57,11 +57,18 @@ new section-navigation and pagination behavior before relying on them.
 - `public/images/`: copies of existing artwork/media, with no runtime dependency
   on ignored `output/` files.
 
-The root Home page is a mixed feed of every workflow, with the newest model
-release and Tokens for Thought post highlighted separately. There is no
+The root Home page is an editorial edition: a lead story and three-story
+sidebar, this week's news, an all-time trending list, model and thought
+features, a product spotlight, other stories, and reels. Trending slots
+temporarily use newest-first ordering and say "Latest posts for now"; no
+engagement rankings or scheduled jobs are implemented yet. The weekly news
+row includes news and reels published in the previous seven days. Independent
+section requests keep model, product, thought, and reel features populated even
+when newer news pushes them out of the main archive page. Missing sections
+show empty states, never invented articles. There is no
 separate News tab. Models, Products, and Tokens for Thought map to `model`,
 `product`, and `informative`.
-All sections use API-backed pagination. Each card opens an individual detail
+All sections use API-backed pagination with 24 posts per page. Each card opens an individual detail
 view with the full English description, a blended background, ordered
 media, and source links. Feed cards and detail heroes prefer the archived raw
 AI-generated background, then a selected bundled background. Original X photos
@@ -71,10 +78,11 @@ archived backgrounds get a branded CSS fallback. Reel listings retain the video
 poster frame. Polymarket is omitted from the visible source list
 without modifying stored provenance. Search,
 menu, and newsletter are not exposed yet. Video stories use a server-generated
-still frame in listings, with playback only on their detail page. The lead story
+still frame in listings, with playback only on their detail page. Homepage
+artwork sits alongside the copy with no overlaid text; original X photos
+remain exclusive to detail pages. The lead story
 shows one truncated excerpt of the archived English
-description, while smaller cards show shorter excerpts. Published stills use
-the mint tint, coral circle, dotted accent, and blended editorial framing.
+description, while smaller cards show shorter excerpts.
 Fonts are self-hosted Roboto.
 
 ## Mock asset provenance

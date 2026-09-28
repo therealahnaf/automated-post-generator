@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { PAGE_SIZE, useArticles } from "./useArticles";
 import { ArticleCard, FeaturedArticle } from "./components/ArticleCard";
 import { ArticleDetail } from "./components/ArticleDetail";
-import { HomeHighlights } from "./components/HomeHighlights";
+import { Edition } from "./components/Edition";
 import { Masthead } from "./components/Masthead";
 import { SectionIntro } from "./components/SectionIntro";
 import { belongsToSection, readPage, readSection, sections, type Section } from "./sections";
-import { useHomeHighlights } from "./useHomeHighlights";
+import { useHomeEdition } from "./useHomeEdition";
 
 function readPostId(): string | null {
   return new URLSearchParams(window.location.search).get("post");
@@ -17,7 +17,7 @@ export function App() {
   const [page, setPage] = useState(readPage);
   const [postId, setPostId] = useState(readPostId);
   const { articles, total, status } = useArticles(section, page);
-  const highlights = useHomeHighlights(section === "home" && page === 1);
+  const edition = useHomeEdition(section === "home" && page === 1 && !postId);
   useEffect(() => {
     const onLocationChange = () => {
       setSection(readSection());
@@ -77,12 +77,7 @@ export function App() {
   const visibleArticles = articles.filter((article) => belongsToSection(article, section));
   const pageCount = Math.ceil(total / PAGE_SIZE);
   const [leadArticle, ...allRemaining] = visibleArticles;
-  const modelHighlight = highlights.model ?? articles.find((article) => article.workflowType === "model") ?? null;
-  const thoughtHighlight = highlights.thought ?? articles.find((article) => article.workflowType === "informative") ?? null;
-  const highlightedIds = new Set([modelHighlight?.id, thoughtHighlight?.id]);
-  const remaining = section === "home" && page === 1
-    ? allRemaining.filter((article) => !highlightedIds.has(article.id))
-    : allRemaining;
+  const remaining = allRemaining;
   const sideArticles = remaining.slice(0, 3);
   const moreArticles = remaining.slice(3, 5);
   const sectionInfo = sections.find((item) => item.id === section)!;
@@ -101,7 +96,7 @@ export function App() {
         <span className="edge-diamond" />
         <span className="edge-disc" />
       </div>
-      <div className={`newspaper ${postId ? "" : "newspaper--listing"}`}>
+      <div className={`newspaper ${postId ? "" : "newspaper--listing"} ${!postId && section === "home" ? "newspaper--edition" : ""}`}>
         <Masthead activeSection={section} onSectionChange={changeSection} />
         <main id="main-content" tabIndex={-1}>
           {postId ? (
@@ -113,7 +108,7 @@ export function App() {
             />
           ) : (
           <>
-          <SectionIntro key={section} section={section} label={sectionInfo.label} description={sectionInfo.description} />
+          {section !== "home" && <SectionIntro key={section} section={section} label={sectionInfo.label} description={sectionInfo.description} />}
           {status === "error" && (
             <p className="content-status panel" role="alert">
               Stories are temporarily unavailable. We’ll reconnect
@@ -131,7 +126,10 @@ export function App() {
               <p>New posts will appear here after publication.</p>
             </section>
           )}
-          {status === "ready" && leadArticle && (
+          {status === "ready" && leadArticle && section === "home" && page === 1 && (
+            <Edition articles={articles} edition={edition} onOpen={openPost} onSectionChange={changeSection} />
+          )}
+          {status === "ready" && leadArticle && !(section === "home" && page === 1) && (
             <>
               <div
                 className={`front-page-grid ${sideArticles.length ? "" : "front-page-grid--single"}`}
@@ -159,14 +157,6 @@ export function App() {
                   </section>
                 )}
               </div>
-              {section === "home" && page === 1 && (
-                <HomeHighlights
-                  model={modelHighlight}
-                  thought={thoughtHighlight}
-                  onOpen={openPost}
-                  onSectionChange={changeSection}
-                />
-              )}
               {moreArticles.length > 0 && <div className="lower-grid lower-grid--stories">
                 {moreArticles.map((article) => (
                   <div className="panel bottom-story" key={article.id}>
