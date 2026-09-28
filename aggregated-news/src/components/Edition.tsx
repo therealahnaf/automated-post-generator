@@ -73,6 +73,15 @@ function EmptySection({ children }: { children: ReactNode }) {
   return <p className="edition-empty">{children}</p>;
 }
 
+function distinctStories(...groups: Article[][]): Article[] {
+  const seen = new Set<string>();
+  return groups.flat().filter((article) => {
+    if (seen.has(article.id)) return false;
+    seen.add(article.id);
+    return true;
+  });
+}
+
 export function Edition({ articles, edition, onOpen, onSectionChange }: {
   articles: Article[];
   edition: ReturnType<typeof useHomeEdition>;
@@ -82,7 +91,9 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   const news = edition.news.length ? edition.news : articles.filter((article) => article.workflowType === "news" || article.workflowType === "reel");
   const weekStart = edition.asOf - 7 * 24 * 60 * 60 * 1000;
   const thisWeek = (edition.weekNews.length ? edition.weekNews : news).filter((article) => article.publishedAt && Date.parse(article.publishedAt) >= weekStart && Date.parse(article.publishedAt) <= edition.asOf);
-  const topStories = (edition.trending.length ? edition.trending : thisWeek.length ? thisWeek : news.length ? news : articles).slice(0, 4);
+  // Rankings can be sparse while newly published posts await their first metric snapshot.
+  // Keep the ranked order, then fill the remaining editorial slots with recent news.
+  const topStories = distinctStories(edition.trending, thisWeek, news).slice(0, 4);
   const lead = topStories[0];
   const topIds = new Set(topStories.map((article) => article.id));
   const latest = thisWeek.filter((article) => !topIds.has(article.id)).slice(0, 4);
@@ -90,6 +101,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   const thought = edition.thought ?? articles.find((article) => article.workflowType === "informative") ?? null;
   const product = edition.product ?? articles.find((article) => article.workflowType === "product") ?? null;
   const reels = edition.reels.length ? edition.reels : articles.filter((article) => article.workflowType === "reel").slice(0, 3);
+  const popularStories = distinctStories(edition.popular, news).slice(0, 6);
   const featuredIds = new Set([...topStories, ...latest, ...reels, model, thought, product].filter((article) => article !== null).map((article) => article.id));
   const other = articles.filter((article) => !featuredIds.has(article.id));
   return <div className="edition">
@@ -122,8 +134,8 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
       <div className="edition-middle-main">
         <section aria-label="All-time trending">
           <SectionHeading title="All-time trending" />
-          {(edition.popular.length || news.length) ? <ol className="edition-ranked">
-            {(edition.popular.length ? edition.popular : news).slice(0, 6).map((article, index) => <li key={article.id}>
+          {popularStories.length ? <ol className="edition-ranked">
+            {popularStories.map((article, index) => <li key={article.id}>
               <span className="edition-rank" aria-hidden="true">{index + 1}</span>
               <StoryLink article={article} onOpen={onOpen}>{article.title}</StoryLink>
             </li>)}

@@ -90,6 +90,9 @@ test("home uses insight rankings when available", async ({ page }) => {
   }));
   await page.goto("/");
   await expect(page.locator(".edition-lead h1")).toHaveText(ranked.title);
+  await expect(page.locator(".edition-top-side .edition-card")).toHaveCount(3);
+  await expect(page.locator(".edition-top").getByRole("heading", { name: ranked.title })).toHaveCount(1);
+  await expect(page.locator(".edition-ranked li")).toHaveCount(4);
   await expect(page.getByText(/Instagram engagement/)).toHaveCount(0);
 });
 
