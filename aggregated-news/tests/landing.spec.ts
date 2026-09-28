@@ -117,8 +117,9 @@ test("generated background and original X photos appear in their separate places
     },
   }));
   await page.goto(`/?post=${post.id}`);
-  const carousel = page.getByRole("region", { name: "Original photos from the X post" });
+  const carousel = page.getByRole("region", { name: "Story photos" });
   await expect(carousel).toBeVisible();
+  await expect(page.getByText("Photos from the original post")).toHaveCount(0);
   await expect(page.locator(".detail-aside .detail-carousel")).toBeVisible();
   await expect(page.locator(".detail-aside .detail-sources")).toBeVisible();
   await expect(carousel.getByRole("img")).toHaveAttribute("src", "/api/media/fixture-1");
@@ -142,7 +143,7 @@ test("X-only photos stay off listing cards and appear in the detail carousel", a
   await expect(card.locator(".edition-art img")).toHaveAttribute("src", "/images/bits-today-logo.png");
   await card.getByRole("heading").getByRole("link").click();
   await expect(page.locator(".detail-hero-art")).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "Original photos from the X post" }).getByRole("img"))
+  await expect(page.getByRole("region", { name: "Story photos" }).getByRole("img"))
     .toHaveAttribute("src", "/api/media/fixture-3");
 });
 
@@ -226,6 +227,7 @@ test("newsletter signup collects an email and confirms without promising deliver
   });
   await page.goto("/");
   const signup = page.getByRole("complementary", { name: "Newsletter" });
+  await expect(signup.getByRole("link", { name: "Privacy policy" })).toHaveCount(0);
   await signup.getByRole("textbox", { name: "Email address" }).fill("reader@example.com");
   await signup.getByRole("button", { name: "Join the list" }).click();
   await expect(signup.getByRole("status")).toContainText("newsletter hasn't launched yet");

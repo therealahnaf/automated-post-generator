@@ -123,7 +123,6 @@ a:hover > .edition-art > img { transform: scale(1.035); }
 .edition-newsletter button:disabled { opacity: 0.65; cursor: wait; }
 .edition-newsletter-status { color: #c2ffe1a6; font-size: 11px; line-height: 1.4; min-height: 1.4em; margin-top: 11px; }
 .edition-newsletter-privacy { color: #c2ffe180; font-size: 10px; line-height: 1.4; margin-top: 7px; }
-.edition-newsletter-privacy a { color: var(--mint); text-decoration: underline; text-decoration-color: var(--coral); text-underline-offset: 3px; }
 .newsletter-honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .edition-empty { font-size: 14px; line-height: 1.6; color: #c2ffe1aa; padding: 25px 18px; border-left: 2px solid var(--edition-rule); background: #c2ffe103; }
 @media (max-width: 1100px) {

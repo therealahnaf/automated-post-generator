@@ -1895,14 +1895,11 @@ input:disabled {
 }
 .detail-carousel-heading {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: baseline;
   gap: 16px;
   margin-bottom: 10px;
   color: var(--mint);
-}
-.detail-carousel-heading h2 {
-  font-size: 14px;
 }
 .detail-carousel-heading span {
   color: var(--coral);

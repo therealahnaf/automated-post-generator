@@ -37,7 +37,7 @@ export function Newsletter() {
         <button type="submit" disabled={status === "sending"}>{status === "sending" ? "Joining…" : "Join the list"}<span aria-hidden="true">→</span></button>
       </form>
       <p className="edition-newsletter-status" role="status">{status === "success" ? "You're on the list. The newsletter hasn't launched yet." : status === "error" ? "Couldn’t save your email. Please try again." : "Sign up now; no emails are being sent yet."}</p>
-      <p className="edition-newsletter-privacy">Your email is stored for this list only. <a href="https://github.com/therealahnaf/automated-post-generator/blob/main/PRIVACY_POLICY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+      <p className="edition-newsletter-privacy">Your email is stored for this list only.</p>
     </div>
   </aside>;
 }

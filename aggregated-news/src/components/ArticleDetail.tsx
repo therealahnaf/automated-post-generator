@@ -45,13 +45,12 @@ function SourceCarousel({ images, title }: { images: NonNullable<Article["source
   const [active, setActive] = useState(0);
   const current = Math.min(active, images.length - 1);
   return (
-    <section className="detail-carousel" aria-label="Original photos from the X post">
+    <section className="detail-carousel" aria-label="Story photos">
       <div className="detail-carousel-heading">
-        <h2>Photos from the original post</h2>
         <span>{String(current + 1).padStart(2, "0")} / {String(images.length).padStart(2, "0")}</span>
       </div>
       <div className="detail-carousel-stage panel">
-        <img src={images[current]!.url} alt={`${title}, original photo ${current + 1} of ${images.length}`} />
+        <img src={images[current]!.url} alt={`${title}, photo ${current + 1} of ${images.length}`} />
         {images.length > 1 && <div className="detail-carousel-controls">
           <button type="button" onClick={() => setActive((current - 1 + images.length) % images.length)} aria-label="Previous photo">←</button>
           <button type="button" onClick={() => setActive((current + 1) % images.length)} aria-label="Next photo">→</button>
