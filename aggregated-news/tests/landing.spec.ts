@@ -98,6 +98,20 @@ test("the final top container is an ad on home, category, and detail pages", asy
   await expect(homeAd).toBeVisible();
   await expect(homeAd.locator("ins.adsbygoogle")).toHaveAttribute("data-ad-slot", "8468894754");
   await expect(page.locator(".edition-top-side .edition-card")).toHaveCount(2);
+  await homeAd.locator("ins.adsbygoogle").evaluate((ad) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.height = "280px";
+    iframe.style.width = "100%";
+    iframe.style.border = "0";
+    ad.append(iframe);
+  });
+  const homeAdBottom = await homeAd.evaluate((ad) => ad.getBoundingClientRect().bottom);
+  const adContentBottom = await homeAd.locator("ins.adsbygoogle").evaluate((ad) => ad.getBoundingClientRect().bottom);
+  const adFrameBottom = await homeAd.locator("iframe").evaluate((frame) => frame.getBoundingClientRect().bottom);
+  const nextSectionTop = await page.getByRole("region", { name: "This week’s news" }).evaluate((section) => section.getBoundingClientRect().top);
+  expect(adContentBottom).toBeLessThanOrEqual(homeAdBottom + 1);
+  expect(adFrameBottom).toBeLessThanOrEqual(adContentBottom + 1);
+  expect(homeAdBottom).toBeLessThanOrEqual(nextSectionTop + 1);
 
   await page.getByRole("navigation", { name: "News sections" }).getByRole("link", { name: "Models", exact: true }).click();
   await expect(page.locator(".other-news > .ad-card:last-child")).toBeVisible();

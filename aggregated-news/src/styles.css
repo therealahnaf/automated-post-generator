@@ -1989,7 +1989,7 @@ input:disabled {
   line-height: 1.3;
   text-transform: uppercase;
 }
-.ad-card .adsbygoogle { width: 100%; min-height: 140px; }
+.ad-card .adsbygoogle { width: 100%; min-height: 140px; flex: none; }
 .ad-card--rail {
   flex: 1;
   margin: 8px 12px 12px;
