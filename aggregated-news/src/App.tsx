@@ -5,6 +5,7 @@ import { ArticleDetail } from "./components/ArticleDetail";
 import { Edition } from "./components/Edition";
 import { Masthead } from "./components/Masthead";
 import { SectionIntro } from "./components/SectionIntro";
+import { AdSlot } from "./components/AdSlot";
 import { belongsToSection, readPage, readSection, sections, type Section } from "./sections";
 import { useHomeEdition } from "./useHomeEdition";
 
@@ -78,8 +79,8 @@ export function App() {
   const pageCount = Math.ceil(total / PAGE_SIZE);
   const [leadArticle, ...allRemaining] = visibleArticles;
   const remaining = allRemaining;
-  const sideArticles = remaining.slice(0, 3);
-  const moreArticles = remaining.slice(3, 5);
+  const sideArticles = remaining.slice(0, 2);
+  const moreArticles = remaining.slice(2, 4);
   const sectionInfo = sections.find((item) => item.id === section)!;
   const returnUrl = new URL(window.location.href);
   returnUrl.searchParams.delete("post");
@@ -132,16 +133,15 @@ export function App() {
           {status === "ready" && leadArticle && !(section === "home" && page === 1) && (
             <>
               <div
-                className={`front-page-grid ${sideArticles.length ? "" : "front-page-grid--single"}`}
+                className="front-page-grid"
               >
                 <FeaturedArticle article={leadArticle} onOpen={openPost} />
-                {sideArticles.length > 0 && (
                   <section
                     className="other-news panel"
                     id="latest"
-                    aria-labelledby="other-news-title"
+                    aria-label={sideArticles.length ? "More stories and advertisement" : "Advertisement"}
                   >
-                    <div className="section-heading">
+                    {sideArticles.length > 0 && <div className="section-heading">
                       <h2 className="section-label" id="other-news-title">
                         {section === "home" ? "In other news" : `More ${sectionInfo.label.toLowerCase()}`}
                       </h2>
@@ -150,12 +150,12 @@ export function App() {
                         <i />
                         <i />
                       </span>
-                    </div>
+                    </div>}
                     {sideArticles.map((article) => (
                       <ArticleCard key={article.id} article={article} onOpen={openPost} />
                     ))}
+                    <AdSlot className="ad-card--rail" />
                   </section>
-                )}
               </div>
               {moreArticles.length > 0 && <div className="lower-grid lower-grid--stories">
                 {moreArticles.map((article) => (
@@ -164,9 +164,9 @@ export function App() {
                   </div>
                 ))}
               </div>}
-              {remaining.length > 5 && (
+              {remaining.length > 4 && (
                 <section className="archive-grid" aria-label="More stories">
-                  {remaining.slice(5).map((article) => (
+                  {remaining.slice(4).map((article) => (
                     <div className="panel" key={article.id}>
                       <ArticleCard article={article} variant="bottom" onOpen={openPost} />
                     </div>

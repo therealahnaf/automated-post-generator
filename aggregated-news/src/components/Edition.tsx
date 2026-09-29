@@ -3,6 +3,7 @@ import type { Article } from "../types";
 import { sectionHref, type Section } from "../sections";
 import type { useHomeEdition } from "../useHomeEdition";
 import { Newsletter } from "./Newsletter";
+import { AdSlot } from "./AdSlot";
 
 type OpenStory = (id: string) => void;
 
@@ -97,7 +98,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   const thisWeek = (edition.weekNews.length ? edition.weekNews : news).filter((article) => article.publishedAt && Date.parse(article.publishedAt) >= weekStart && Date.parse(article.publishedAt) <= edition.asOf);
   // Rankings can be sparse while newly published posts await their first metric snapshot.
   // Keep the ranked order, then fill the remaining editorial slots with recent news.
-  const topStories = distinctStories(edition.trending, thisWeek, news).slice(0, 4);
+  const topStories = distinctStories(edition.trending, thisWeek, news).slice(0, 3);
   const lead = topStories[0];
   const topIds = new Set(topStories.map((article) => article.id));
   const latest = thisWeek.filter((article) => !topIds.has(article.id)).slice(0, 4);
@@ -111,7 +112,7 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
   return <div className="edition">
     <section aria-label="Trending this week">
       <SectionHeading title="Trending this week" />
-      {lead && <div className={`edition-top ${topStories.length === 1 ? "edition-top--single" : ""}`}>
+      {lead && <div className="edition-top">
         <article className="edition-lead">
           <div className="edition-lead-copy">
             <Category article={lead} />
@@ -122,9 +123,10 @@ export function Edition({ articles, edition, onOpen, onSectionChange }: {
           </div>
           <StoryLink article={lead} onOpen={onOpen} className="edition-lead-art"><Artwork article={lead} priority /></StoryLink>
         </article>
-        {topStories.length > 1 && <div className="edition-top-side">
+        <div className="edition-top-side">
           {topStories.slice(1).map((article) => <EditionCard key={article.id} article={article} onOpen={onOpen} variant="side" />)}
-        </div>}
+          <AdSlot className="ad-card--side" />
+        </div>
       </div>}
     </section>
 

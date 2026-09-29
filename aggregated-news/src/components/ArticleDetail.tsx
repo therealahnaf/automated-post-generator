@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useArticleDetail } from "../useArticleDetail";
 import type { Article } from "../types";
 import { EditorialImage } from "./ArticleCard";
+import { AdSlot } from "./AdSlot";
 
 function visibleSource(source: Article["sources"][number]): boolean {
   return !/polymarket/i.test(source.label) &&
@@ -163,8 +164,10 @@ export function ArticleDetail({
               </li>
             ))}</ol>
           </div>}
+          <AdSlot className="ad-card--detail" />
         </aside>}
       </div>
+      {!hasSidebar && <AdSlot className="ad-card--detail-bottom" />}
     </article>
   );
 }

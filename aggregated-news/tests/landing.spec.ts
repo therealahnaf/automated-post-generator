@@ -21,6 +21,7 @@ const fixtures = articles.map((article, index) => ({
 }));
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/pagead/js/adsbygoogle.js?*", (route) => route.fulfill({ contentType: "application/javascript", body: "" }));
   await page.route("**/api/posts?*", (route) => {
     const url = new URL(route.request().url());
     const workflow = url.searchParams.get("workflow_type");
@@ -47,6 +48,10 @@ test.beforeEach(async ({ page }) => {
     if (!path) return route.abort();
     await route.fulfill({ response: await page.request.get(path) });
   });
+});
+
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("selected tab underline meets the expanded intro panel", async ({ page }) => {
@@ -84,6 +89,25 @@ test("home shows the mixed feed and latest model and thought highlights", async 
   await expect(page.locator("video")).toHaveCount(0);
 });
 
+test("the final top container is an ad on home, category, and detail pages", async ({ page }) => {
+  await page.goto("/");
+  const script = page.locator('script[src*="pagead/js/adsbygoogle.js"]');
+  await expect(script).toHaveCount(1);
+  await expect(script).toHaveAttribute("src", /ca-pub-8059416875418410/);
+  const homeAd = page.locator(".edition-top-side > .ad-card:last-child");
+  await expect(homeAd).toBeVisible();
+  await expect(homeAd.locator("ins.adsbygoogle")).toHaveAttribute("data-ad-slot", "8468894754");
+  await expect(page.locator(".edition-top-side .edition-card")).toHaveCount(2);
+
+  await page.getByRole("navigation", { name: "News sections" }).getByRole("link", { name: "Models", exact: true }).click();
+  await expect(page.locator(".other-news > .ad-card:last-child")).toBeVisible();
+  await expect(page.locator("main .ad-card")).toHaveCount(1);
+
+  await page.getByRole("link", { name: "View details" }).first().click();
+  await expect(page.locator(".detail-aside > .ad-card:last-child")).toBeVisible();
+  await expect(page.locator("main .ad-card")).toHaveCount(1);
+});
+
 test("home uses insight rankings when available", async ({ page }) => {
   const ranked = fixtures.find((post) => post.workflow_type === "news" && post.id !== fixtures[0]!.id)!;
   await page.route("**/api/posts/rankings?*", (route) => route.fulfill({
@@ -91,7 +115,7 @@ test("home uses insight rankings when available", async ({ page }) => {
   }));
   await page.goto("/");
   await expect(page.locator(".edition-lead h1")).toHaveText(ranked.title);
-  await expect(page.locator(".edition-top-side .edition-card")).toHaveCount(3);
+  await expect(page.locator(".edition-top-side .edition-card")).toHaveCount(2);
   await expect(page.locator(".edition-top").getByRole("heading", { name: ranked.title })).toHaveCount(1);
   await expect(page.locator(".edition-ranked li")).toHaveCount(4);
   await expect(page.getByText(/Instagram engagement/)).toHaveCount(0);
@@ -162,6 +186,7 @@ test("section tabs and empty state work", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "News sections" }).getByRole("link", { name: "Products" }).click();
   await expect(page.getByRole("heading", { name: "No stories in this section yet." })).toBeVisible();
+  await expect(page.locator("main .ad-card")).toHaveCount(0);
 });
 
 test("model and thought cards stay text-led when only template backgrounds exist", async ({ page }) => {
