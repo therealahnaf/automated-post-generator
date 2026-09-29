@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { articles } from "../src/data/articles";
+import { toArticle, type ApiPost } from "../src/useArticles";
 
 const fixtures = articles.map((article, index) => ({
   id: article.id,
@@ -10,7 +11,7 @@ const fixtures = articles.map((article, index) => ({
   published_at: new Date(Date.now() - index * 3600000).toISOString(),
   is_demo: true,
   media: [{ kind: "image", mime_type: "image/png", url: `/api/media/fixture-${index}` }],
-  source_media: [],
+  source_media: index === 3 ? [{ kind: "image", mime_type: "image/png", url: "/api/media/fixture-3" }] : [],
   assets: index === 0 ? [
     { asset_type: "bundled_background", mime_type: "image/png", url: "/api/media/fixture-2" },
     { asset_type: "generated_background", mime_type: "image/png", url: "/api/media/fixture-0" },
@@ -130,21 +131,31 @@ test("generated background and original X photos appear in their separate places
   await expect(carousel.getByRole("img")).toHaveAttribute("src", "/api/media/fixture-1");
 });
 
-test("X-only photos stay off listing cards and appear in the detail carousel", async ({ page }) => {
+test("news with an X photo uses it as the listing thumbnail and keeps it in the detail carousel", async ({ page }) => {
   const post = fixtures[3]!;
-  await page.route(`**/api/posts/${post.id}`, (route) => route.fulfill({
-    json: { ...post, source_media: [
-      { kind: "image", mime_type: "image/png", url: "/api/media/fixture-3" },
-    ] },
-  }));
   await page.goto("/");
   const card = page.locator(".edition-card").filter({ hasText: post.title }).first();
-  await expect(card.locator(".edition-art--fallback")).toBeVisible();
-  await expect(card.locator(".edition-art img")).toHaveAttribute("src", "/images/bits-today-logo.png");
+  await expect(card.locator(".edition-art img")).toHaveAttribute("src", "/api/media/fixture-3");
   await card.getByRole("heading").getByRole("link").click();
   await expect(page.locator(".detail-hero-art")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Story photos" }).getByRole("img"))
     .toHaveAttribute("src", "/api/media/fixture-3");
+});
+
+test("news with a template and X photo prefers the photo only for thumbnails", () => {
+  const post = {
+    ...fixtures[3]!,
+    assets: [{ asset_type: "bundled_background", mime_type: "image/png", url: "/api/media/fixture-2" }],
+  } as ApiPost;
+  const article = toArticle(post);
+  expect(article.thumbnailImage).toBe("/api/media/fixture-3");
+  expect(article.image).toBe("/api/media/fixture-2");
+  const generated = toArticle({ ...post, assets: [
+    { asset_type: "generated_background", mime_type: "image/png", url: "/api/media/fixture-0" },
+    ...post.assets!,
+  ] });
+  expect(generated.thumbnailImage).toBeNull();
+  expect(generated.image).toBe("/api/media/fixture-0");
 });
 
 test("section tabs and empty state work", async ({ page }) => {

@@ -28,9 +28,10 @@ function DateLine({ article }: { article: Article }) {
 }
 
 function Artwork({ article, priority = false }: { article: Article; priority?: boolean }) {
-  return <div className={`edition-art ${article.image ? "" : "edition-art--fallback"}`}>
-    {article.image
-      ? <img src={article.image} alt={article.imageAlt} loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"} />
+  const image = article.thumbnailImage || article.image;
+  return <div className={`edition-art ${image ? "" : "edition-art--fallback"}`}>
+    {image
+      ? <img src={image} alt={article.thumbnailImage ? `Photo from the story: ${article.title}` : article.imageAlt} loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"} />
       : <><img src="/images/bits-today-logo.png" alt="" /><span>The Bits Today<span>.</span></span></>}
     {article.mediaKind === "video" && <span className="edition-play" aria-label="Video"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5.5 19 12 9 18.5z" /></svg></span>}
   </div>;

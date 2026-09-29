@@ -45,17 +45,20 @@ function ViewDetails({
 export function EditorialImage({
   article,
   hero = false,
+  listing = false,
 }: {
   article: Article;
   hero?: boolean;
+  listing?: boolean;
 }) {
+  const image = listing ? article.thumbnailImage || article.image : article.image;
   return (
     <div
-      className={`editorial-image ${hero ? "editorial-image--hero" : ""} ${article.imageTreatment === "published" ? "editorial-image--published" : ""} ${!article.image ? "editorial-image--fallback" : ""}`}
+      className={`editorial-image ${hero ? "editorial-image--hero" : ""} ${article.imageTreatment === "published" ? "editorial-image--published" : ""} ${!image ? "editorial-image--fallback" : ""} ${listing && article.thumbnailImage ? "editorial-image--source" : ""}`}
     >
-      {article.image && <img
-        src={article.image}
-        alt={article.imageAlt}
+      {image && <img
+        src={image}
+        alt={listing && article.thumbnailImage ? `Photo from the story: ${article.title}` : article.imageAlt}
         loading={hero ? "eager" : "lazy"}
         fetchPriority={hero ? "high" : "auto"}
       />}
@@ -78,7 +81,7 @@ export function FeaturedArticle({ article, onOpen }: { article: Article; onOpen:
       </div>
       <ViewDetails article={article} onOpen={onOpen} prominent />
       {!textOnly && <figure className="featured-figure">
-        <EditorialImage article={article} hero />
+        <EditorialImage article={article} hero listing />
       </figure>}
     </article>
   );
@@ -112,7 +115,7 @@ export function ArticleCard({
       </div>
       <span className="story-meta">{publicationDate(article)}{article.mediaKind === "video" ? " · Video" : ""}</span>
       {!textOnly && <div className="article-image-link">
-        <EditorialImage article={article} />
+        <EditorialImage article={article} listing />
       </div>}
     </article>
   );
