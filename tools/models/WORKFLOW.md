@@ -4,13 +4,11 @@ Use this workflow for posts announcing or introducing an AI model.
 
 1. Reuse the fetched tweet JSON created by the `AGENTS.md` workflow router and
    require its persisted `workflow_type` to be `model`. Do not fetch or
-   reclassify the story again. Preserve its authoritative Facebook and
-   Instagram language selections.
+   reclassify the story again. Use English for both platforms.
    Photos are downloaded by the router; videos and video frames are ignored.
-2. Generate the bilingual long-form caption through
+2. Generate the English long-form caption through
    `tools/models/generate_description.py`. Research the announcement on the
-   internet, enhance the caption only with useful sourced details, keep both
-   languages synchronized, and finalize it with
+   internet, enhance the caption only with useful sourced details, and finalize it with
    `tools/news/finalize_description.py`. Under `Sources:`, show only
    recognizable labels for research publishers actually used. Omit the
    supplied X account attribution and do not place raw links in the caption.
@@ -31,7 +29,7 @@ Use this workflow for posts announcing or introducing an AI model.
 4. Run `tools/models/generate_post.py`; never call an image model for this
    workflow. The renderer pseudo-randomly selects every card background from
    `assets/fonts/images/bg-*.png`, avoids immediate repeats, and derives a
-   stable seed from the validated post so English and Bangla platform variants
+   stable seed from the validated post so both platforms
    use the same ordered background sequence. Pass `--seed <integer>` only when
    deliberately overriding that sequence, and reuse the same seed for every
    revision and platform.
@@ -46,13 +44,12 @@ Use this workflow for posts announcing or introducing an AI model.
 6. When no photos were downloaded, create one secondary summary card for each
    of the two or three description segments. Center each segment over its
    selected local background; do not generate any background.
-7. If either platform selects Bangla, run
-   `tools/news/translate_carousel_copy.py` once and reuse that translated copy
-   JSON for every Bangla platform. Render each distinct platform package with
-   `tools/models/generate_post.py --platform <platform>`; the renderer
-   translates `Meet` and `by`, while the translated copy supplies every
-   text-bearing secondary card. Preserve model and company names, and reuse the
-   same ordered local backgrounds and source images across variants. Then
+7. Render one English package with
+   `tools/models/generate_post.py --platform facebook` and reuse it for both
+   platforms. Do not translate the headline or secondary copy. Run
+   `tools/news/prepare_platform_descriptions.py --english-title "Meet <model name>"`
+   with the finalized description to write both English captions and website
+   manifests. Preserve model and company names. Then
    follow the shared Telegram preview, revision, exact `yes` approval,
    Facebook, and Instagram contract in `AGENTS.md`.
 

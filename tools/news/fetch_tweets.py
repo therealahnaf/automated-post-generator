@@ -561,9 +561,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(AUTO_LANGUAGE, *POST_LANGUAGES),
         default=default_language,
         help=(
-            "Primary post language. Standalone default auto randomly chooses "
-            "English or Bangla once. Watcher jobs inherit the trusted Telegram "
-            "selection."
+            "Primary post language. Auto defaults to English. New watcher jobs "
+            "always use English; explicit legacy selections remain supported."
         ),
     )
     parser.add_argument(

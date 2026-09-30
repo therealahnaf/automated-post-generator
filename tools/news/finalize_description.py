@@ -261,7 +261,7 @@ def append_sources(
     if len(final) > max_characters:
         raise ValueError(
             f"Description with sources is {len(final)} characters; "
-            f"platform maximum is {max_characters}. Shorten the bilingual copy."
+            f"platform maximum is {max_characters}. Shorten the copy."
         )
     return final
 
@@ -277,7 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--description-file",
         type=Path,
         required=True,
-        help="UTF-8 bilingual description to finalize.",
+        help="UTF-8 English description to finalize.",
     )
     parser.add_argument(
         "--tweet-json",

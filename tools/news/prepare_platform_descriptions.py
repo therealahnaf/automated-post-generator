@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create Facebook and Instagram caption files with independent language order."""
+"""Create English-only Facebook and Instagram captions and website manifests."""
 
 from __future__ import annotations
 
@@ -11,17 +11,9 @@ import sys
 from pathlib import Path
 
 try:
-    from .generate_description import (
-        DESCRIPTION_SEPARATOR,
-        combine_descriptions,
-    )
-    from .post_language import read_platform_languages
+    from .generate_description import DESCRIPTION_SEPARATOR
 except ImportError:
-    from generate_description import (
-        DESCRIPTION_SEPARATOR,
-        combine_descriptions,
-    )
-    from post_language import read_platform_languages
+    from generate_description import DESCRIPTION_SEPARATOR
 
 
 SOURCES_MARKER = "\n\nSources:\n"
@@ -41,6 +33,10 @@ def split_finalized_description(description: str) -> tuple[str, str, str]:
         )
         if section.strip()
     ]
+    if len(sections) == 1:
+        if re.search(r"[\u0980-\u09ff]", sections[0]):
+            raise ValueError("Expected an English description, not Bangla-only copy.")
+        return sections[0], "", sources.strip()
     if len(sections) != 2:
         raise ValueError("Expected exactly two bilingual description sections.")
     bangla_counts = [
@@ -55,12 +51,9 @@ def split_finalized_description(description: str) -> tuple[str, str, str]:
 
 
 def order_description(description: str, primary_language: str) -> str:
-    english, bangla, sources = split_finalized_description(description)
-    ordered = combine_descriptions(
-        english,
-        bangla,
-        primary_language=primary_language,
-    )
+    # Also extract English from older bilingual captions when revising a job.
+    english, _, sources = split_finalized_description(description)
+    ordered = english
     if sources:
         ordered = f"{ordered}{SOURCES_MARKER}{sources}"
     return ordered
@@ -71,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--description-file", type=Path, required=True)
     parser.add_argument("--tweet-json", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--english-title", help="Approved English headline, including for Bangla-first posts.")
+    parser.add_argument("--english-title", help="Approved English headline for the website manifest.")
     return parser
 
 
@@ -79,7 +72,6 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         description = args.description_file.read_text(encoding="utf-8")
-        languages = read_platform_languages(args.tweet_json)
         manifest = None
         if args.english_title:
             try:
@@ -93,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         for platform in ("facebook", "instagram"):
             output = args.output_dir / f"{platform}-description.txt"
             output.write_text(
-                order_description(description, languages[platform]) + "\n",
+                order_description(description, "english") + "\n",
                 encoding="utf-8",
             )
             print(output.resolve())

@@ -7,11 +7,11 @@ from tools.news import post_language
 
 
 class PostLanguageTests(unittest.TestCase):
-    def test_auto_choice_uses_only_supported_languages(self) -> None:
+    def test_auto_defaults_to_english_without_randomizing(self) -> None:
         selected = post_language.choose_post_language(
-            "auto", chooser=lambda choices: choices[1]
+            "auto", chooser=lambda _: self.fail("Language randomizer should not run")
         )
-        self.assertEqual(selected, "bangla")
+        self.assertEqual(selected, "english")
 
     def test_explicit_language_does_not_call_randomizer(self) -> None:
         selected = post_language.choose_post_language(

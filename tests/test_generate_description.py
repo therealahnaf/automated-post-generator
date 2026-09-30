@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from tools.news import generate_description
 
@@ -24,6 +25,20 @@ class FakeClient:
 
 
 class GenerateDescriptionTests(unittest.TestCase):
+    def test_cli_generates_only_english_with_one_model_call(self) -> None:
+        client = FakeClient(["English description."])
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "description.txt"
+            with patch.object(generate_description, "require_api_key"), patch.object(
+                generate_description, "make_client", return_value=client
+            ):
+                self.assertEqual(generate_description.main([
+                    "Source text.", "--output", str(output)
+                ]), 0)
+            self.assertEqual(output.read_text(encoding="utf-8").strip(), "English description.")
+        self.assertEqual(len(client.responses.calls), 1)
+        self.assertEqual(client.responses.calls[0]["model"], "gpt-5.6-luna")
+
     def test_build_user_prompt_contains_few_shot_examples_and_source(self) -> None:
         source = "FT: China discussed possible AI data transfer restrictions."
         prompt = generate_description.build_user_prompt(source)
@@ -253,7 +268,7 @@ class GenerateDescriptionTests(unittest.TestCase):
                 "বাংলা " * 100,
             )
 
-    def test_bilingual_generation_makes_two_model_calls(self) -> None:
+    def test_legacy_generation_entry_point_also_uses_one_english_call(self) -> None:
         client = FakeClient(
             [
                 "English description.",
@@ -268,22 +283,18 @@ class GenerateDescriptionTests(unittest.TestCase):
             translation_max_output_tokens=300,
         )
 
-        self.assertEqual(len(client.responses.calls), 2)
+        self.assertEqual(len(client.responses.calls), 1)
         self.assertEqual(
             [call["model"] for call in client.responses.calls],
-            ["gpt-5.6-luna", "gpt-5.6-luna"],
+            ["gpt-5.6-luna"],
         )
         self.assertEqual(
             combined,
-            "English description.\n\n---\n\nসংক্ষিপ্ত বাংলা বিবরণ।",
+            "English description.",
         )
         self.assertEqual(
             client.responses.calls[0]["input"][0]["content"],
             generate_description.SYSTEM_INSTRUCTIONS,
-        )
-        self.assertEqual(
-            client.responses.calls[1]["input"][0]["content"],
-            generate_description.BANGLA_SYSTEM_INSTRUCTIONS,
         )
 
     def test_bangla_primary_description_appears_first(self) -> None:

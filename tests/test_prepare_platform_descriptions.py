@@ -7,7 +7,7 @@ from tools.news import prepare_platform_descriptions as prepare
 
 
 class PreparePlatformDescriptionsTests(unittest.TestCase):
-    def test_orders_each_platform_and_preserves_sources(self) -> None:
+    def test_legacy_bilingual_copy_becomes_english_and_preserves_sources(self) -> None:
         description = (
             "English description.\n\n---\n\n"
             "বাংলা বিবরণ।\n\nSources:\n"
@@ -18,7 +18,9 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
         instagram = prepare.order_description(description, "bangla")
 
         self.assertTrue(facebook.startswith("English description."))
-        self.assertTrue(instagram.startswith("বাংলা বিবরণ।"))
+        self.assertEqual(instagram, facebook)
+        self.assertNotIn("বাংলা", instagram)
+        self.assertNotIn("---", instagram)
         self.assertEqual(
             facebook.split("Sources:\n", 1)[1],
             instagram.split("Sources:\n", 1)[1],
@@ -31,12 +33,14 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
             tweet = root / "tweet.json"
             output = root / "platforms"
             description.write_text(
-                "English.\n\n---\n\nবাংলা।\n\nSources:\nExample",
+                "English.\n\nSources:\nExample\n\n#news #technology #ai",
                 encoding="utf-8",
             )
             tweet.write_text(
                 json.dumps(
                     {
+                        "workflow_type": "news",
+                        "requested_urls": ["https://x.com/example/status/123"],
                         "platform_languages": {
                             "facebook": "bangla",
                             "instagram": "english",
@@ -54,6 +58,8 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
                         str(tweet),
                         "--output-dir",
                         str(output),
+                        "--english-title",
+                        "Approved English headline",
                     ]
                 ),
                 0,
@@ -61,13 +67,22 @@ class PreparePlatformDescriptionsTests(unittest.TestCase):
             self.assertTrue(
                 (output / "facebook-description.txt")
                 .read_text(encoding="utf-8")
-                .startswith("বাংলা।")
+                .startswith("English.")
             )
             self.assertTrue(
                 (output / "instagram-description.txt")
                 .read_text(encoding="utf-8")
                 .startswith("English.")
             )
+            self.assertEqual(
+                (output / "facebook-description.txt").read_text(encoding="utf-8"),
+                (output / "instagram-description.txt").read_text(encoding="utf-8"),
+            )
+            facebook_manifest = json.loads((output / "facebook-description.website.json").read_text())
+            instagram_manifest = json.loads((output / "instagram-description.website.json").read_text())
+            self.assertEqual(facebook_manifest["archive_key"], instagram_manifest["archive_key"])
+            self.assertEqual(facebook_manifest["description"], "English.")
+            self.assertEqual(facebook_manifest["title"], "Approved English headline")
 
 
 if __name__ == "__main__":

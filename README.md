@@ -60,9 +60,9 @@ an informative or philosophical AI post and its same-author thread into a
 `Today's Tokens for Thought` cover, a short headline hook, and three to eight
 flowing paragraph cards. Pillow randomly selects each card's background from
 `assets/fonts/images/bg-*.png`, avoids immediate repeats, and records the seed
-for reproducible revisions. English and Bangla copies are generated once and
-the Telegram watcher preserves independent Facebook and Instagram language
-selections. This workflow never generates backgrounds or uses an image model.
+for reproducible revisions. All workflows use English-only copy and share one
+rendered package between Facebook and Instagram. This workflow never generates
+backgrounds or uses an image model.
 See [`tools/thoughts/WORKFLOW.md`](tools/thoughts/WORKFLOW.md).
 
 Three Pillow presets are available through `--style`:
@@ -112,10 +112,7 @@ python .\tools\thoughts\generate_post.py `
   --output-dir .\output\thought-cards-facebook
 ```
 
-When either platform selects Bangla, translate the English copy once with
-`tools/news/translate_carousel_copy.py`, then pass the English or Bangla copy
-to each platform render according to the languages stored in `tweet.json`.
-Matching platform languages reuse one rendered package.
+Render the English copy once and reuse the package for Facebook and Instagram.
 
 The output directory contains the ordered full-resolution cards, a review-only
 contact sheet, and `post.json` with the selected backgrounds and random seed.
@@ -161,16 +158,13 @@ from the same-author thread and nested quoted posts. Videos are not downloaded
 and video frames are not extracted. Photos become secondary post images in
 source order, capped at nine so the generated graphic keeps the cross-platform
 package at ten images total.
-At the start of a standalone fetch, the default `--language auto` randomly
-chooses English or Bangla once and stores the result as legacy
-`post_language`. Telegram watcher jobs do not use that default: after workflow
-selection, the bot asks separately for the Facebook and Instagram language and
-passes them through `--facebook-language` and `--instagram-language`. Both are
-stored under `platform_languages`; `post_language` mirrors Facebook for
-backward compatibility.
+At the start of a standalone fetch, `--language auto` defaults to English.
+Telegram watcher jobs start after workflow selection and pass
+`--facebook-language english --instagram-language english`. Both are stored
+under `platform_languages`; `post_language` remains the legacy alias.
 The default `--highlight-style auto` independently chooses a one-line cyan
 block, a one-line red block, or the current two-line red-plus-cyan treatment.
-Both choices are stored in the JSON and reused instead of being rerolled.
+The highlight choice is stored in the JSON and reused during revisions.
 
 ```powershell
 python .\tools\news\fetch_tweets.py `
@@ -207,28 +201,12 @@ all supplied images remain secondary.
 
 ## Generate a news-style description
 
-`tools/news/generate_description.py` turns validated source text into a bilingual,
-high-stakes social description. The first model call writes the English news
-copy. A second model call translates and summarizes that copy into concise
-Bangla while preserving names, numbers, attribution, and uncertainty. The
-script uses the fixed `gpt-5.6-luna` model for both calls; the model is not
-configurable through `.env` or CLI arguments. For an English-selected post, the
-output order is:
-
-```text
-English description
-
----
-
-বাংলা অনুবাদ-সারাংশ
-```
-
-For a Bangla-selected post, the same sections are reversed: Bangla first, then
-`---`, then English.
-
-The English prompt uses few-shot examples for paragraphing and attribution,
-but both prompts prohibit unsupported facts and completed truncated clauses.
-The combined output is capped at 2,200 characters for Instagram compatibility.
+`tools/news/generate_description.py` turns validated source text into an English
+social description with one fixed `gpt-5.6-luna` call. It does not translate or
+append a second language. The model is not configurable through `.env` or CLI
+arguments. The prompt uses few-shot examples for paragraphing and attribution
+and prohibits unsupported facts and completed truncated clauses. Final captions,
+including sources and hashtags, stay within Instagram's 2,200-character limit.
 
 ```powershell
 python .\tools\news\generate_description.py `
@@ -259,12 +237,11 @@ silently truncating the description.
 
 1. Send the assistant an X/Twitter status URL.
 2. Fetch and validate the post through the free open-source FxTwitter backend;
-   its random English/Bangla selection is saved in the tweet JSON.
+   English is saved as both platform languages in the tweet JSON.
 3. The assistant writes a factual English hook headline from the extracted post.
-4. Run `tools/news/generate_post.py` with that headline and `--tweet-json`. English renders
-   unchanged. Bangla triggers one fixed-model translation call and renders the
-   translated headline with a Bengali-capable font.
-5. Generate the English-plus-Bangla description with
+4. Run `tools/news/generate_post.py` with that headline and `--tweet-json`.
+   Render the approved English headline directly.
+5. Generate the English description with
    `tools/news/generate_description.py`,
    send it and the complete ordered image set to Telegram, then show the same
    package for review. The generated graphic is first and ordered thread/quote
@@ -398,16 +375,12 @@ status URL first presents `News`, `Model Release`, `Product Release`,
 `/model URL`, `/product URL`, `/informative URL`, `/reel URL`, and `/auto URL`
 are direct-selection shortcuts. Manual selections are authoritative; Auto
 Detect runs the news/model/product classifier and never chooses Informative or
-Reel. After the workflow is chosen, the same message asks for the
-Facebook language and then the Instagram language, each with `English` and
-`বাংলা` buttons. Generation does not start until both are selected, and both
-choices remain fixed through revisions and publishing. Matching choices reuse
-one package. Different choices produce platform-specific headlines, text
-cards, caption ordering, previews, and publishing assets while sharing the
-workflow-selected backgrounds and source media.
+Reel. After the workflow is chosen, generation starts immediately in English.
+There are no language selectors or translation calls. Facebook and Instagram
+reuse the same English headlines, cards, captions, and preview package.
 
 The selector message becomes one edited progress dashboard for source fetching,
-media discovery, headline, research, bilingual description, generated items,
+media discovery, headline, research, English description, generated items,
 preview, revisions, and both publishing stages. Replies to this dashboard never
 approve or revise a job. Reply exactly
 `yes` to any message in the latest preview package to resume that same Codex

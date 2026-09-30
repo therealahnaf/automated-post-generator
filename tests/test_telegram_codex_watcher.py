@@ -68,12 +68,12 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         )
         self.assertIn("manually selected workflow_type `reel`", prompt)
         self.assertIn("do not reclassify", prompt)
-        self.assertIn("Facebook language `bangla`", prompt)
-        self.assertIn("Instagram language `english`", prompt)
-        self.assertIn("--facebook-language bangla", prompt)
+        self.assertIn("All workflows are English-only", prompt)
+        self.assertIn("--facebook-language english", prompt)
         self.assertIn("--instagram-language english", prompt)
+        self.assertNotIn("--facebook-language bangla", prompt)
 
-    def test_informative_workflow_keeps_independent_platform_languages(self) -> None:
+    def test_informative_workflow_uses_english_despite_legacy_selection(self) -> None:
         prompt = watcher.build_initial_prompt(
             4,
             "https://x.com/example/status/2",
@@ -85,8 +85,8 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             "manually selected workflow_type `informative`",
             prompt,
         )
-        self.assertIn("Facebook language `english`", prompt)
-        self.assertIn("Instagram language `bangla`", prompt)
+        self.assertIn("All workflows are English-only", prompt)
+        self.assertIn("Do not translate or append another language", prompt)
         self.assertEqual(
             watcher.WORKFLOW_LABELS["informative"],
             "Informative",
@@ -105,24 +105,58 @@ class TelegramCodexWatcherTests(unittest.TestCase):
         job_id = watcher.enqueue_request(self.connection, message)
         self.assertIsNone(watcher.claim_next_job(self.connection))
         self.assertTrue(watcher.select_workflow(self.connection, job_id, "news"))
-        self.assertIsNone(watcher.claim_next_job(self.connection))
-        self.assertTrue(
-            watcher.select_platform_language(
-                self.connection, job_id, "facebook", "english"
-            )
-        )
-        self.assertIsNone(watcher.claim_next_job(self.connection))
-        self.assertTrue(
-            watcher.select_platform_language(
-                self.connection, job_id, "instagram", "bangla"
-            )
-        )
         claimed = watcher.claim_next_job(self.connection)
         self.assertEqual(claimed["id"], job_id)
         self.assertEqual(claimed["workflow_type"], "news")
         self.assertEqual(claimed["post_language"], "english")
         self.assertEqual(claimed["facebook_language"], "english")
-        self.assertEqual(claimed["instagram_language"], "bangla")
+        self.assertEqual(claimed["instagram_language"], "english")
+
+    def test_upgrade_normalizes_queued_jobs_and_preserves_existing_previews(self) -> None:
+        queued_id = self.insert_job(status="queued")
+        self.connection.execute(
+            "UPDATE jobs SET workflow_type='news', post_language='bangla', "
+            "facebook_language='bangla', instagram_language=NULL WHERE id=?",
+            (queued_id,),
+        )
+        self.connection.execute(
+            "INSERT INTO jobs(source_update_id, chat_id, source_message_id, request_text, "
+            "status, updated_at, workflow_type, post_language, facebook_language, instagram_language) "
+            "VALUES (11, '-99', 21, 'old preview', 'awaiting_approval', ?, "
+            "'model', 'bangla', 'bangla', 'bangla')",
+            (watcher.utc_now(),),
+        )
+        self.connection.commit()
+        upgraded = watcher.connect_database(self.root / "watcher.sqlite3")
+        try:
+            queued = upgraded.execute("SELECT * FROM jobs WHERE id=?", (queued_id,)).fetchone()
+            preview = upgraded.execute("SELECT * FROM jobs WHERE source_update_id=11").fetchone()
+            self.assertEqual(queued["facebook_language"], "english")
+            self.assertEqual(queued["instagram_language"], "english")
+            self.assertEqual(preview["status"], "awaiting_approval")
+            self.assertEqual(preview["facebook_language"], "bangla")
+            self.assertEqual(watcher.claim_next_job(upgraded)["id"], queued_id)
+        finally:
+            upgraded.close()
+
+    def test_direct_command_queues_full_request_without_language_selector(self) -> None:
+        update = {"update_id": 80, "message": {
+            "message_id": 90, "chat": {"id": -99}, "from": {"id": 7},
+            "text": "/news https://x.com/example/status/123\nFocus on privacy.",
+        }}
+        session = Mock()
+        session.post.return_value = Mock(
+            ok=True, status_code=200,
+            json=Mock(return_value={"ok": True, "result": {"message_id": 91}}),
+        )
+        watcher.handle_update(session, self.config, self.connection, update)
+        job = watcher.claim_next_job(self.connection)
+        self.assertEqual(job["workflow_type"], "news")
+        self.assertEqual(job["request_text"], "https://x.com/example/status/123\nFocus on privacy.")
+        self.assertEqual(job["facebook_language"], "english")
+        self.assertEqual(job["instagram_language"], "english")
+        self.assertEqual(json.loads(session.post.call_args.kwargs["data"]["reply_markup"]),
+                         {"inline_keyboard": []})
 
     def test_resume_turn_can_only_be_claimed_once(self) -> None:
         job_id = self.insert_job()
@@ -222,7 +256,6 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 values,
                 [
                     f"{platform}_language:42:english",
-                    f"{platform}_language:42:bangla",
                     f"{platform}_language:42:cancel",
                 ],
             )
@@ -401,7 +434,6 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             self.connection,
             facebook_update,
         )
-        self.assertIsNone(watcher.claim_next_job(self.connection))
         instagram_update = {
             "update_id": 73,
             "callback_query": {
@@ -434,14 +466,14 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             "SELECT * FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
         self.assertEqual(job["workflow_type"], "model")
-        self.assertEqual(job["post_language"], "bangla")
-        self.assertEqual(job["facebook_language"], "bangla")
+        self.assertEqual(job["post_language"], "english")
+        self.assertEqual(job["facebook_language"], "english")
         self.assertEqual(job["instagram_language"], "english")
         self.assertTrue(session.post.call_args_list[0].args[0].endswith("/answerCallbackQuery"))
         self.assertTrue(session.post.call_args_list[1].args[0].endswith("/editMessageText"))
         rendered = watcher.render_progress(self.connection, job_id)
         self.assertIn("Model Release", rendered)
-        self.assertIn("Facebook: Bangla", rendered)
+        self.assertIn("Facebook: English", rendered)
         self.assertIn("Instagram: English", rendered)
         self.assertIn("Workflow selected", rendered)
 
@@ -646,6 +678,9 @@ class TelegramCodexWatcherTests(unittest.TestCase):
             str(job_dir),
         )
         self.assertTrue(job_dir.is_dir())
+        for key in ("BITS_TODAY_POST_LANGUAGE", "BITS_TODAY_FACEBOOK_LANGUAGE",
+                    "BITS_TODAY_INSTAGRAM_LANGUAGE"):
+            self.assertEqual(run.call_args.kwargs["env"][key], "english")
 
     def test_managed_cron_removal_preserves_other_entries(self) -> None:
         crontab = "\n".join(

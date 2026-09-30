@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the shared bilingual description generator for a model announcement."""
+"""Run the shared English description generator for a model announcement."""
 
 from __future__ import annotations
 

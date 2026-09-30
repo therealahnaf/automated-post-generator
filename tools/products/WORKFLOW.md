@@ -6,13 +6,10 @@ Use this workflow only after the `AGENTS.md` router has persisted
 
 1. Confirm the fetched JSON contains the requested tweet ID and non-empty text.
    Preserve the complete same-author thread, nested quoted-post text, ordered
-   photos, persisted platform languages, and highlight choices. Both
-   Telegram-selected platform languages are authoritative and must not be
-   rerolled.
-2. Generate the bilingual long-form caption through
+   photos and highlight choices. Use English for both platforms.
+2. Generate the English long-form caption through
    `tools/products/generate_description.py`. Research the announcement on the
-   internet, enhance the caption only with useful sourced details, keep both
-   languages synchronized, and finalize it with
+   internet, enhance the caption only with useful sourced details, and finalize it with
    `tools/news/finalize_description.py`. Under `Sources:`, show only
    recognizable labels for research publishers actually used. Omit the
    supplied X account attribution and do not place raw links in the caption.
@@ -38,7 +35,7 @@ Use this workflow only after the `AGENTS.md` router has persisted
 5. Run `tools/products/generate_post.py`; never call an image model for this
    workflow. The renderer pseudo-randomly selects every card background from
    `assets/fonts/images/bg-*.png`, avoids immediate repeats, and derives a
-   stable seed from the validated post so English and Bangla platform variants
+   stable seed from the validated post so both platforms
    use the same ordered background sequence. Pass `--seed <integer>` only when
    deliberately overriding that sequence, and reuse it for every revision and
    platform. The primary card uses the fixed `product-knowledge-stack` layout:
@@ -58,14 +55,12 @@ Use this workflow only after the `AGENTS.md` router has persisted
 7. With no photos, create one secondary summary card for each of the two or
    three description segments. Center each segment over its selected local
    background; do not generate any background.
-8. If either platform selects Bangla, run
-   `tools/news/translate_carousel_copy.py` once and reuse that translated copy
-   JSON for every Bangla platform. Render each distinct package with
-   `tools/products/generate_post.py --platform <platform>`; the renderer
-   translates `You Should Know About` and `by`, while the translated copy
-   supplies the functional intro and every text-bearing secondary card.
-   Preserve product and company names and reuse the same ordered local
-   backgrounds and source images across variants. Then follow the shared
+8. Render one English package with
+   `tools/products/generate_post.py --platform facebook` and reuse it for both
+   platforms. Do not translate the headline, functional intro, or secondary
+   copy. Run `tools/news/prepare_platform_descriptions.py` with the approved
+   `--english-title` and finalized description to write both English captions
+   and website manifests. Preserve product and company names. Then follow the shared
    Telegram preview, revision, exact `yes` approval, Facebook, and Instagram
    contract in `AGENTS.md`.
 

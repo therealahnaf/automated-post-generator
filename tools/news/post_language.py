@@ -27,10 +27,9 @@ def choose_post_language(
         raise ValueError(
             "Post language must be 'auto', 'english', or 'bangla'."
         )
-    selected = (chooser or secrets.choice)(POST_LANGUAGES)
-    if selected not in POST_LANGUAGES:
-        raise ValueError(f"Language chooser returned an invalid value: {selected}")
-    return selected
+    # Legacy explicit choices remain readable for existing previews. New jobs
+    # and standalone fetches always default to English, without randomization.
+    return "english"
 
 
 def read_post_language(path: Path, *, default: str = "english") -> str:

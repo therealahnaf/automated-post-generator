@@ -35,6 +35,7 @@ MAX_BANGLA_DESCRIPTION_CHARACTERS = 700
 MAX_COMBINED_DESCRIPTION_CHARACTERS = 2200
 
 SYSTEM_INSTRUCTIONS = """You are a high-stakes newsroom copy editor for The Bits Today.
+Write all description prose in English only, regardless of the source language.
 Write urgent, dramatic, consequence-first social post descriptions from only the
 supplied source material. Make the story feel important and hard to ignore, but
 do not add facts, dates, allegations, figures, locations, background context, or
@@ -248,8 +249,8 @@ Rules for the current story:
 - If the source text ends mid-thought, ignore the unfinished fragment instead
   of completing it.
 - Write one to three paragraphs. Use fewer paragraphs when the source is short.
-- Keep the English description under 1,300 characters so the bilingual caption
-  remains publishable on every configured platform.
+- Keep the English description under 1,300 characters so the caption, sources,
+  and hashtags remain publishable on every configured platform.
 - Output only the description.
 
 Few-shot examples:
@@ -449,20 +450,11 @@ def generate_bilingual_description(
     translation_max_output_tokens: int,
     primary_language: str = "english",
 ) -> str:
-    english_description = generate_description(
+    """Compatibility entry point for older callers; generation is English-only."""
+    return generate_description(
         client,
         source_text,
         max_output_tokens=description_max_output_tokens,
-    )
-    bangla_description = generate_bangla_summary(
-        client,
-        english_description,
-        max_output_tokens=translation_max_output_tokens,
-    )
-    return combine_descriptions(
-        english_description,
-        bangla_description,
-        primary_language=primary_language,
     )
 
 
@@ -481,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--platform",
         choices=("facebook", "instagram"),
-        help="Order the bilingual output using that platform's selected language.",
+        help="Compatibility option; both platforms receive English-only copy.",
     )
     parser.add_argument("--output", type=Path, help="Write the description to a file.")
     parser.add_argument(
@@ -489,12 +481,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1500,
         help="Maximum output tokens for the generated description.",
-    )
-    parser.add_argument(
-        "--translation-max-output-tokens",
-        type=int,
-        default=700,
-        help="Maximum output tokens for the Bangla translation-summary.",
     )
     parser.add_argument(
         "--print-prompt",
@@ -533,23 +519,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.max_output_tokens <= 0:
             raise ValueError("--max-output-tokens must be greater than zero.")
-        if args.translation_max_output_tokens <= 0:
-            raise ValueError(
-                "--translation-max-output-tokens must be greater than zero."
-            )
         source_text = read_source(args)
-        primary_language = resolve_primary_language(args)
         if args.print_prompt:
             print(build_user_prompt(source_text))
             return 0
 
         require_api_key()
-        description = generate_bilingual_description(
+        description = generate_description(
             make_client(),
             source_text,
-            description_max_output_tokens=args.max_output_tokens,
-            translation_max_output_tokens=args.translation_max_output_tokens,
-            primary_language=primary_language,
+            max_output_tokens=args.max_output_tokens,
         )
         if not description:
             raise RuntimeError("Generated description is empty.")
