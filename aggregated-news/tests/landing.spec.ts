@@ -122,6 +122,86 @@ test("the final top container is an ad on home, category, and detail pages", asy
   await expect(page.locator("main .ad-card")).toHaveCount(1);
 });
 
+test("ad loading and unfilled responses do not shift the layout at any breakpoint", async ({ page }) => {
+  for (const width of [320, 390, 480, 481, 768, 800, 801, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1050 });
+    await page.goto("/");
+    const ad = page.locator(".ad-card--side");
+    await expect(ad).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(() => [...document.images].every((image) => image.complete));
+    const measure = () => page.evaluate(() => {
+      const card = document.querySelector(".ad-card--side")!.getBoundingClientRect();
+      const next = document.querySelector('[aria-label="This week’s news"]')!.getBoundingClientRect();
+      const frame = document.querySelector(".ad-card-frame")!.getBoundingClientRect();
+      return { x: card.x, y: card.y, width: card.width, height: card.height, nextTop: next.top, frameHeight: frame.height, pageWidth: document.documentElement.scrollWidth };
+    });
+    const before = await measure();
+    expect(before.frameHeight).toBe(280);
+    expect(before.pageWidth).toBe(width);
+    expect(before.x + before.width).toBeLessThanOrEqual(width);
+    const unit = ad.locator("ins");
+    expect(await unit.getAttribute("data-ad-format")).toBeNull();
+    expect(await unit.getAttribute("data-full-width-responsive")).toBeNull();
+    // Simulate an async fill at the requested height, then a smaller creative,
+    // and finally an unfilled response. The reservation must survive all three.
+    await unit.evaluate((element) => {
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "display:block;width:100%;height:280px;border:0";
+      element.append(iframe);
+      element.setAttribute("data-ad-status", "filled");
+    });
+    expect(await measure()).toEqual(before);
+    await unit.evaluate((element) => {
+      element.style.height = "250px";
+      element.querySelector("iframe")!.style.height = "250px";
+    });
+    expect(await measure()).toEqual(before);
+    await unit.evaluate((element) => {
+      element.replaceChildren();
+      element.style.height = "0px";
+      element.setAttribute("data-ad-status", "unfilled");
+    });
+    expect(await measure()).toEqual(before);
+  }
+});
+
+test("category and detail ads reserve their dimensions before requesting a creative", async ({ page }) => {
+  await page.addInitScript(() => {
+    const requests: { width: number; height: number }[] = [];
+    Object.assign(window, {
+      adRequests: requests,
+      adsbygoogle: { push: () => {
+        const unit = document.querySelector("ins.adsbygoogle")!;
+        const rect = unit.getBoundingClientRect();
+        requests.push({ width: rect.width, height: rect.height });
+      } },
+    });
+  });
+  for (const width of [320, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1050 });
+    for (const url of ["/?section=models", `/?post=${fixtures[0]!.id}`]) {
+      await page.goto(url);
+      const ad = page.locator("main .ad-card");
+      await expect(ad).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const before = await ad.boundingBox();
+      const requests = await page.evaluate(() => (window as Window & { adRequests: { width: number; height: number }[] }).adRequests);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.height).toBe(280);
+      expect(requests[0]!.width).toBeGreaterThan(0);
+      expect(requests[0]!.width).toBeLessThan(width);
+      await ad.locator("ins").evaluate((unit) => {
+        const iframe = document.createElement("iframe");
+        iframe.style.cssText = "display:block;width:100%;height:280px;border:0";
+        unit.append(iframe);
+      });
+      expect(await ad.boundingBox()).toEqual(before);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    }
+  }
+});
+
 test("home uses insight rankings when available", async ({ page }) => {
   const ranked = fixtures.find((post) => post.workflow_type === "news" && post.id !== fixtures[0]!.id)!;
   await page.route("**/api/posts/rankings?*", (route) => route.fulfill({
