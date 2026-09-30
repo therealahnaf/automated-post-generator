@@ -12,15 +12,40 @@ from pathlib import Path
 
 try:
     from .generate_description import DESCRIPTION_SEPARATOR
+    from .finalize_description import MAX_DESCRIPTION_CHARACTERS
 except ImportError:
     from generate_description import DESCRIPTION_SEPARATOR
+    from finalize_description import MAX_DESCRIPTION_CHARACTERS
 
 
 SOURCES_MARKER = "\n\nSources:\n"
+SOURCE_LINK_NOTICE = "Visit the link in bio for links to all the sources"
+
+
+def add_source_link_notice(description: str) -> str:
+    """Insert the fixed caption notice once, before sources and hashtags."""
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r"\n\s*\n", description.replace(SOURCE_LINK_NOTICE, ""))
+        if paragraph.strip()
+    ]
+    insertion = next((
+        index for index, paragraph in enumerate(paragraphs)
+        if paragraph.startswith("Sources:\n")
+        or re.fullmatch(r"(?:#[^\s]+\s*)+", paragraph)
+    ), len(paragraphs))
+    paragraphs.insert(insertion, SOURCE_LINK_NOTICE)
+    caption = "\n\n".join(paragraphs)
+    if len(caption) > MAX_DESCRIPTION_CHARACTERS:
+        raise ValueError(
+            f"Caption with source-link notice is {len(caption)} characters; "
+            f"platform maximum is {MAX_DESCRIPTION_CHARACTERS}. Shorten the copy."
+        )
+    return caption
 
 
 def split_finalized_description(description: str) -> tuple[str, str, str]:
-    description = description.strip()
+    description = description.replace(SOURCE_LINK_NOTICE, "").strip()
     body, marker, sources = description.rpartition(SOURCES_MARKER)
     if not marker:
         body = description
@@ -56,7 +81,7 @@ def order_description(description: str, primary_language: str) -> str:
     ordered = english
     if sources:
         ordered = f"{ordered}{SOURCES_MARKER}{sources}"
-    return ordered
+    return add_source_link_notice(ordered)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         description = args.description_file.read_text(encoding="utf-8")
+        caption = order_description(description, "english")
         manifest = None
         if args.english_title:
             try:
@@ -85,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         for platform in ("facebook", "instagram"):
             output = args.output_dir / f"{platform}-description.txt"
             output.write_text(
-                order_description(description, "english") + "\n",
+                caption + "\n",
                 encoding="utf-8",
             )
             print(output.resolve())
