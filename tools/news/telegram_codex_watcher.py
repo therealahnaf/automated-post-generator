@@ -45,7 +45,7 @@ CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
 WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "auto")
 POST_LANGUAGES = ("english", "bangla")
-CODEX_MODEL = "gpt-5.6-terra"
+CODEX_MODEL = "gpt-6.1-sol"
 CODEX_MODEL_REASONING_EFFORT = "medium"
 WORKFLOW_LABELS = {
     "news": "News",
