@@ -649,7 +649,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 "--ask-for-approval",
                 "never",
                 "--model",
-                "gpt-6.1-sol",
+                "gpt-6-luna",
                 "--config",
                 'model_reasoning_effort="medium"',
             ],
