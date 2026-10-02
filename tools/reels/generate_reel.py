@@ -28,16 +28,16 @@ import requests
 from PIL import Image, ImageDraw
 
 try:
-    from tools.news import codeastrix_footer, generate_post
+    from tools.news import advertisement_footer, generate_post
 except ImportError:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tools.news import codeastrix_footer, generate_post
+    from tools.news import advertisement_footer, generate_post
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-RENDER_VERSION = 3
+RENDER_VERSION = 4
 MIN_FRAME_RATE = Fraction(1, 1)
 MAX_FRAME_RATE = Fraction(240, 1)
 # Leave one source frame of headroom: FFmpeg timestamps a frame on its end
@@ -240,6 +240,29 @@ def reel_timing(source_duration: float) -> tuple[float, float]:
     return round(total - outro, 3), round(total, 3)
 
 
+def footage_layout(source_size: tuple[int, int]) -> dict[str, int]:
+    """Match FFmpeg's fitted footage and keep a full banner below its edge."""
+    source_width, source_height = source_size
+    if source_width < 1 or source_height < 1:
+        raise ValueError("Source video dimensions must be positive.")
+    width, height = CANVAS
+    banner_height = advertisement_footer.footer_height(width)
+    available_height = height - banner_height
+    scale = min(width / source_width, available_height / source_height)
+    fitted_width = max(1, int(source_width * scale + 0.5))
+    fitted_height = max(1, int(source_height * scale + 0.5))
+    # FFmpeg's default yuv420 overlay rounds placement down to even pixels.
+    video_top = int(min((height - fitted_height) / 2, available_height - fitted_height))
+    video_top -= video_top % 2
+    return {
+        "width": fitted_width,
+        "height": fitted_height,
+        "top": video_top,
+        "banner_top": video_top + fitted_height,
+        "banner_height": banner_height,
+    }
+
+
 def make_layers(
     directory: Path,
     *,
@@ -248,6 +271,7 @@ def make_layers(
     highlight: str,
     frame_rate: str,
     include_outro: bool = True,
+    source_size: tuple[int, int] = CANVAS,
 ) -> dict[str, Path]:
     _, fps = normalize_frame_rate(frame_rate)
     directory.mkdir(parents=True, exist_ok=True)
@@ -271,8 +295,10 @@ def make_layers(
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"
     overlay.save(overlay_path, "PNG", optimize=True)
-    footer_path = directory / "codeastrix-footer.png"
-    codeastrix_footer.make_footer_layer(CANVAS).save(
+    footer_path = directory / "thebitstoday-advertisement.png"
+    advertisement_footer.make_footer_layer(
+        CANVAS, top=footage_layout(source_size)["banner_top"]
+    ).save(
         footer_path,
         "PNG",
         optimize=True,
@@ -372,15 +398,20 @@ def render_reel(
     output.parent.mkdir(parents=True, exist_ok=True)
     start = content_end
     has_outro = content_end < total_duration
+    banner_height = advertisement_footer.footer_height(CANVAS[0])
+    available_height = CANVAS[1] - banner_height
     base_filter = (
         "[0:v]trim=duration={total},setpts=PTS-STARTPTS,split=2[bg][fg];"
         "[bg]fps={fps},"
         "scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10:2,scale=1080:1920,"
         "eq=brightness=-0.20:saturation=0.85[bg2];"
-        "[fg]fps={fps},scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
-        "[bg2][fg2]overlay=(W-w)/2:(H-h)/2[base];"
-    ).format(total=total_duration, fps=frame_rate)
+        "[fg]fps={fps},scale=1080:{available}:force_original_aspect_ratio=decrease[fg2];"
+        "[bg2][fg2]overlay=(W-w)/2:'min((H-h)/2,H-h-{banner})'[base];"
+    ).format(
+        total=total_duration, fps=frame_rate,
+        available=available_height, banner=banner_height,
+    )
     if has_outro:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
@@ -593,6 +624,7 @@ def reusable_render(
             return None
         expected = {
             "render_version": RENDER_VERSION,
+            "advertisement_sha256": sha256_file(advertisement_footer.DEFAULT_BANNER),
             "workflow_type": "reel",
             "tweet_id": tweet_id,
             "headline": headline,
@@ -691,6 +723,7 @@ def main(argv: list[str] | None = None) -> int:
                     highlight=highlight,
                     frame_rate=str(source_info["frame_rate"]),
                     include_outro=has_outro,
+                    source_size=(int(source_info["width"]), int(source_info["height"])),
                 )
                 atomic_render_reel(
                     source,
@@ -709,6 +742,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             metadata = {
                 "render_version": RENDER_VERSION,
+                "advertisement_sha256": sha256_file(advertisement_footer.DEFAULT_BANNER),
+                "advertisement_placement": "below_video",
                 "workflow_type": "reel",
                 "tweet_id": str(tweet["id"]),
                 "source_url": str(tweet.get("url") or ""),

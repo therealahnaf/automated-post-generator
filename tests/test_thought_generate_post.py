@@ -77,13 +77,11 @@ class ThoughtGeneratePostTests(unittest.TestCase):
         self.assertNotEqual(cover.getbbox(), None)
         self.assertNotEqual(card.getbbox(), None)
         for image in (cover, card):
-            footer = image.crop((0, 1192, 1080, 1350))
-            colors = footer.getcolors(
-                maxcolors=footer.width * footer.height
-            ) or []
-            values = {color for _, color in colors}
-            self.assertIn(generate_post.codeastrix_footer.BLUE_LIGHT[:3], values)
-            self.assertIn(generate_post.codeastrix_footer.WHITE[:3], values)
+            renderer = generate_post.advertisement_footer
+            footer = image.crop((0, renderer.footer_top(image.size), 1080, 1350))
+            self.assertEqual(
+                footer.tobytes(), renderer.load_banner(1080).convert("RGB").tobytes()
+            )
 
     def test_cli_outputs_ordered_carousel_metadata_and_preview(self) -> None:
         copy_path = self.root / "copy.json"

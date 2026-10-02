@@ -20,7 +20,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from dotenv import load_dotenv
 
 try:
-    from . import codeastrix_footer
+    from . import advertisement_footer
     from .local_backgrounds import (
         DEFAULT_BACKGROUND_DIR,
         list_backgrounds,
@@ -34,7 +34,7 @@ try:
         read_post_language,
     )
 except ImportError:
-    import codeastrix_footer
+    import advertisement_footer
     from local_backgrounds import (
         DEFAULT_BACKGROUND_DIR,
         list_backgrounds,
@@ -665,7 +665,7 @@ def paste_feature_photo(
         bounded_size = max_size
         if content_top is not None:
             available_height = (
-                codeastrix_footer.footer_top(canvas.size)
+                advertisement_footer.footer_top(canvas.size)
                 - content_top
                 - FEATURE_IMAGE_VERTICAL_GAP * 2
             )
@@ -678,13 +678,13 @@ def paste_feature_photo(
     if content_top is None:
         y = min(
             top,
-            codeastrix_footer.footer_top(canvas.size)
+            advertisement_footer.footer_top(canvas.size)
             - FEATURE_IMAGE_VERTICAL_GAP
             - photo.height,
         )
     else:
         available_region = (
-            codeastrix_footer.footer_top(canvas.size) - content_top
+            advertisement_footer.footer_top(canvas.size) - content_top
         )
         y = content_top + (available_region - photo.height) // 2
 
@@ -749,7 +749,7 @@ def paste_brand_logo(canvas: Image.Image, logo_path: Path | None) -> None:
         logo.thumbnail((118, 118), Image.Resampling.LANCZOS)
     margin = 46
     x = canvas.width - margin - logo.width
-    y = codeastrix_footer.footer_top(canvas.size) - margin - logo.height
+    y = advertisement_footer.footer_top(canvas.size) - margin - logo.height
     canvas.alpha_composite(logo, (x, y))
 
 
@@ -1067,7 +1067,7 @@ def compose_post(
         }[style]
         renderer(draw, title, source, post_date, font_override)
     paste_brand_logo(canvas, logo_path)
-    canvas = codeastrix_footer.apply_footer(canvas)
+    canvas = advertisement_footer.apply_footer(canvas)
 
     return canvas.convert("RGB")
 

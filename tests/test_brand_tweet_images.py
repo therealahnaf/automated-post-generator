@@ -147,11 +147,11 @@ class BrandTweetImagesTests(unittest.TestCase):
             self.assertTrue(any(red > 220 and green < 130 for _, (red, green, _) in colors or []))
             self.assertEqual(metadata["source_size"], [400, 240])
             self.assertEqual(metadata["rendered_size"], [400, 240])
-            self.assertEqual(metadata["source_box"], [340, 476, 740, 716])
+            self.assertEqual(metadata["source_box"], [340, 497, 740, 737])
             self.assertEqual(metadata["aspect_ratio"], "4:5")
             self.assertEqual(metadata["border_color"], "#212121")
             self.assertTrue(all(channel < 80 for channel in footer_pixel))
-            self.assertEqual(metadata["codeastrix_footer_height"], 158)
+            self.assertEqual(metadata["advertisement_footer_height"], 116)
 
     def test_scales_large_portrait_down_without_cropping(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -172,8 +172,8 @@ class BrandTweetImagesTests(unittest.TestCase):
             )
 
             self.assertEqual(metadata["output_size"], [1080, 1350])
-            self.assertEqual(metadata["rendered_size"], [273, 1092])
-            self.assertEqual(metadata["source_box"], [403, 50, 676, 1142])
+            self.assertEqual(metadata["rendered_size"], [284, 1134])
+            self.assertEqual(metadata["source_box"], [398, 50, 682, 1184])
 
     def test_rejects_non_positive_border(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -31,18 +31,10 @@ class ProductGeneratePostTests(unittest.TestCase):
         values = {color for _, color in colors}
         self.assertIn(generate_post.news_post.BRAND_CORAL[:3], values)
         self.assertIn(generate_post.news_post.BRAND_MINT[:3], values)
-        footer = result.crop((0, 1192, 1080, 1350))
-        footer_colors = footer.getcolors(
-            maxcolors=footer.width * footer.height
-        ) or []
-        footer_values = {color for _, color in footer_colors}
-        self.assertIn(
-            generate_post.model_post.codeastrix_footer.BLUE_LIGHT[:3],
-            footer_values,
-        )
-        self.assertIn(
-            generate_post.model_post.codeastrix_footer.WHITE[:3],
-            footer_values,
+        renderer = generate_post.model_post.advertisement_footer
+        footer = result.crop((0, renderer.footer_top(result.size), 1080, 1350))
+        self.assertEqual(
+            footer.tobytes(), renderer.load_banner(1080).convert("RGB").tobytes()
         )
 
     def test_primary_renders_bangla_platform_labels_and_intro(self) -> None:

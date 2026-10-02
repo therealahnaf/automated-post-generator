@@ -22,7 +22,7 @@ from tools.models.generate_post import (
     compose_media_secondary,
 )
 from tools.news import generate_description as news_description
-from tools.news import codeastrix_footer
+from tools.news import advertisement_footer
 from tools.news import local_backgrounds
 from tools.news.generate_carousel_copy import (
     MAX_SECONDARY_CARDS,
@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
                     description,
                     args.date,
                 )
-            image = codeastrix_footer.apply_footer(image)
+            image = advertisement_footer.apply_footer(image)
             image.save(
                 output_path,
                 format="PNG",

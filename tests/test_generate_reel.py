@@ -1,14 +1,47 @@
 import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from PIL import Image
 
 from tools.reels import generate_reel
 
 
 class GenerateReelTests(unittest.TestCase):
+    def test_landscape_advertisement_touches_video_lower_edge(self) -> None:
+        layout = generate_reel.footage_layout((1280, 720))
+        self.assertEqual(layout["height"], 608)
+        self.assertEqual(layout["top"], 656)
+        self.assertEqual(layout["banner_top"], 1264)
+        self.assertEqual(layout["banner_height"], 116)
+
+    def test_tall_footage_reserves_banner_space_without_cropping(self) -> None:
+        for size in ((1080, 1920), (720, 2560), (1080, 1080), (1080, 1350)):
+            with self.subTest(size=size):
+                layout = generate_reel.footage_layout(size)
+                self.assertEqual(layout["banner_top"], layout["top"] + layout["height"])
+                self.assertLessEqual(layout["banner_top"] + layout["banner_height"], 1920)
+                self.assertAlmostEqual(layout["width"] / layout["height"], size[0] / size[1], delta=0.002)
+
+    def test_layers_use_approved_asset_immediately_below_footage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layers = generate_reel.make_layers(
+                Path(directory), headline="A robot in action", post_date=date(2026, 10, 2),
+                highlight="dual", frame_rate="30/1", include_outro=False,
+                source_size=(1280, 720),
+            )
+            with Image.open(layers["footer"]) as layer:
+                self.assertEqual(layer.getpixel((0, 1263))[3], 0)
+                self.assertEqual(layer.getpixel((0, 1380))[3], 0)
+                self.assertEqual(
+                    layer.crop((0, 1264, 1080, 1380)).tobytes(),
+                    generate_reel.advertisement_footer.load_banner().tobytes(),
+                )
+
     def test_rejects_non_x_video_hosts(self) -> None:
         self.assertTrue(
             generate_reel.valid_x_video_url(
@@ -86,8 +119,8 @@ class GenerateReelTests(unittest.TestCase):
 
     def test_timing_caps_long_video_and_reserves_outro(self) -> None:
         content, total = generate_reel.reel_timing(63.62)
-        self.assertEqual(content, 56.5)
-        self.assertEqual(total, 59.5)
+        self.assertEqual(content, generate_reel.MAX_DURATION - generate_reel.OUTRO_DURATION)
+        self.assertEqual(total, generate_reel.MAX_DURATION)
         short_content, short_total = generate_reel.reel_timing(10)
         self.assertEqual(short_content, 10)
         self.assertEqual(short_total, 10)
@@ -121,6 +154,8 @@ class GenerateReelTests(unittest.TestCase):
         self.assertNotIn("fps=5", filter_complex)
         self.assertIn("[bg]fps=60/1", filter_complex)
         self.assertIn("[fg]fps=60/1", filter_complex)
+        self.assertIn("scale=1080:1804", filter_complex)
+        self.assertIn("min((H-h)/2,H-h-116)", filter_complex)
         self.assertIn("fps=60/1,setsar=1", filter_complex)
         self.assertIn("scale=270:480", filter_complex)
         self.assertEqual(command[command.index("-r") + 1], "60/1")

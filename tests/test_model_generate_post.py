@@ -17,12 +17,13 @@ class ModelGeneratePostTests(unittest.TestCase):
         background.save(payload, format="PNG")
         self.background_bytes = payload.getvalue()
 
-    def assert_has_codeastrix_footer(self, image: Image.Image) -> None:
-        footer = image.crop((0, 1192, 1080, 1350))
-        colors = footer.getcolors(maxcolors=footer.width * footer.height) or []
-        values = {color for _, color in colors}
-        self.assertIn(generate_post.codeastrix_footer.BLUE_LIGHT[:3], values)
-        self.assertIn(generate_post.codeastrix_footer.WHITE[:3], values)
+    def assert_has_advertisement_footer(self, image: Image.Image) -> None:
+        renderer = generate_post.advertisement_footer
+        footer = image.crop((0, renderer.footer_top(image.size), image.width, image.height))
+        self.assertEqual(
+            footer.convert("RGB").tobytes(),
+            renderer.load_banner(image.width).convert("RGB").tobytes(),
+        )
 
     def test_primary_renders_fixed_headline_in_middle(self) -> None:
         result = generate_post.compose_primary(
@@ -38,7 +39,7 @@ class ModelGeneratePostTests(unittest.TestCase):
         values = {color for _, color in colors}
         self.assertIn(generate_post.news_post.BRAND_CORAL[:3], values)
         self.assertIn(generate_post.news_post.BRAND_MINT[:3], values)
-        self.assert_has_codeastrix_footer(result)
+        self.assert_has_advertisement_footer(result)
 
     def test_primary_renders_bangla_platform_labels(self) -> None:
         result = generate_post.compose_primary(
@@ -95,7 +96,7 @@ class ModelGeneratePostTests(unittest.TestCase):
             if blue > 180 and red < 60 and green < 120
         )
         self.assertGreater(blue_pixels, 100_000)
-        self.assert_has_codeastrix_footer(result)
+        self.assert_has_advertisement_footer(result)
 
     def test_media_secondary_centers_short_image_between_text_and_footer(self) -> None:
         media_color = (231, 117, 43)
@@ -141,7 +142,7 @@ class ModelGeneratePostTests(unittest.TestCase):
             gap_after_text = media_top - text_bottom
             gap_before_footer = generate_post.MEDIA_BOTTOM - media_bottom
             self.assertLessEqual(abs(gap_after_text - gap_before_footer), 1)
-            self.assert_has_codeastrix_footer(result)
+            self.assert_has_advertisement_footer(result)
 
     def test_no_media_summary_reuses_primary_background(self) -> None:
         primary = generate_post.compose_primary(
@@ -158,7 +159,7 @@ class ModelGeneratePostTests(unittest.TestCase):
 
         self.assertEqual(primary.getpixel((20, 20)), summary.getpixel((20, 20)))
         self.assertNotEqual(primary.getpixel((540, 650)), summary.getpixel((540, 650)))
-        self.assert_has_codeastrix_footer(summary)
+        self.assert_has_advertisement_footer(summary)
 
     def test_no_media_cli_renders_one_card_per_description_segment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

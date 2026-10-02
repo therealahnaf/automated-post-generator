@@ -152,23 +152,11 @@ class GeneratePostTests(unittest.TestCase):
         )
         self.assertGreater(red_pixels, 1000)
 
-        footer = result.crop((0, 1200, 1080, 1350))
-        footer_red_pixels = sum(
-            1
-            for red, green, blue in (
-                footer.get_flattened_data()
-                if hasattr(footer, "get_flattened_data")
-                else footer.getdata()
-            )
-            if red > 200 and green < 50 and blue < 60
+        renderer = generate_post.advertisement_footer
+        footer = result.crop((0, renderer.footer_top(result.size), 1080, 1350))
+        self.assertEqual(
+            footer.tobytes(), renderer.load_banner(1080).convert("RGB").tobytes()
         )
-        self.assertEqual(footer_red_pixels, 0)
-        footer_colors = footer.getcolors(
-            maxcolors=footer.width * footer.height
-        ) or []
-        footer_values = {color for _, color in footer_colors}
-        self.assertIn(generate_post.codeastrix_footer.BLUE_LIGHT[:3], footer_values)
-        self.assertIn(generate_post.codeastrix_footer.WHITE[:3], footer_values)
 
     def test_first_tweet_photo_is_discovered_and_rounded_without_cropping(self) -> None:
         background = Image.new("RGB", (1024, 1280), (35, 70, 100))
@@ -216,7 +204,7 @@ class GeneratePostTests(unittest.TestCase):
         # the old oversized gap below the headline.
         green_rows = [
             y
-            for y in range(180, generate_post.codeastrix_footer.footer_top(result.size))
+            for y in range(180, generate_post.advertisement_footer.footer_top(result.size))
             if any(
                 result.getpixel((x, y))[0] < 40
                 and result.getpixel((x, y))[1] > 170
@@ -239,7 +227,7 @@ class GeneratePostTests(unittest.TestCase):
                 content_top=430,
             )
 
-        footer_top = generate_post.codeastrix_footer.footer_top(canvas.size)
+        footer_top = generate_post.advertisement_footer.footer_top(canvas.size)
         self.assertLessEqual(abs((y - 430) - (footer_top - y - height)), 1)
         self.assertGreater(height, 620)
 
@@ -501,18 +489,10 @@ class GeneratePostTests(unittest.TestCase):
                 self.assertIn(generate_post.BRAND_CORAL[:3], values)
                 self.assertIn(generate_post.BRAND_MINT[:3], values)
 
-                footer = result.crop((0, 1192, 1080, 1350))
-                footer_colors = footer.getcolors(
-                    maxcolors=footer.width * footer.height
-                ) or []
-                footer_values = {color for _, color in footer_colors}
-                self.assertIn(
-                    generate_post.codeastrix_footer.BLUE_LIGHT[:3],
-                    footer_values,
-                )
-                self.assertIn(
-                    generate_post.codeastrix_footer.WHITE[:3],
-                    footer_values,
+                renderer = generate_post.advertisement_footer
+                footer = result.crop((0, renderer.footer_top(result.size), 1080, 1350))
+                self.assertEqual(
+                    footer.tobytes(), renderer.load_banner(1080).convert("RGB").tobytes()
                 )
 
 

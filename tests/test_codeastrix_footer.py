@@ -12,7 +12,7 @@ class CodeastrixFooterTests(unittest.TestCase):
         top = codeastrix_footer.footer_top(result.size)
 
         self.assertEqual(result.size, (1080, 1350))
-        self.assertEqual(top, 1192)
+        self.assertEqual(top, 1234)
         self.assertEqual(result.getpixel((500, top - 1)), (180, 20, 20, 255))
         self.assertNotEqual(result.getpixel((500, top + 20)), (180, 20, 20, 255))
         self.assertEqual(result.getpixel((500, 1349))[3], 255)
@@ -28,8 +28,8 @@ class CodeastrixFooterTests(unittest.TestCase):
         image = Image.new("RGBA", (540, 675), "white")
         result = codeastrix_footer.apply_footer(image)
 
-        self.assertEqual(codeastrix_footer.footer_height(540), 79)
-        self.assertEqual(codeastrix_footer.footer_top(result.size), 596)
+        self.assertEqual(codeastrix_footer.footer_height(540), 58)
+        self.assertEqual(codeastrix_footer.footer_top(result.size), 617)
 
 
 if __name__ == "__main__":

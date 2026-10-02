@@ -12,9 +12,9 @@ from typing import Any
 from PIL import Image, ImageColor, ImageOps
 
 try:
-    from . import codeastrix_footer
+    from . import advertisement_footer
 except ImportError:
-    import codeastrix_footer
+    import advertisement_footer
 
 DEFAULT_BORDER_COLOR = "#212121"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -135,7 +135,7 @@ def brand_tweet_image(
         border_width = max(24, min(72, round(min(canvas_size) * 0.045)))
     if border_width < 1:
         raise ValueError("Border width must be at least 1 pixel.")
-    content_height = codeastrix_footer.footer_top(canvas_size)
+    content_height = advertisement_footer.footer_top(canvas_size)
     available_width = canvas_width - border_width * 2
     available_height = content_height - border_width * 2
     if available_width < 1 or available_height < 1:
@@ -172,7 +172,7 @@ def brand_tweet_image(
         logo,
         (logo_x, logo_y),
     )
-    codeastrix_footer.draw_footer(canvas)
+    advertisement_footer.draw_footer(canvas)
 
     save_image(canvas, output_path)
     return {
@@ -194,7 +194,7 @@ def brand_tweet_image(
         "border_color": border_color.upper(),
         "border_width": border_width,
         "logo": str(logo_path.resolve()),
-        "codeastrix_footer_height": canvas_height - content_height,
+        "advertisement_footer_height": canvas_height - content_height,
     }
 
 
