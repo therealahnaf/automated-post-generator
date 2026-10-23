@@ -23,6 +23,12 @@ import requests
 from dotenv import load_dotenv
 
 try:
+    from tools.thoughts import youtube_companion
+except ModuleNotFoundError:  # Direct script invocation from outside the repository.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from tools.thoughts import youtube_companion
+
+try:
     import fcntl
 except ImportError:  # Windows
     fcntl = None
@@ -1076,6 +1082,7 @@ def claim_next_job(connection: sqlite3.Connection) -> sqlite3.Row | None:
         """,
         (utc_now(), utc_now(), row["id"]),
     )
+    youtube_companion.enqueue(connection, row)
     connection.commit()
     return connection.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
 
@@ -1738,6 +1745,24 @@ def handle_update(
         return
     callback = parse_callback(update, config)
     if callback is not None:
+        if youtube_companion.CALLBACK.fullmatch(callback.data):
+            try:
+                result = youtube_companion.forward_decision(session, callback)
+            except RuntimeError:
+                answer_callback(
+                    session, config, callback.callback_id,
+                    "YouTube service unavailable. Please try this button again.",
+                )
+                record_event(connection, callback, "youtube_service_unavailable", None)
+                return
+            record_event(connection, callback, "youtube_" + result["review_status"], None)
+            answer_callback(session, config, callback.callback_id, result["message"])
+            if result["review_status"] in {"approved", "cancelled"}:
+                edit_text(
+                    session, config, callback.message_id,
+                    "YouTube companion\n\n" + result["message"],
+                )
+            return
         preview_cancel_match = re.fullmatch(
             r"preview_cancel:(\d+):(\d+)",
             callback.data,
@@ -2198,6 +2223,15 @@ def watch(config: Config, connection: sqlite3.Connection) -> None:
         while True:
             try:
                 dispatch_ready_jobs(config, connection, runner)
+                companion = youtube_companion.flush_one(connection, session)
+                if companion:
+                    send_text(
+                        session, config,
+                        "YouTube companion queued. A separate thumbnail/video approval will follow; the carousel continues unchanged."
+                        if companion["submitted"] else
+                        "The YouTube companion could not be queued yet and will retry. The carousel continues unchanged.",
+                        reply_to_message_id=companion["reply_to"],
+                    )
                 offset = int(get_setting(connection, "telegram_offset") or "0")
                 updates = get_updates(session, config, offset)
                 for update in sorted(updates, key=lambda item: int(item.get("update_id", -1))):

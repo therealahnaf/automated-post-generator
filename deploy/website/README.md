@@ -27,6 +27,39 @@ Independent Docker Compose stack: nginx, FastAPI, PostgreSQL 16. The database ha
 no host port. Public nginx permits only read requests to `/api`; publishing uses
 the host-only API at `http://127.0.0.1:18501`. Never expose that port publicly.
 
+### Tokens For Thought video companion
+
+The API image also runs the `story-worker` and `youtube-delivery` Compose
+services, under the same non-root UID 10001. All three containers mount
+`/opt/thebitstoday/shared/story-videos` at `/var/lib/thebitstoday/story-videos`.
+This directory holds the private SQLite queue, approval/upload checkpoints,
+and local video assets and survives release/image changes. Do not run the
+alternative host systemd worker templates alongside these container workers.
+
+Transfer only `OPENROUTER_API_KEY` and the `YOUTUBE_*` authorization fields over
+SSH into a temporary mode-600 dotenv file, then run from the publisher checkout:
+
+```sh
+.venv/bin/python deploy/website/configure_story_video.py --credentials-file /opt/thebitstoday/shared/incoming-youtube.env
+```
+
+This merges the video fields into the existing publisher and shared Compose
+environments, preserves production Facebook/Instagram/R2/database secrets,
+copies Telegram settings from the production publisher, and creates the media
+directory with the container UID. Back up both env files first and remove the
+temporary credential-transfer file afterward. Never copy the workstation's
+entire `.env`. Root watcher `STORY_VIDEO_API_URL` points at the loopback API;
+the public proxy deliberately cannot accept approval writes.
+
+Deploy the exact Git commit with `deploy_release.py`, then restart the existing
+`bitstoday-telegram-watcher.service` only after confirming no generation/resume
+turn is running. The deployer starts both container workers and refuses to
+interrupt active video generation or uploads. No second Telegram polling
+process is created. Verify the OAuth channel with the existing authorize
+helper's `--status` or the backend publisher's read-only `channel()` method.
+Deploying never authorizes a video upload: a new preview still needs its own
+Accept button. Existing pending carousel approvals remain in the watcher DB.
+
 Build `aggregated-news/dist` with `npm ci && npm run build`, then ship it alongside
 `content_api` and this directory (exclude `.env`, caches and node_modules).
 Create a mode-600 `.env` beside `compose.yml` using the example. Use random hex

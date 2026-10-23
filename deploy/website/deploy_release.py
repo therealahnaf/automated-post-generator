@@ -1,8 +1,10 @@
 """Deploy the clean publisher checkout's exact commit; never copy loose source files."""
 import argparse
+from contextlib import closing
 import os
 from pathlib import Path
 import subprocess
+import sqlite3
 import tarfile
 import tempfile
 import time
@@ -11,6 +13,18 @@ import urllib.request
 
 def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, text=True, capture_output=True).stdout.strip()
+
+
+def require_idle_story_workers(base: Path) -> None:
+    database = base / 'shared/story-videos/jobs.sqlite3'
+    if not database.is_file():
+        return
+    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        generating = ('jobs' in tables and connection.execute("SELECT 1 FROM jobs WHERE status='running' LIMIT 1").fetchone())
+        delivering = ('youtube_reviews' in tables and connection.execute("SELECT 1 FROM youtube_reviews WHERE state IN ('delivering','publishing') LIMIT 1").fetchone())
+        if generating or delivering:
+            raise RuntimeError('Story generation or YouTube delivery is active. Wait before deploying; no paid requests were interrupted.')
 
 
 def main():
@@ -23,6 +37,7 @@ def main():
     if args.commit != commit or run('git', 'status', '--porcelain', '--untracked-files=no', cwd=repo):
         raise RuntimeError('Publisher must be clean and at the requested commit.')
     os.environ['RELEASE_SHA'] = commit
+    require_idle_story_workers(base)
     release = base / 'releases' / commit
     release.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as temporary:
@@ -47,6 +62,7 @@ def main():
                '-f', str(release / 'deploy/website/compose.yml')]
     print('Building release', commit, flush=True)
     subprocess.run(compose + ['build', 'api', 'web'], check=True)
+    require_idle_story_workers(base)
     subprocess.run(['systemctl', 'start', 'thebitstoday-backup.service'], check=True)
     previous = app.resolve()
     if not app.is_symlink():
@@ -56,7 +72,7 @@ def main():
     pending.symlink_to(release, target_is_directory=True)
     os.replace(pending, app)
     try:
-        subprocess.run(compose + ['up', '-d', '--no-deps', 'api', 'web'], check=True)
+        subprocess.run(compose + ['up', '-d', '--no-deps', 'api', 'web', 'story-worker', 'youtube-delivery'], check=True)
         for attempt in range(60):
             try:
                 with urllib.request.urlopen('http://127.0.0.1:18501/api/health', timeout=5) as response:

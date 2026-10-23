@@ -47,6 +47,7 @@ from pydantic import (
 
 from .config import api_key, database_url
 from . import instagram_insights, storage
+from .story_video.router import create_router as story_video_router
 
 Workflow = Literal["news", "model", "product", "informative", "reel"]
 MAX_FILE_BYTES = 128 * 1024 * 1024
@@ -124,6 +125,9 @@ def authorize(authorization: Annotated[str | None, Header()] = None) -> None:
         authorization.encode("utf-8"), expected.encode("utf-8")
     ):
         raise HTTPException(401, "Invalid content API credentials.")
+
+
+app.include_router(story_video_router(authorize))
 
 
 @app.exception_handler(psycopg.Error)

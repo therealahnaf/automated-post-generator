@@ -1,0 +1,19 @@
+[Unit]
+Description=The Bits Today story video generation worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/automated-post-generator
+EnvironmentFile=/root/automated-post-generator/.env
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+ExecStart=/root/automated-post-generator/.venv/bin/python -m content_api.story_video.worker
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,11 @@
 # The Bits Today content API
 
+The isolated [story video API](story_video/README.md) chains X fetching,
+emotion-tagged storytelling, narration, segment illustrations and video rendering.
+Its files stay local. Informative requests also queue a separate Telegram
+thumbnail/30-second preview with Accept/Cancel approval for YouTube publication.
+The Facebook/Instagram carousel and its approval remain independent.
+
 FastAPI + PostgreSQL metadata, with all durable media in private Cloudflare R2
 objects. Media is content-hash deduplicated and immutable. Stable API media URLs
 redirect browsers to one-hour signed R2 URLs; bytes do not stream through the VM.

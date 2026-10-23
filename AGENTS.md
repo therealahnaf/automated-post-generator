@@ -65,6 +65,18 @@ The selected workflow owns its copy, research, visual assets, layout, and
 ordered carousel construction. Do not mix layouts or generation rules between
 workflows.
 
+Informative requests also have an independent Tokens For Thought YouTube
+companion, described in `tools/thoughts/WORKFLOW.md`. This does not replace or
+authorize the Facebook/Instagram carousel. The existing Telegram watcher queues
+that companion deterministically; do not queue it again from a watcher Codex
+turn. YouTube uses its own thumbnail and 30-second Telegram preview and its own
+Accept/Cancel buttons. Only that preview's Accept button authorizes uploading
+the full video to YouTube; neither a carousel `yes` nor the unattended publishing
+exception grants YouTube approval. Cancelling either branch leaves the other
+branch unchanged. The YouTube video uses its approved TFT logo/landscape design;
+the shared sponsor-footer requirement below remains mandatory for the social
+carousel and reel workflows.
+
 Every generated visual item must include the approved shared Codeastrix sponsor
 footer from `tools/news/codeastrix_footer.py`. This includes news primary cards,
 branded tweet-media secondary cards, every model/product/informative carousel

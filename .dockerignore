@@ -8,6 +8,7 @@
 .venv
 .automation
 output
+experiments
 work
 deploy/website/backups
 deploy/website/letsencrypt

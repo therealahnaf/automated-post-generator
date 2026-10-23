@@ -62,3 +62,28 @@ reel layouts in this workflow.
    in `AGENTS.md`.
 
 Do not use OpenAI image generation in this workflow.
+
+## Independent YouTube companion
+
+Keep every carousel step and its exact `yes` Facebook/Instagram approval above
+unchanged. Selecting Informative in Telegram additionally queues one independent
+story-video job through the existing watcher's durable outbox. The backend
+generates the tagged story, 1.3x narration, landscape segment artwork, TFT logo,
+philosophical title, and thumbnail using both approved thumbnail references.
+Its prompts and implementation live under `content_api/story_video/`.
+
+The separate delivery worker sends the thumbnail, title, complete YouTube
+description, and first 30 seconds to Telegram, followed by Accept/Cancel
+buttons. Accept authorizes the **full** video upload to the configured YouTube
+channel, with its thumbnail; Cancel prevents YouTube publication. Never treat
+these buttons as approval for the carousel, and never treat the carousel's
+`yes` as YouTube approval. A changed package requires a new preview. Do not
+automatically publish YouTube, even for an unattended carousel request.
+
+For Telegram watcher jobs this branch is queued automatically: do not run
+another generation or poll Telegram from Codex. For an interactive informative
+request, queue it once with `tools/thoughts/queue_youtube.py <x-url>
+--idempotency-key <stable-request-key>` and then continue the carousel. Reuse
+that key for HTTP retries. A YouTube failure/cancellation does not fail, restart,
+or republish the carousel. Report the two branches separately. No other workflow
+type launches the YouTube companion.
