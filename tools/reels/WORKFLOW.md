@@ -38,6 +38,10 @@ tweet JSON and never reclassify it during revisions or publishing.
    - type-out text reading `Full Video Linked in Description`, followed by
      `Stay ahead with The Bits Today`.
 
+   If a user requests no outro, pass `--no-outro`; this preserves the full
+   source duration (subject to the 59.5-second limit) and omits the outro
+   overlays and type-out while retaining the headline and sponsor footer.
+
    Videos longer than 59.5 seconds are trimmed. Source videos shorter than 15
    seconds retain their natural total duration and do not receive the outro
    overlay or type-out. Videos of 15 seconds or longer reserve their final

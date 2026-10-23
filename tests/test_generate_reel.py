@@ -132,6 +132,13 @@ class GenerateReelTests(unittest.TestCase):
         self.assertEqual(boundary_content, 12)
         self.assertEqual(boundary_total, 15)
 
+    def test_explicit_no_outro_keeps_full_duration_but_still_caps_at_limit(self) -> None:
+        self.assertEqual(generate_reel.reel_timing(40, include_outro=False), (40, 40))
+        self.assertEqual(
+            generate_reel.reel_timing(90, include_outro=False),
+            (generate_reel.MAX_DURATION, generate_reel.MAX_DURATION),
+        )
+
     @patch("tools.reels.generate_reel.subprocess.run")
     def test_short_render_uses_only_headline_overlay(self, mock_run) -> None:
         mock_run.return_value = SimpleNamespace(returncode=0, stderr="")

@@ -1196,7 +1196,7 @@ def main(argv: list[str] | None = None) -> int:
         source_text = normalize_news_text(args.news)
         if not source_text:
             raise ValueError("The news sentence cannot be empty.")
-        title = normalize_news_text(args.headline).strip().rstrip(".")
+        title = normalize_news_text(args.headline).strip()
         if not title:
             raise ValueError("The headline cannot be empty.")
         image_prompt = build_image_prompt(source_text, title)

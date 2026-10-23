@@ -15,6 +15,7 @@ MAX_DESCRIPTION_CHARACTERS = 2200
 SOURCES_HEADING = "Sources:"
 PUBLISHER_LABELS = {
     "abc.net.au": "ABC News",
+    "fda.gov": "FDA",
     "apnews.com": "AP News",
     "arxiv.org": "arXiv",
     "aisi.gov.uk": "UK AI Security Institute",

@@ -37,7 +37,7 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-RENDER_VERSION = 4
+RENDER_VERSION = 5
 MIN_FRAME_RATE = Fraction(1, 1)
 MAX_FRAME_RATE = Fraction(240, 1)
 # Leave one source frame of headroom: FFmpeg timestamps a frame on its end
@@ -230,11 +230,11 @@ def frame_rates_match(left: str, right: str) -> bool:
     return abs(left_fps - right_fps) <= 0.001
 
 
-def reel_timing(source_duration: float) -> tuple[float, float]:
+def reel_timing(source_duration: float, *, include_outro: bool = True) -> tuple[float, float]:
     total = min(source_duration, MAX_DURATION)
     if total < MIN_VIDEO_DURATION:
         raise ValueError(f"Source video must be at least {MIN_VIDEO_DURATION:.0f} seconds.")
-    if source_duration < OUTRO_MINIMUM_SOURCE_DURATION:
+    if not include_outro or source_duration < OUTRO_MINIMUM_SOURCE_DURATION:
         return round(total, 3), round(total, 3)
     outro = min(OUTRO_DURATION, total - 1.0)
     return round(total - outro, 3), round(total, 3)
@@ -614,6 +614,7 @@ def reusable_render(
     post_date: date,
     source: Path | None,
     selected_format: dict[str, Any] | None,
+    include_outro: bool,
 ) -> dict[str, Any] | None:
     metadata_path = output.with_suffix(".json")
     if not output.is_file() or not metadata_path.is_file():
@@ -630,6 +631,7 @@ def reusable_render(
             "headline": headline,
             "headline_highlight": highlight,
             "post_date": post_date.isoformat(),
+            "outro_requested": include_outro,
         }
         if any(metadata.get(key) != value for key, value in expected.items()):
             return None
@@ -671,6 +673,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-video", type=Path)
     parser.add_argument("--date", help="YYYY-MM-DD; defaults to today.")
     parser.add_argument("--highlight", choices=("cyan", "red", "dual"))
+    parser.add_argument(
+        "--no-outro",
+        action="store_true",
+        help="Keep the full source video and omit the branded outro.",
+    )
     return parser
 
 
@@ -706,6 +713,7 @@ def main(argv: list[str] | None = None) -> int:
                 post_date=post_date,
                 source=source if args.source_video else None,
                 selected_format=selected_format,
+                include_outro=not args.no_outro,
             )
             if existing is not None:
                 print(json.dumps(existing, ensure_ascii=False, indent=2))
@@ -713,7 +721,9 @@ def main(argv: list[str] | None = None) -> int:
             if not args.source_video:
                 download_video(str(selected_format["url"]), source)
             source_info = probe_video(source)
-            content_end, total_duration = reel_timing(float(source_info["duration"]))
+            content_end, total_duration = reel_timing(
+                float(source_info["duration"]), include_outro=not args.no_outro
+            )
             has_outro = content_end < total_duration
             with tempfile.TemporaryDirectory(prefix="bits-today-reel-") as temp_dir:
                 layers = make_layers(
@@ -756,6 +766,7 @@ def main(argv: list[str] | None = None) -> int:
                 "content_duration": content_end,
                 "outro_duration": round(total_duration - content_end, 3),
                 "outro_enabled": has_outro,
+                "outro_requested": not args.no_outro,
                 "duration": rendered_info["duration"],
                 "width": rendered_info["width"],
                 "height": rendered_info["height"],
