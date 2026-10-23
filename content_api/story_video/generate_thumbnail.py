@@ -1,7 +1,7 @@
-"""Generate one philosophical video title and a two-reference Qwen thumbnail.
+"""Generate a source-grounded two-reference Qwen thumbnail (no title call).
 
 Run from the repository root:
-    python -m content_api.story_video.generate_title_thumbnail X_URL --output-dir output/story-thumbnails/example
+    python -m content_api.story_video.generate_thumbnail X_URL --output-dir output/story-thumbnails/example
 
 This standalone experiment does not modify the video pipeline, generate audio,
 publish, or upload. Existing output directories are refused to avoid paid reruns.
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from .errors import PipelineError
-from .packaging import generate_title_and_thumbnail
+from .packaging import generate_thumbnail_from_url
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,20 +33,19 @@ def main(argv: list[str] | None = None) -> int:
             "Output directory already exists; inspect its results before explicitly choosing another paid run."
         )
     try:
-        result = generate_title_and_thumbnail(args.url, args.output_dir)
+        result = generate_thumbnail_from_url(args.url, args.output_dir)
     except PipelineError as exc:
-        print(f"Title/thumbnail generation failed: {exc.code}: {exc}", file=sys.stderr)
+        print(f"Thumbnail generation failed: {exc.code}: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 -- keep HTTP credentials and provider details private
         print(
-            f"Title/thumbnail generation failed ({type(exc).__name__}); inspect the saved status.",
+            f"Thumbnail generation failed ({type(exc).__name__}); inspect the saved status.",
             file=sys.stderr,
         )
         return 1
     print(
         json.dumps(
             {
-                "title": result["title"],
                 "thumbnail": str(
                     (args.output_dir / result["thumbnail_file"]).resolve()
                 ),

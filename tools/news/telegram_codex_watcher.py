@@ -1757,10 +1757,14 @@ def handle_update(
                 return
             record_event(connection, callback, "youtube_" + result["review_status"], None)
             answer_callback(session, config, callback.callback_id, result["message"])
-            if result["review_status"] in {"approved", "cancelled"}:
+            if result["review_status"] in {"title_pending", "cancelled"}:
                 edit_text(
                     session, config, callback.message_id,
                     "YouTube companion\n\n" + result["message"],
+                    reply_markup={"inline_keyboard": [[{
+                        "text": "Cancel YouTube upload",
+                        "callback_data": callback.data[:-1] + "c",
+                    }]]} if result["review_status"] == "title_pending" else None,
                 )
             return
         preview_cancel_match = re.fullmatch(
@@ -1920,6 +1924,16 @@ def handle_update(
     if message is None:
         set_setting(connection, "telegram_offset", str(update_id + 1))
         connection.commit()
+        return
+    # Handle bound YouTube title replies BEFORE commands, URLs or carousel yes/revisions.
+    # The marker is just a hint: the backend checks the saved prompt ID and approver.
+    if youtube_companion.is_title_reply(update):
+        try:
+            result = youtube_companion.forward_title_reply(session, message)
+        except RuntimeError as exc:
+            result = {"review_status": "service_unavailable", "message": str(exc)}
+        record_event(connection, message, "youtube_title_" + result["review_status"], None)
+        send_text(session, config, result["message"], reply_to_message_id=message.message_id)
         return
     if message.text.startswith("/"):
         command_match = re.match(

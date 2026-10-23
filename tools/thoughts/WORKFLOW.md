@@ -69,13 +69,18 @@ Keep every carousel step and its exact `yes` Facebook/Instagram approval above
 unchanged. Selecting Informative in Telegram additionally queues one independent
 story-video job through the existing watcher's durable outbox. The backend
 generates the tagged story, 1.3x narration, landscape segment artwork, TFT logo,
-philosophical title, and thumbnail using both approved thumbnail references.
+and thumbnail using both approved thumbnail references. It does not generate
+a YouTube title or make a title/concept text-model call.
 Its prompts and implementation live under `content_api/story_video/`.
 
-The separate delivery worker sends the thumbnail, title, complete YouTube
+The separate delivery worker sends the thumbnail, complete YouTube
 description, and first 30 seconds to Telegram, followed by Accept/Cancel
-buttons. Accept authorizes the **full** video upload to the configured YouTube
-channel, with its thumbnail; Cancel prevents YouTube publication. Never treat
+buttons. Accept approves the video/thumbnail only, then the bot sends a title
+request with Cancel. The same approver must reply directly to that request with
+the title (one line, 1–100 characters, no angle brackets). That reply authorizes
+the **full** video upload to the configured YouTube channel with its thumbnail,
+using the supplied title verbatim except surrounding whitespace. No rewriting
+or title-generation call occurs. Cancel prevents YouTube publication. Never treat
 these buttons as approval for the carousel, and never treat the carousel's
 `yes` as YouTube approval. A changed package requires a new preview. Do not
 automatically publish YouTube, even for an unattended carousel request.

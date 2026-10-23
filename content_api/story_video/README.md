@@ -1,10 +1,12 @@
 # Narrated story videos
 
 Isolated API feature: X URL → tagged story → segment narration and illustrations
-→ local landscape MP4, philosophical title, and thumbnail. Informative Telegram
+→ local landscape MP4 and thumbnail. Titles are supplied by the user in Telegram,
+not generated. Informative Telegram
 requests keep the existing Facebook/Instagram carousel and add this as a separate
-YouTube branch. Its own Telegram preview and Accept/Cancel buttons authorize only
-YouTube. Website archival and R2 are not used for these local video artifacts.
+YouTube branch. Its own preview, Accept, then manual title reply authorize only
+YouTube. Accept alone never queues upload. Website archival and R2 are not used
+for these local video artifacts.
 
 ## Run
 
@@ -26,7 +28,7 @@ one queued job, use `python -m content_api.story_video.worker --once`.
 FFmpeg and FFprobe must be on PATH on Windows or Linux, with libx264 and AAC
 encoders. Install the updated requirements (including `google-auth`). No
 PostgreSQL migrations are required: private job/review tables migrate additively
-in local SQLite. Old jobs are not automatically sent or published.
+in local SQLite. Old jobs without preview opt-in are not automatically sent or published.
 
 Start a **third terminal** for outgoing Telegram previews and approved YouTube
 uploads, so a long generation cannot block approvals:
@@ -66,22 +68,24 @@ the content API key to a public frontend.
 
 ## Create a job
 
-### Standalone title and thumbnail experiment
+### Standalone thumbnail generation
 
 The reusable packaging service is now included in video jobs. It also remains
 available independently without generating narration or video:
 
 ```sh
-python -m content_api.story_video.generate_title_thumbnail https://x.com/waiting4_asi/status/2106090345230635176 --output-dir output/story-thumbnails/example
+python -m content_api.story_video.generate_thumbnail https://x.com/waiting4_asi/status/2106090345230635176 --output-dir output/story-thumbnails/example
 ```
 
-It uses the existing fetcher and OpenRouter credentials, makes one DeepSeek text
-request for an open philosophical statement plus an art concept, then one Qwen
-2K/16:9 image request attaching **both** original thumbnail references. It saves
-`title.txt`, `thumbnail.png` (1280×720), the original generated image, prompts,
+It uses the existing fetcher and OpenRouter credentials, making only one Qwen
+2K/16:9 image request attaching **both** original thumbnail references and the
+tweet context. No title/concept text-model request is made. It saves
+`thumbnail.png` (1280×720), the original generated image, prompts,
 source context, reference snapshots and `packaging.json` usage/status metadata.
-No title is printed on the artwork. Edit `prompts/video_title.md` and
-`prompts/thumbnail.md` to adjust these independently of narration/frame prompts.
+No title is printed on the artwork. Edit `prompts/thumbnail.md` independently of
+narration/frame prompts. The title-generation prompt, model setting and old
+`generate_title_thumbnail` CLI have been removed. User titles have no AI keyword
+or word-count restriction and are never automatically rewritten.
 Existing output directories are refused; failed paid calls are not retried.
 This command does not regenerate a story, audio, video, or publish/upload anything.
 
@@ -170,16 +174,26 @@ and review status are independent: `completed` does not mean published.
    reuse `informative-youtube:<chat-id>:<source-message-id>`; they cannot duplicate
    paid video generation. No other workflow queues a companion.
 2. After generation, the delivery worker checks the configured channel and sends
-   the thumbnail/title, first 30 seconds, and complete final YouTube description.
-   A final message identifies the channel and visibility and has **Accept ·
-   Publish to YouTube** and **Cancel**. Every component must arrive before the
+   the thumbnail, first 30 seconds, and complete final YouTube description.
+   A final message identifies the channel and visibility and has **Accept video**
+   and **Cancel**. Every component must arrive before the
    buttons become active. Only the full video is uploaded to YouTube.
 3. The existing watcher forwards `tft:` button callbacks to the authenticated
    `POST /api/internal/story-videos/{job_id}/decision` endpoint. It validates the
    allowed sender, chat, exact message, nonce, current state, and package hashes.
    Typed `yes` and carousel approval/cancellation never approve/cancel YouTube.
-4. Accept atomically queues publication; duplicate/stale buttons cannot queue
-   another upload. Cancel retains local files but prevents publication. Any
+4. Accept atomically queues a **title request**, not an upload. The delivery worker
+   sends a new message asking the accepting user to reply directly with a title,
+   with a Cancel button. The watcher forwards that reply to authenticated
+   `POST /api/internal/story-videos/title-reply` with `chat_id`, `sender_id`,
+   `message_id`, `reply_to_message_id`, and `text`. The API verifies the stored
+   prompt ID, original approver, chat, active state and unchanged media. A valid
+   title reply queues publication using the exact wording (outer whitespace is
+   trimmed). Titles must be one line of 1–100 characters, without `<`, `>` or
+   control characters. Invalid replies leave the request open for correction.
+   Unrelated messages, carousel `yes`, and titles sent to other messages never
+   authorize upload. Duplicate replies/buttons cannot queue another upload or
+   replace an accepted title. Cancel retains local files but prevents publication. Any
    changes to title, thumbnail, description, video, preview, channel, or privacy
    invalidate the approved package before upload.
 5. The upload is resumable. Session URI and returned video ID are checkpointed
@@ -188,17 +202,25 @@ and review status are independent: `completed` does not mean published.
    status is `published_thumbnail_failed` with the existing URL; do not upload
    again. The channel may need custom-thumbnail eligibility enabled.
 
-Review states: `pending`, `delivering`, `awaiting_approval`, `approved`,
+Review states: `pending`, `delivering`, `awaiting_approval`, `title_pending`,
+`prompting_title`, `awaiting_title`, `title_prompt_failed`, `approved`,
 `publishing`, `published`, `cancelled`, `preview_failed`, `publication_failed`,
 `published_thumbnail_failed`; jobs without previews use `not_requested`.
 
 Authenticated `POST /api/internal/story-videos/{job_id}/retry-delivery` explicitly
-retries a failed preview (new nonce and new approval) or an already approved
+retries a failed preview (new nonce and new approval), a failed title prompt
+(still requires the user's title reply), or an already approved
 failed upload using its existing session/video ID. It never reapproves cancelled
 jobs, regenerates media, or creates another upload when an old session may exist.
 Expired/uncertain sessions fail closed for operator review. No automatic retry
 of unknown YouTube writes is performed. YouTube and Telegram errors are reported
 separately from the unaffected carousel.
+
+The additive SQLite migration preserves existing jobs and uploads. Older
+generated-title approvals with no upload started are sent a fresh preview and
+require manual titles. Already-started uploads retain their original title/hash
+and resumable checkpoint; they never start a duplicate upload. Waiting for a
+title survives API and worker restarts. No PostgreSQL schema change is needed.
 
 For an interactive informative request (not a watcher turn):
 
@@ -219,8 +241,8 @@ watcher must be deployed together. Restarting only the API is insufficient.
    narration instead of letting the model's default high reasoning consume it.
 3. The parser splits at delivery/emotion boundaries and restores active directions
    and balanced paired tags for each independent speech request.
-   The shared packaging service also creates a philosophical title and 2K
-   landscape thumbnail from the same fetched context, attaching both original
+   The shared packaging service asks Qwen directly for a 2K landscape thumbnail
+   grounded in the same fetched context, attaching both original
    thumbnail style references; it does not fetch X a second time.
 4. `fish-audio/drama-3` generates each narrated segment using the Adrian voice and
    exact provider speed multiplier.
@@ -263,7 +285,6 @@ frames.ffconcat          image timing used by FFmpeg
 video.mp4                final video, exposed only after verification
 preview.mp4              first 30 seconds for Telegram, never the uploaded video
 description.txt          final YouTube description
-packaging/title.txt      philosophical title
 packaging/thumbnail.png  final 1280×720 thumbnail
 packaging/               prompts, both references and packaging usage metadata
 ```
@@ -273,6 +294,9 @@ The experimental story/image CLIs now read these same canonical files, including
 the user's storytelling example and 1,000-word instruction. Every job snapshots
 its prompts, reference and logo for reproducibility. No API credentials enter artifacts.
 Changed speed/logo defaults apply to new jobs only; existing videos are not rewritten.
+The final user-supplied title and its Telegram reply ID are stored in the private
+review row in `jobs.sqlite3` and exposed as `title` in authenticated job status,
+not synthesized into a generated artifact.
 
 ## Reliability and limits
 
@@ -293,7 +317,7 @@ explicitly started workers can claim different jobs safely. No worker is started
 implicitly on API import, Uvicorn reload, or web-worker startup.
 
 Files stay local indefinitely for now; monitor disk usage and keep them private.
-A job makes one story request, one title/concept request, one thumbnail request,
+A job makes one story request and one thumbnail request,
 plus one audio and one image request per narrated segment. Tests mock paid calls,
 Telegram and YouTube writes, and render real FFmpeg videos from fixtures:
 

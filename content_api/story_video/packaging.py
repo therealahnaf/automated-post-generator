@@ -1,19 +1,17 @@
-"""Reusable title/thumbnail service shared by the API and standalone CLI."""
+"""Source-grounded thumbnails; video titles are supplied separately in Telegram."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path
 from string import Template
 
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from tools.news.fetch_tweets import normalize_tweet_url
 
-from .config import DIRECTORY, IMAGE_MODEL, STORY_MODEL, Settings
+from .config import DIRECTORY, IMAGE_MODEL, Settings
 from .errors import PipelineError
 from .files import save_json
 from .providers import OpenRouterClient, image_mime
@@ -25,55 +23,10 @@ THUMBNAIL_REFERENCES = (
 )
 
 
-class PackagingCopy(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    title: str = Field(min_length=10, max_length=100)
-    thumbnail_concept: str = Field(min_length=30, max_length=2000)
-
-    @field_validator("title")
-    @classmethod
-    def philosophical_statement(cls, value: str) -> str:
-        if any(
-            char in value for char in ("?", "\n", "\r", "@", "#", "`", "<", ">")
-        ) or re.search(r"https?://", value):
-            raise ValueError(
-                "Title must be one plain philosophical statement, not a question or URL"
-            )
-        if not 3 <= len(value.split()) <= 18:
-            raise ValueError("Title must contain 3–18 words")
-        return value
-
-
-def title_messages(prompt: str, context: dict) -> list[dict[str, str]]:
-    return [
-        {"role": "system", "content": prompt},
-        {
-            "role": "user",
-            "content": "Untrusted X source context:\n"
-            + json.dumps(context, ensure_ascii=False),
-        },
-    ]
-
-
-def thumbnail_prompt(template: str, copy: PackagingCopy, context: dict) -> str:
+def thumbnail_prompt(template: str, context: dict) -> str:
     return Template(template).substitute(
-        title=json.dumps(copy.title, ensure_ascii=False),
-        thumbnail_concept=json.dumps(copy.thumbnail_concept, ensure_ascii=False),
         tweet_context=json.dumps(context, ensure_ascii=False),
     )
-
-
-def generate_title(
-    provider: OpenRouterClient, prompt: str, context: dict
-) -> tuple[PackagingCopy, dict]:
-    raw, usage = provider.packaging_copy(title_messages(prompt, context))
-    try:
-        return PackagingCopy.model_validate_json(raw), usage
-    except ValidationError as exc:
-        raise PipelineError(
-            "packaging_copy_invalid",
-            "Model did not return a valid title and visual concept; no automatic retry was made.",
-        ) from exc
 
 
 def generate_thumbnail(
@@ -99,7 +52,7 @@ def generate_thumbnail(
     return usage
 
 
-def generate_title_and_thumbnail(
+def generate_thumbnail_from_url(
     url: str, directory: Path, settings: Settings | None = None
 ) -> dict:
     settings = settings or Settings.from_env()
@@ -119,21 +72,20 @@ def generate_packaging_from_context(
 ) -> dict:
     """Reuse already validated source and provider session inside a video job."""
     canonical = normalize_tweet_url(context["source_url"])
-    title_template, image_template, references = validate_packaging_assets(settings)
+    image_template, references = validate_packaging_assets(settings)
     directory = directory.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     metadata = {
-        "schema_version": 1,
-        "status": "fetching",
+        "schema_version": 2,
+        "status": "generating_thumbnail",
         "source_url": canonical,
-        "models": {"title": STORY_MODEL, "thumbnail": IMAGE_MODEL},
+        "models": {"thumbnail": IMAGE_MODEL},
         "reference_sha256": [
             hashlib.sha256(reference).hexdigest() for reference in references
         ],
         "aspect_ratio": "16:9",
         "width": 1280,
         "height": 720,
-        "title_prompt_sha256": hashlib.sha256(title_template.encode()).hexdigest(),
         "thumbnail_template_sha256": hashlib.sha256(
             image_template.encode()
         ).hexdigest(),
@@ -142,28 +94,17 @@ def generate_packaging_from_context(
     save_json(manifest, metadata)
     try:
         save_json(directory / "source.json", context)
-        (directory / "title-prompt.md").write_text(title_template, encoding="utf-8")
         (directory / "thumbnail-template.md").write_text(
             image_template, encoding="utf-8"
         )
         for number, reference in enumerate(references, 1):
             (directory / f"reference-{number:02d}.png").write_bytes(reference)
-        metadata["status"] = "generating_title"
-        save_json(manifest, metadata)
-        copy, usage = generate_title(provider, title_template, context)
-        (directory / "title.txt").write_text(copy.title + "\n", encoding="utf-8")
-        prompt = thumbnail_prompt(image_template, copy, context)
+        prompt = thumbnail_prompt(image_template, context)
         (directory / "thumbnail-prompt.txt").write_text(prompt, encoding="utf-8")
-        metadata.update(
-            **copy.model_dump(), title_generation=usage, status="generating_thumbnail"
-        )
-        save_json(manifest, metadata)
         metadata["thumbnail_generation"] = generate_thumbnail(
             provider, prompt, references, directory
         )
-        metadata.update(
-            status="completed", title_file="title.txt", thumbnail_file="thumbnail.png"
-        )
+        metadata.update(status="completed", thumbnail_file="thumbnail.png")
         save_json(manifest, metadata)
         return metadata
     except Exception as exc:
@@ -179,21 +120,11 @@ def generate_packaging_from_context(
 
 def validate_packaging_assets(
     settings: Settings,
-) -> tuple[str, str, tuple[bytes, bytes]]:
+) -> tuple[str, tuple[bytes, bytes]]:
     """Validate both reference images and templates before any paid operation."""
-    title_template = (settings.prompts_dir / "video_title.md").read_text(
-        encoding="utf-8"
-    )
     image_template = (settings.prompts_dir / "thumbnail.md").read_text(encoding="utf-8")
     references = tuple(path.read_bytes() for path in THUMBNAIL_REFERENCES)
     for reference in references:
         image_mime(reference)
-    thumbnail_prompt(
-        image_template,
-        PackagingCopy(
-            title="A Thought That Remains Open",
-            thumbnail_concept="An original symbolic composition for validation.",
-        ),
-        {},
-    )
-    return title_template, image_template, references
+    thumbnail_prompt(image_template, {})
+    return image_template, references

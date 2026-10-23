@@ -361,6 +361,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(story, "A story.")
         payload = post.call_args.kwargs["json"]
         self.assertEqual(payload["reasoning"], {"effort": "low", "exclude": True})
+        self.assertEqual(payload["model"], "deepseek/deepseek-v4-flash-0731")
         self.assertGreaterEqual(payload["max_tokens"], 12000)
 
 
@@ -465,15 +466,6 @@ class RenderTests(unittest.TestCase):
             story = "[curious] " + "word " * 500 + "[thoughtful] " + "idea " * 500
             provider = Mock()
             provider.story.return_value = (story, {})
-            provider.packaging_copy.return_value = (
-                json.dumps(
-                    {
-                        "title": "The Freedom We Create May Outgrow Our Control",
-                        "thumbnail_concept": "An original classical bust watches a doorway open into a vast unknown space.",
-                    }
-                ),
-                {},
-            )
 
             def thumbnail(_prompt, _references, path, **_kwargs):
                 path.write_bytes(image_bytes())
@@ -511,11 +503,19 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(result["status"], "completed")
             manifest = json.loads((root / job["id"] / "manifest.json").read_text())
             self.assertEqual(manifest["word_count"], 1000)
+            self.assertNotIn("title", manifest["models"])
+            self.assertEqual(
+                manifest["models"]["story"], "deepseek/deepseek-v4-flash-0731"
+            )
             self.assertEqual(len(manifest["segments"]), 2)
             self.assertTrue((root / job["id"] / "preview.mp4").is_file())
             self.assertTrue((root / job["id"] / manifest["thumbnail_file"]).is_file())
-            self.assertIn("May Outgrow", manifest["title"])
-            provider.packaging_copy.assert_called_once()
+            self.assertNotIn("title", manifest)
+            self.assertEqual(
+                manifest["title_source"], "telegram_reply_after_video_acceptance"
+            )
+            self.assertFalse((root / job["id"] / "packaging/title.txt").exists())
+            provider.packaging_copy.assert_not_called()
             provider.image_with_references.assert_called_once()
             self.assertEqual(manifest["request"]["speech_speed"], 1.3)
             self.assertEqual(manifest["logo_overlay"]["width_px"], LOGO_WIDTH)

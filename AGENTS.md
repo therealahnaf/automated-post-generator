@@ -70,9 +70,12 @@ companion, described in `tools/thoughts/WORKFLOW.md`. This does not replace or
 authorize the Facebook/Instagram carousel. The existing Telegram watcher queues
 that companion deterministically; do not queue it again from a watcher Codex
 turn. YouTube uses its own thumbnail and 30-second Telegram preview and its own
-Accept/Cancel buttons. Only that preview's Accept button authorizes uploading
-the full video to YouTube; neither a carousel `yes` nor the unattended publishing
-exception grants YouTube approval. Cancelling either branch leaves the other
+Accept/Cancel buttons. Accept approves only the video/thumbnail and prompts the
+approver to reply in Telegram with a title. No YouTube title is generated. Only
+that approver's reply to the exact title request authorizes uploading the full
+video using their supplied title; neither a carousel `yes` nor the unattended
+publishing exception grants YouTube approval. Cancel remains available while
+waiting for the title. Cancelling either branch leaves the other
 branch unchanged. The YouTube video uses its approved TFT logo/landscape design;
 the shared sponsor-footer requirement below remains mandatory for the social
 carousel and reel workflows.

@@ -153,13 +153,11 @@ class StoryVideoService:
                 )
             document.update(boundaries=boundaries, segments=segments)
             progress("packaging", 0, len(segments))
-            packaging = generate_packaging_from_context(
+            generate_packaging_from_context(
                 source, directory / "packaging", self.settings, provider
             )
             description = (
-                packaging["title"]
-                + "\n\n"
-                + " ".join(segments[0]["text"].split()[:160])
+                " ".join(segments[0]["text"].split()[:160])
                 + "\n\nA philosophical reflection from Tokens For Thought. Narration and illustrations are AI-generated."
                 + "\n\nSource:\n"
                 + request.x_url
@@ -168,8 +166,7 @@ class StoryVideoService:
                 description + "\n", encoding="utf-8"
             )
             document.update(
-                title=packaging["title"],
-                title_file="packaging/title.txt",
+                title_source="telegram_reply_after_video_acceptance",
                 thumbnail_file="packaging/thumbnail.png",
                 description_file="description.txt",
             )

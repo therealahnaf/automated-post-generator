@@ -11,6 +11,7 @@ from uuid import UUID
 import requests
 
 CALLBACK = re.compile(r"tft:([a-f0-9]{32}):([a-f0-9]{12}):([ac])")
+TITLE_PROMPT = re.compile(r"YouTube title request · [a-f0-9-]{36}\n")
 STATUS_URL = re.compile(
     r"https?://(?:www\.)?(?:x\.com|twitter\.com)/[^/\s]+/status/\d+(?:\?[^\s]*)?",
     re.IGNORECASE,
@@ -140,7 +141,7 @@ def forward_decision(session, callback) -> dict:
         )
         if response.status_code == 200:
             result = response.json()
-            if result.get("review_status") not in {"approved", "cancelled"}:
+            if result.get("review_status") not in {"title_pending", "cancelled"}:
                 raise ValueError
             return result
         if response.status_code in {403, 404, 409}:
@@ -152,4 +153,50 @@ def forward_decision(session, callback) -> dict:
     except (requests.RequestException, ValueError, KeyError, TypeError):
         raise RuntimeError(
             "YouTube approval service is unavailable. Try the same button again; no new approval was confirmed here."
+        ) from None
+
+
+def is_title_reply(update: dict) -> bool:
+    """Routing hint only: the API verifies the real prompt ID, chat and actor."""
+    reply = (update.get("message") or {}).get("reply_to_message") or {}
+    sender = reply.get("from") or {}
+    return bool(sender.get("is_bot") and TITLE_PROMPT.match(reply.get("text") or ""))
+
+
+def forward_title_reply(session, message) -> dict:
+    url, headers = api_settings()
+    try:
+        response = session.post(
+            url + "/title-reply",
+            headers=headers,
+            json={
+                "chat_id": message.chat_id,
+                "sender_id": message.sender_id or "",
+                "message_id": message.message_id,
+                "reply_to_message_id": message.reply_to_message_id,
+                "text": message.text,
+            },
+            timeout=(3, 10),
+        )
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("review_status") != "approved" or not isinstance(
+                result.get("title"), str
+            ):
+                raise ValueError
+            return result
+        if response.status_code == 422:
+            return {
+                "review_status": "invalid_title",
+                "message": "Use one line of 1–100 characters, without < or >. Reply to the original YouTube title request again. Nothing was uploaded from this reply.",
+            }
+        if response.status_code in {403, 404, 409}:
+            return {
+                "review_status": "stale",
+                "message": "This YouTube title request is no longer active or authorized, or its video changed. Your reply did not queue another upload.",
+            }
+        raise ValueError
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        raise RuntimeError(
+            "YouTube title service is unavailable. No result was confirmed here; check for the bot's status before retrying your reply to the same title request."
         ) from None

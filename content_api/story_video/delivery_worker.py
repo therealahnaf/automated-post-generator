@@ -31,6 +31,7 @@ def process_next(reviews: ReviewRepository) -> bool:
     if not row:
         return False
     job_id, publishing = row["job_id"], row["state"] == "publishing"
+    prompting_title = row["state"] == "prompting_title"
     telegram = None
     try:
         with lease_heartbeat(reviews, job_id, owner) as lost:
@@ -38,10 +39,15 @@ def process_next(reviews: ReviewRepository) -> bool:
             settings = YouTubeSettings.from_env()
             job = reviews.jobs.get(job_id)
             request = json.loads(job["request_json"])
-            channel_id = row["channel_id"] if publishing else settings.channel_id
-            privacy = row["privacy"] if publishing else request["youtube_privacy"]
+            frozen = publishing or prompting_title
+            channel_id = row["channel_id"] if frozen else settings.channel_id
+            privacy = row["privacy"] if frozen else request["youtube_privacy"]
             package = VideoPackage.load(
-                reviews.jobs.directory / job_id, privacy, channel_id
+                reviews.jobs.directory / job_id,
+                privacy,
+                channel_id,
+                (row["title"] or "") if publishing else "",
+                legacy=publishing and row["flow_version"] == 1,
             )
 
             def update(**values):
@@ -52,6 +58,13 @@ def process_next(reviews: ReviewRepository) -> bool:
                 reviews.update(job_id, owner, **values)
 
             if publishing:
+                if row["flow_version"] == 2 and (
+                    not row["title_message_id"] or not package.title
+                ):
+                    raise PipelineError(
+                        "title_missing",
+                        "A reply to the title request is required before upload.",
+                    )
                 if not row["approved_by"] or not hmac.compare_digest(
                     package.digest, row["package_hash"]
                 ):
@@ -87,6 +100,18 @@ def process_next(reviews: ReviewRepository) -> bool:
                     logger.warning(
                         "YouTube %s published; Telegram notification failed", job_id
                     )
+            elif prompting_title:
+                if telegram.settings.chat_id != row[
+                    "chat_id"
+                ] or not hmac.compare_digest(package.digest, row["package_hash"] or ""):
+                    raise PipelineError(
+                        "package_changed",
+                        "The accepted package or Telegram destination changed. Send a new preview.",
+                    )
+                message_id = telegram.ask_title(job_id, row["nonce"], row["message_id"])
+                update(
+                    state="awaiting_title", title_prompt_id=message_id, last_error=None
+                )
             else:
                 with YouTubePublisher(settings) as publisher:
                     channel = publisher.channel()  # Read only; preview never uploads.
@@ -94,7 +119,7 @@ def process_next(reviews: ReviewRepository) -> bool:
                     package_hash=package.digest,
                     channel_id=channel_id,
                     privacy=privacy,
-                    title=package.title,
+                    title=None,
                     chat_id=telegram.settings.chat_id,
                 )
                 message_id = telegram.send(
@@ -118,6 +143,8 @@ def process_next(reviews: ReviewRepository) -> bool:
                 else "publication_failed"
             )
             if publishing
+            else "title_prompt_failed"
+            if prompting_title and code != "package_changed"
             else "preview_failed"
         )
         try:

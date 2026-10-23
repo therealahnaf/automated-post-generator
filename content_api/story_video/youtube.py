@@ -12,7 +12,7 @@ from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
 
 from .errors import PipelineError
-from .review import VideoPackage
+from .review import VideoPackage, validate_title
 
 API = "https://www.googleapis.com/youtube/v3"
 UPLOAD = "https://www.googleapis.com/upload/youtube/v3"
@@ -122,6 +122,7 @@ class YouTubePublisher:
         self, package: VideoPackage, state: dict, checkpoint: Callable[[dict], None]
     ) -> str:
         """Never starts another upload when a prior upload may already exist."""
+        validate_title(package.title)
         channel = self.channel()
         if channel["id"] != package.channel_id:
             raise PipelineError(

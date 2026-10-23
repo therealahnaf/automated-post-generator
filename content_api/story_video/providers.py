@@ -102,17 +102,18 @@ class OpenRouterClient:
     def story(self, messages: list[dict]) -> tuple[str, dict]:
         return self._text(messages, max_tokens=12288, purpose="story")
 
-    def packaging_copy(self, messages: list[dict]) -> tuple[str, dict]:
-        return self._text(messages, max_tokens=4096, purpose="packaging")
-
     def _text(
-        self, messages: list[dict], *, max_tokens: int, purpose: str
+        self,
+        messages: list[dict],
+        *,
+        max_tokens: int,
+        purpose: str,
     ) -> tuple[str, dict]:
         payload = {
             "model": STORY_MODEL,
             "messages": messages,
-            # DeepSeek defaults to high reasoning, which shares the output budget.
-            # Bound it for narration so planning cannot crowd out the story.
+            # Reasoning shares the output budget. Keep effort low so planning
+            # leaves room for the requested visible copy.
             "max_tokens": max_tokens,
             "reasoning": {"effort": "low", "exclude": True},
             "stream": False,

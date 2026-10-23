@@ -79,6 +79,10 @@ class DeploymentTests(unittest.TestCase):
             conn.commit()
             with self.assertRaises(RuntimeError):
                 require_idle_story_workers(self.root)
+            conn.execute("UPDATE youtube_reviews SET state='prompting_title'")
+            conn.commit()
+            with self.assertRaises(RuntimeError):
+                require_idle_story_workers(self.root)
             conn.execute("UPDATE youtube_reviews SET state='awaiting_approval'")
             conn.commit()
             require_idle_story_workers(self.root)

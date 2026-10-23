@@ -56,3 +56,14 @@ class TelegramDecision(BaseModel):
     chat_id: str = Field(max_length=40)
     message_id: int = Field(ge=1)
     sender_id: str = Field(max_length=40)
+
+
+class TelegramTitleReply(BaseModel):
+    """Trusted watcher forwards IDs; the repository verifies the prompt and actor."""
+
+    model_config = ConfigDict(extra="forbid")
+    chat_id: str = Field(max_length=40)
+    sender_id: str = Field(max_length=40)
+    message_id: int = Field(ge=1)
+    reply_to_message_id: int = Field(ge=1)
+    text: str = Field(max_length=4096)

@@ -22,7 +22,7 @@ def require_idle_story_workers(base: Path) -> None:
     with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         generating = ('jobs' in tables and connection.execute("SELECT 1 FROM jobs WHERE status='running' LIMIT 1").fetchone())
-        delivering = ('youtube_reviews' in tables and connection.execute("SELECT 1 FROM youtube_reviews WHERE state IN ('delivering','publishing') LIMIT 1").fetchone())
+        delivering = ('youtube_reviews' in tables and connection.execute("SELECT 1 FROM youtube_reviews WHERE state IN ('delivering','prompting_title','publishing') LIMIT 1").fetchone())
         if generating or delivering:
             raise RuntimeError('Story generation or YouTube delivery is active. Wait before deploying; no paid requests were interrupted.')
 

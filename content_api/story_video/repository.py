@@ -121,15 +121,6 @@ class JobRepository:
                 ).fetchone()
                 if review:
                     result["review"] = dict(review)
-            if result and result["status"] == "completed":
-                try:
-                    result["title"] = (
-                        (self.directory / job_id / "packaging/title.txt")
-                        .read_text(encoding="utf-8")
-                        .strip()
-                    )
-                except OSError:
-                    pass  # Legacy jobs have no packaging artifacts.
             return result
 
     def claim(self, owner: str) -> dict | None:
@@ -203,7 +194,7 @@ class JobRepository:
                 if json.loads(row["request_json"]).get("send_telegram_preview", False):
                     conn.execute(
                         """INSERT OR IGNORE INTO youtube_reviews
-                        (job_id,state,nonce,updated_at) VALUES (?,'pending',?,?)""",
+                        (job_id,state,nonce,updated_at,flow_version) VALUES (?,'pending',?,?,2)""",
                         (job_id, secrets.token_hex(6), now_iso()),
                     )
             conn.commit()

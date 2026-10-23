@@ -14,7 +14,7 @@ from .errors import IdempotencyConflict, PipelineError, QueueFull
 from .pipeline import StoryVideoService
 from .repository import PREFIX, JobRepository, job_view
 from .review import ReviewRepository
-from .schemas import CreateVideo, JobView, TelegramDecision
+from .schemas import CreateVideo, JobView, TelegramDecision, TelegramTitleReply
 from .telegram import TelegramSettings
 
 
@@ -132,6 +132,28 @@ def create_router(authorize: Callable) -> APIRouter:
             )
         except PipelineError as exc:
             status = 403 if exc.code == "approval_forbidden" else 409
+            raise HTTPException(
+                status, {"code": exc.code, "message": str(exc)}
+            ) from None
+
+    @router.post("/title-reply")
+    def submit_title(
+        reply: TelegramTitleReply,
+        repository: Annotated[JobRepository, Depends(get_repository)],
+    ):
+        try:
+            settings = TelegramSettings.from_env()
+            return ReviewRepository(repository).submit_title(
+                reply, settings.allowed_users, settings.chat_id
+            )
+        except PipelineError as exc:
+            status = (
+                403
+                if exc.code == "approval_forbidden"
+                else 422
+                if exc.code == "title_invalid"
+                else 409
+            )
             raise HTTPException(
                 status, {"code": exc.code, "message": str(exc)}
             ) from None

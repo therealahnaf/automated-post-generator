@@ -116,8 +116,8 @@ class CompanionTests(unittest.TestCase):
                 companion,
                 "forward_decision",
                 return_value={
-                    "review_status": "approved",
-                    "message": "Full video queued for YouTube only.",
+                    "review_status": "title_pending",
+                    "message": "Video accepted; waiting for a title.",
                 },
             ) as decision,
             patch.object(watcher, "answer_callback"),
@@ -136,7 +136,7 @@ class CompanionTests(unittest.TestCase):
             self.conn.execute(
                 "SELECT kind FROM telegram_events WHERE update_id=500"
             ).fetchone()[0],
-            "youtube_approved",
+            "youtube_title_pending",
         )
 
     def test_wrong_actor_is_not_forwarded(self):
@@ -178,6 +178,91 @@ class CompanionTests(unittest.TestCase):
             self.assertRaises(RuntimeError),
         ):
             companion.api_settings()
+
+    def title_update(self, text="My exact title", sender=7):
+        return {
+            "update_id": 600,
+            "message": {
+                "message_id": 890,
+                "chat": {"id": -99},
+                "from": {"id": sender},
+                "text": text,
+                "reply_to_message": {
+                    "message_id": 889,
+                    "from": {"id": 1234, "is_bot": True},
+                    "text": f"YouTube title request · {self.uuid}\n\nReply with your title.",
+                },
+            },
+        }
+
+    def test_title_reply_never_becomes_carousel_yes_command_revision_or_new_url(self):
+        self.queue()
+        for text in (
+            "yes",
+            "/news https://x.com/example/status/123",
+            "https://x.com/example/status/123",
+        ):
+            with (
+                self.subTest(text=text),
+                patch.object(
+                    companion,
+                    "forward_title_reply",
+                    return_value={
+                        "review_status": "approved",
+                        "title": text,
+                        "message": "Title saved.",
+                    },
+                ) as forward,
+                patch.object(watcher, "send_text"),
+                patch.object(watcher, "process_resume") as resume,
+                patch.object(watcher, "enqueue_request") as enqueue,
+            ):
+                update = self.title_update(text)
+                update["update_id"] += len(text)
+                watcher.handle_update(Mock(), self.config, self.conn, update)
+                watcher.handle_update(Mock(), self.config, self.conn, update)
+                forward.assert_called_once()
+                resume.assert_not_called()
+                enqueue.assert_not_called()
+
+    def test_wrong_actor_title_is_not_forwarded(self):
+        with patch.object(companion, "forward_title_reply") as forward:
+            watcher.handle_update(
+                Mock(), self.config, self.conn, self.title_update(sender=8)
+            )
+        forward.assert_not_called()
+
+    def test_title_forwarding_uses_exact_text_prompt_and_sender(self):
+        session = Mock()
+        session.post.return_value = Mock(status_code=200)
+        session.post.return_value.json.return_value = {
+            "review_status": "approved",
+            "title": "Why?",
+            "message": "Title saved.",
+        }
+        message = watcher.parse_message(self.title_update("Why?"), self.config)
+        result = companion.forward_title_reply(session, message)
+        self.assertEqual(result["title"], "Why?")
+        self.assertTrue(session.post.call_args.args[0].endswith("/title-reply"))
+        self.assertEqual(
+            session.post.call_args.kwargs["json"],
+            {
+                "chat_id": "-99",
+                "sender_id": "7",
+                "message_id": 890,
+                "reply_to_message_id": 889,
+                "text": "Why?",
+            },
+        )
+
+    def test_invalid_title_guides_retry_of_same_prompt(self):
+        session = Mock()
+        session.post.return_value = Mock(status_code=422)
+        result = companion.forward_title_reply(
+            session, watcher.parse_message(self.title_update("<bad>"), self.config)
+        )
+        self.assertEqual(result["review_status"], "invalid_title")
+        self.assertIn("original YouTube title request", result["message"])
 
 
 if __name__ == "__main__":
