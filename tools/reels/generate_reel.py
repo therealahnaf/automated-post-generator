@@ -28,16 +28,16 @@ import requests
 from PIL import Image, ImageDraw
 
 try:
-    from tools.news import advertisement_footer, generate_post
+    from tools.news import generate_post
 except ImportError:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tools.news import advertisement_footer, generate_post
+    from tools.news import generate_post
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-RENDER_VERSION = 5
+RENDER_VERSION = 7
 MIN_FRAME_RATE = Fraction(1, 1)
 MAX_FRAME_RATE = Fraction(240, 1)
 # Leave one source frame of headroom: FFmpeg timestamps a frame on its end
@@ -50,8 +50,10 @@ OUTRO_MINIMUM_SOURCE_DURATION = 15.0
 # four-second minimum.
 MIN_VIDEO_DURATION = 0.001
 MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
-OUTRO_TITLE = "Full Video Linked in Description"
-OUTRO_DETAIL = "Stay ahead with The Bits Today"
+# Baked into the Board outro assets; re-render tools/reels/outro to change it.
+OUTRO_TITLE = "Follow The Bits Today For More"
+OUTRO_COLOR = Path(__file__).resolve().parent / "assets" / "outro-board-color.mp4"
+OUTRO_ALPHA = Path(__file__).resolve().parent / "assets" / "outro-board-alpha.mp4"
 
 
 def load_tweet(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -240,40 +242,13 @@ def reel_timing(source_duration: float, *, include_outro: bool = True) -> tuple[
     return round(total - outro, 3), round(total, 3)
 
 
-def footage_layout(source_size: tuple[int, int]) -> dict[str, int]:
-    """Match FFmpeg's fitted footage and keep a full banner below its edge."""
-    source_width, source_height = source_size
-    if source_width < 1 or source_height < 1:
-        raise ValueError("Source video dimensions must be positive.")
-    width, height = CANVAS
-    banner_height = advertisement_footer.footer_height(width)
-    available_height = height - banner_height
-    scale = min(width / source_width, available_height / source_height)
-    fitted_width = max(1, int(source_width * scale + 0.5))
-    fitted_height = max(1, int(source_height * scale + 0.5))
-    # FFmpeg's default yuv420 overlay rounds placement down to even pixels.
-    video_top = int(min((height - fitted_height) / 2, available_height - fitted_height))
-    video_top -= video_top % 2
-    return {
-        "width": fitted_width,
-        "height": fitted_height,
-        "top": video_top,
-        "banner_top": video_top + fitted_height,
-        "banner_height": banner_height,
-    }
-
-
 def make_layers(
     directory: Path,
     *,
     headline: str,
     post_date: date,
     highlight: str,
-    frame_rate: str,
-    include_outro: bool = True,
-    source_size: tuple[int, int] = CANVAS,
 ) -> dict[str, Path]:
-    _, fps = normalize_frame_rate(frame_rate)
     directory.mkdir(parents=True, exist_ok=True)
     overlay = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     gradient = Image.new("L", CANVAS, 0)
@@ -295,93 +270,7 @@ def make_layers(
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"
     overlay.save(overlay_path, "PNG", optimize=True)
-    footer_path = directory / "thebitstoday-advertisement.png"
-    advertisement_footer.make_footer_layer(
-        CANVAS, top=footage_layout(source_size)["banner_top"]
-    ).save(
-        footer_path,
-        "PNG",
-        optimize=True,
-    )
-    layers = {"headline": overlay_path, "footer": footer_path}
-    if not include_outro:
-        return layers
-
-    red = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    ImageDraw.Draw(red).polygon(
-        ((0, 0), (1080, 0), (1080, 360), (0, 650)),
-        fill=generate_post.BRAND_CORAL,
-    )
-    red_path = directory / "outro-coral.png"
-    red.save(red_path, "PNG", optimize=True)
-
-    mint = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    ImageDraw.Draw(mint).polygon(
-        ((0, 1500), (1080, 1180), (1080, 1920), (0, 1920)),
-        fill=generate_post.BRAND_MINT,
-    )
-    mint_path = directory / "outro-mint.png"
-    mint.save(mint_path, "PNG", optimize=True)
-
-    center = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    ImageDraw.Draw(center).polygon(
-        ((0, 650), (1080, 360), (1080, 1180), (0, 1500)),
-        fill=(25, 29, 31, 210),
-    )
-    with Image.open(generate_post.DEFAULT_BRAND_LOGO) as logo_source:
-        logo = logo_source.convert("RGBA")
-        alpha_box = logo.getchannel("A").getbbox()
-        if alpha_box:
-            logo = logo.crop(alpha_box)
-        logo.thumbnail((260, 260), Image.Resampling.LANCZOS)
-        center.alpha_composite(logo, ((1080 - logo.width) // 2, 620))
-    center_path = directory / "outro-center.png"
-    center.save(center_path, "PNG", optimize=True)
-
-    frames = directory / "typeout"
-    frames.mkdir()
-    title_font = generate_post.load_roboto_font(size=58, bold=True)
-    detail_font = generate_post.load_roboto_font(size=42, bold=False)
-    measure = ImageDraw.Draw(Image.new("RGBA", CANVAS))
-    title_x = (1080 - generate_post.text_width(measure, OUTRO_TITLE, title_font)) // 2
-    detail_x = (1080 - generate_post.text_width(measure, OUTRO_DETAIL, detail_font)) // 2
-    for frame_index in range(round(OUTRO_DURATION * fps)):
-        elapsed = frame_index / fps
-        title_progress = max(0.0, min(1.0, (elapsed - 0.9) / 0.9))
-        detail_progress = max(0.0, min(1.0, (elapsed - 1.8) / 0.8))
-        visible_title = OUTRO_TITLE[: round(len(OUTRO_TITLE) * title_progress)]
-        visible_detail = OUTRO_DETAIL[: round(len(OUTRO_DETAIL) * detail_progress)]
-        frame = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(frame)
-        draw.text((title_x, 940), visible_title, font=title_font, fill=generate_post.WHITE)
-        draw.text(
-            (detail_x, 1080),
-            visible_detail,
-            font=detail_font,
-            fill=generate_post.BRAND_MINT,
-        )
-        if title_progress < 1:
-            cursor_x = title_x + generate_post.text_width(draw, visible_title, title_font)
-            cursor_y, cursor_height = 950, 64
-        elif detail_progress < 1:
-            cursor_x = detail_x + generate_post.text_width(draw, visible_detail, detail_font)
-            cursor_y, cursor_height = 1088, 48
-        else:
-            cursor_x, cursor_y, cursor_height = -10, 0, 0
-        if cursor_height and elapsed % 0.4 < (8 / 30):
-            draw.rounded_rectangle(
-                (cursor_x + 5, cursor_y, cursor_x + 10, cursor_y + cursor_height),
-                radius=2,
-                fill=generate_post.BRAND_CORAL,
-            )
-        frame.save(frames / f"frame-{frame_index:03d}.png", "PNG", optimize=True)
-    return {
-        **layers,
-        "coral": red_path,
-        "mint": mint_path,
-        "center": center_path,
-        "frames": frames,
-    }
+    return {"headline": overlay_path}
 
 
 def render_reel(
@@ -398,63 +287,34 @@ def render_reel(
     output.parent.mkdir(parents=True, exist_ok=True)
     start = content_end
     has_outro = content_end < total_duration
-    banner_height = advertisement_footer.footer_height(CANVAS[0])
-    available_height = CANVAS[1] - banner_height
     base_filter = (
         "[0:v]trim=duration={total},setpts=PTS-STARTPTS,split=2[bg][fg];"
         "[bg]fps={fps},"
         "scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10:2,scale=1080:1920,"
         "eq=brightness=-0.20:saturation=0.85[bg2];"
-        "[fg]fps={fps},scale=1080:{available}:force_original_aspect_ratio=decrease[fg2];"
-        "[bg2][fg2]overlay=(W-w)/2:'min((H-h)/2,H-h-{banner})'[base];"
-    ).format(
-        total=total_duration, fps=frame_rate,
-        available=available_height, banner=banner_height,
-    )
+        "[fg]fps={fps},scale=1080:1920:force_original_aspect_ratio=decrease[fg2];"
+        "[bg2][fg2]overlay=(W-w)/2:(H-h)/2[base];"
+    ).format(total=total_duration, fps=frame_rate)
     if has_outro:
         filter_complex = base_filter + (
-            "[1:v]format=rgba[headline];"
-        "[base][headline]overlay=0:0:enable='lt(t,{start})'[v1];"
-        "[2:v]format=rgba[coral];"
-        "[v1][coral]overlay=0:'if(lt(t,{start}),-650,min(0,max(-650,-650+650*(t-{start})/0.55)))':"
-        "enable='gte(t,{start})'[v2];"
-        "[3:v]format=rgba[mint];"
-        "[v2][mint]overlay=0:'if(lt(t,{start}),650,max(0,650-650*(t-{start})/0.55))':"
-        "enable='gte(t,{start})'[v3];"
-        "[4:v]format=rgba,fade=t=in:st={fade_start}:d=0.55:alpha=1[center];"
-        "[v3][center]overlay=0:0:enable='gte(t,{start})'[v4];"
-        "[5:v]format=rgba[footer];"
-        "[6:v]setpts=PTS-STARTPTS+{start}/TB[text];"
-        "[v4][text]overlay=0:0:eof_action=pass:enable='gte(t,{start})'[v5];"
-        "[v5][footer]overlay=0:0,"
-        "fps={fps},setsar=1,format=yuv420p[vout]"
-        ).format(start=start, fade_start=start + 0.35, fps=frame_rate)
+            "[1:v]format=rgba,fade=t=out:st={start}:d=0.25:alpha=1[headline];"
+            "[base][headline]overlay=0:0[v1];"
+            # Copy the matte's luma plane directly so no scaler can remap its range.
+            "[3:v]extractplanes=y[matte];"
+            "[2:v][matte]alphamerge,format=rgba,fps={fps},setpts=PTS-STARTPTS+{start}/TB[outro];"
+            "[v1][outro]overlay=0:0,"
+            "fps={fps},setsar=1,format=yuv420p[vout]"
+        ).format(start=start, fps=frame_rate)
     else:
         filter_complex = base_filter + (
             "[1:v]format=rgba[headline];"
-            "[2:v]format=rgba[footer];"
-            "[base][headline]overlay=0:0[v1];"
-            "[v1][footer]overlay=0:0,"
+            "[base][headline]overlay=0:0,"
             "fps={fps},setsar=1,format=yuv420p[vout]"
         ).format(fps=frame_rate)
-    command = ["ffmpeg", "-y", "-i", str(source)]
-    layer_keys = (
-        ("headline", "coral", "mint", "center", "footer")
-        if has_outro
-        else ("headline", "footer")
-    )
-    for key in layer_keys:
-        command.extend(["-loop", "1", "-i", str(layers[key])])
+    command = ["ffmpeg", "-y", "-i", str(source), "-loop", "1", "-i", str(layers["headline"])]
     if has_outro:
-        command.extend(
-            [
-                "-framerate",
-                frame_rate,
-                "-i",
-                str(layers["frames"] / "frame-%03d.png"),
-            ]
-        )
+        command.extend(["-i", str(OUTRO_COLOR), "-i", str(OUTRO_ALPHA)])
     command.extend(["-filter_complex", filter_complex, "-map", "[vout]"])
     if has_audio:
         command.extend(
@@ -586,6 +446,10 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def outro_sha256() -> list[str]:
+    return [sha256_file(OUTRO_COLOR), sha256_file(OUTRO_ALPHA)]
+
+
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -625,7 +489,7 @@ def reusable_render(
             return None
         expected = {
             "render_version": RENDER_VERSION,
-            "advertisement_sha256": sha256_file(advertisement_footer.DEFAULT_BANNER),
+            "outro_sha256": outro_sha256(),
             "workflow_type": "reel",
             "tweet_id": tweet_id,
             "headline": headline,
@@ -731,9 +595,6 @@ def main(argv: list[str] | None = None) -> int:
                     headline=headline,
                     post_date=post_date,
                     highlight=highlight,
-                    frame_rate=str(source_info["frame_rate"]),
-                    include_outro=has_outro,
-                    source_size=(int(source_info["width"]), int(source_info["height"])),
                 )
                 atomic_render_reel(
                     source,
@@ -752,8 +613,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             metadata = {
                 "render_version": RENDER_VERSION,
-                "advertisement_sha256": sha256_file(advertisement_footer.DEFAULT_BANNER),
-                "advertisement_placement": "below_video",
+                "outro_sha256": outro_sha256(),
                 "workflow_type": "reel",
                 "tweet_id": str(tweet["id"]),
                 "source_url": str(tweet.get("url") or ""),
@@ -774,7 +634,6 @@ def main(argv: list[str] | None = None) -> int:
                 "frame_rate": rendered_info["frame_rate"],
                 "fps": rendered_info["fps"],
                 "outro_title": OUTRO_TITLE if has_outro else None,
-                "outro_detail": OUTRO_DETAIL if has_outro else None,
                 "output": str(output),
                 "output_sha256": sha256_file(output),
             }

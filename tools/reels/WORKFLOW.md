@@ -31,21 +31,24 @@ tweet JSON and never reclassify it during revisions or publishing.
      blurred, darkened moving fill of the same video;
    - The Bits Today news headline treatment and persisted coral/mint highlight;
    - original audio fading during the final 0.5 seconds;
-   - for source videos 15 seconds or longer, a three-second outro while the
-     underlying video keeps moving;
-   - coral entering from above, mint entering from below, and a dark
-     semi-transparent center with the transparent logo for The Bits Today;
-   - type-out text reading `Full Video Linked in Description`, followed by
-     `Stay ahead with The Bits Today`.
+   - for source videos 15 seconds or longer, the three-second Board outro:
+     the logo drops onto the video as a chip, a circuit board spreads across
+     the frame from the impact, the chip boots, and `Follow The Bits Today For
+     More` rises in;
+   - the Board outro comes from the pre-rendered `tools/reels/assets/` overlay,
+     so reel rendering needs FFmpeg only. Re-render it with
+     `node tools/reels/outro/render.mjs` after changing its copy or animation.
 
    If a user requests no outro, pass `--no-outro`; this preserves the full
    source duration (subject to the 59.5-second limit) and omits the outro
-   overlays and type-out while retaining the headline and sponsor footer.
+   overlay while retaining the headline.
+
+   Reels carry no advertisement banner or sponsor footer.
 
    Videos longer than 59.5 seconds are trimmed. Source videos shorter than 15
    seconds retain their natural total duration and do not receive the outro
-   overlay or type-out. Videos of 15 seconds or longer reserve their final
-   three seconds for the live-video outro. Rendering can take several minutes.
+   overlay. Videos of 15 seconds or longer reserve their final three seconds
+   for the outro. Rendering can take several minutes.
    Keep waiting on the original command or its yielded execution session; never
    launch another generator for the same output. The generator serializes
    duplicate invocations and exposes the final MP4 only after FFmpeg succeeds.

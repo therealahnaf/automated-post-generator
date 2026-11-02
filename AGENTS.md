@@ -78,13 +78,14 @@ publishing exception grants YouTube approval. Cancel remains available while
 waiting for the title. Cancelling either branch leaves the other
 branch unchanged. The YouTube video uses its approved TFT logo/landscape design;
 the shared sponsor-footer requirement below remains mandatory for the social
-carousel and reel workflows.
+carousel workflows.
 
-Every generated visual item must include the approved shared Codeastrix sponsor
+Every generated image must include the approved shared Codeastrix sponsor
 footer from `tools/news/codeastrix_footer.py`. This includes news primary cards,
-branded tweet-media secondary cards, every model/product/informative carousel
-card, and every frame of a reel. Keep content above the reserved footer area;
-no workflow may omit, cover, erase, or replace the footer.
+branded tweet-media secondary cards, and every model/product/informative
+carousel card. Keep content above the reserved footer area; no image workflow
+may omit, cover, erase, or replace the footer. Reels carry no advertisement
+banner or sponsor footer.
 
 Generate the English copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to

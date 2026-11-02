@@ -12,35 +12,15 @@ from tools.reels import generate_reel
 
 
 class GenerateReelTests(unittest.TestCase):
-    def test_landscape_advertisement_touches_video_lower_edge(self) -> None:
-        layout = generate_reel.footage_layout((1280, 720))
-        self.assertEqual(layout["height"], 608)
-        self.assertEqual(layout["top"], 656)
-        self.assertEqual(layout["banner_top"], 1264)
-        self.assertEqual(layout["banner_height"], 116)
-
-    def test_tall_footage_reserves_banner_space_without_cropping(self) -> None:
-        for size in ((1080, 1920), (720, 2560), (1080, 1080), (1080, 1350)):
-            with self.subTest(size=size):
-                layout = generate_reel.footage_layout(size)
-                self.assertEqual(layout["banner_top"], layout["top"] + layout["height"])
-                self.assertLessEqual(layout["banner_top"] + layout["banner_height"], 1920)
-                self.assertAlmostEqual(layout["width"] / layout["height"], size[0] / size[1], delta=0.002)
-
-    def test_layers_use_approved_asset_immediately_below_footage(self) -> None:
+    def test_layers_are_only_the_headline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             layers = generate_reel.make_layers(
                 Path(directory), headline="A robot in action", post_date=date(2026, 10, 2),
-                highlight="dual", frame_rate="30/1", include_outro=False,
-                source_size=(1280, 720),
+                highlight="dual",
             )
-            with Image.open(layers["footer"]) as layer:
-                self.assertEqual(layer.getpixel((0, 1263))[3], 0)
-                self.assertEqual(layer.getpixel((0, 1380))[3], 0)
-                self.assertEqual(
-                    layer.crop((0, 1264, 1080, 1380)).tobytes(),
-                    generate_reel.advertisement_footer.load_banner().tobytes(),
-                )
+            self.assertEqual(set(layers), {"headline"})
+            with Image.open(layers["headline"]) as layer:
+                self.assertEqual(layer.size, generate_reel.CANVAS)
 
     def test_rejects_non_x_video_hosts(self) -> None:
         self.assertTrue(
@@ -145,10 +125,7 @@ class GenerateReelTests(unittest.TestCase):
         generate_reel.render_reel(
             Path("source.mp4"),
             Path("output.mp4"),
-            {
-                "headline": Path("headline.png"),
-                "footer": Path("footer.png"),
-            },
+            {"headline": Path("headline.png")},
             content_end=10,
             total_duration=10,
             has_audio=False,
@@ -156,35 +133,28 @@ class GenerateReelTests(unittest.TestCase):
         )
         command = mock_run.call_args.args[0]
         filter_complex = command[command.index("-filter_complex") + 1]
-        self.assertNotIn("coral", filter_complex)
-        self.assertNotIn("typeout", " ".join(str(item) for item in command))
+        self.assertNotIn("alphamerge", filter_complex)
+        self.assertNotIn("outro-board", " ".join(str(item) for item in command))
         self.assertNotIn("fps=5", filter_complex)
         self.assertIn("[bg]fps=60/1", filter_complex)
         self.assertIn("[fg]fps=60/1", filter_complex)
-        self.assertIn("scale=1080:1804", filter_complex)
-        self.assertIn("min((H-h)/2,H-h-116)", filter_complex)
+        self.assertIn("scale=1080:1920", filter_complex)
+        self.assertIn("overlay=(W-w)/2:(H-h)/2", filter_complex)
         self.assertIn("fps=60/1,setsar=1", filter_complex)
         self.assertIn("scale=270:480", filter_complex)
         self.assertEqual(command[command.index("-r") + 1], "60/1")
         self.assertEqual(command[command.index("-threads") + 1], "2")
         self.assertEqual(command[command.index("-preset") + 1], "veryfast")
-        self.assertIn("footer", filter_complex)
-        self.assertEqual(command.count("-i"), 3)
+        self.assertNotIn("footer", filter_complex)
+        self.assertEqual(command.count("-i"), 2)
 
     @patch("tools.reels.generate_reel.subprocess.run")
-    def test_outro_render_places_footer_after_typeout(self, mock_run) -> None:
+    def test_outro_render_places_board_overlay_last(self, mock_run) -> None:
         mock_run.return_value = SimpleNamespace(returncode=0, stderr="")
         generate_reel.render_reel(
             Path("source.mp4"),
             Path("output.mp4"),
-            {
-                "headline": Path("headline.png"),
-                "coral": Path("coral.png"),
-                "mint": Path("mint.png"),
-                "center": Path("center.png"),
-                "footer": Path("footer.png"),
-                "frames": Path("frames"),
-            },
+            {"headline": Path("headline.png")},
             content_end=12,
             total_duration=15,
             has_audio=True,
@@ -193,14 +163,13 @@ class GenerateReelTests(unittest.TestCase):
 
         command = mock_run.call_args.args[0]
         filter_complex = command[command.index("-filter_complex") + 1]
-        self.assertIn("[v5][footer]overlay=0:0", filter_complex)
-        self.assertIn("frame-%03d.png", " ".join(str(item) for item in command))
-        self.assertEqual(
-            command[command.index("-framerate") + 1],
-            "60000/1001",
-        )
+        self.assertIn("[v1][outro]overlay=0:0,", filter_complex)
+        self.assertNotIn("footer", filter_complex)
+        self.assertIn("setpts=PTS-STARTPTS+12/TB[outro]", filter_complex)
+        self.assertIn(str(generate_reel.OUTRO_COLOR), command)
+        self.assertIn(str(generate_reel.OUTRO_ALPHA), command)
         self.assertEqual(command[command.index("-r") + 1], "60000/1001")
-        self.assertEqual(command.count("-i"), 7)
+        self.assertEqual(command.count("-i"), 4)
 
     def test_atomic_render_does_not_expose_failed_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
