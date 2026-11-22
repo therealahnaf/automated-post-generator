@@ -40,29 +40,33 @@ downloaded media; do not fetch or classify the story again.
    result can carry the headline. Do not use a separate text-model call for the
    original headline and do not add unverified facts.
    Render the approved English headline directly, without a translation call.
-3. Run `tools/news/generate_post.py --headline`. When the first downloaded
-   photo is eligible for the primary inset, do not call the image model: select
-   a stable random `bg-*.png` from `assets/fonts/images` and reuse it across
-   both platforms and revisions. When there is no downloaded photo,
-   or the first photo is ineligible for the primary inset, generate one
-   text-free editorial background with the image model. Pillow owns all gradient
-   and typography rendering. Use `--style brand-block` with
-   `#FF5757` and `#C2FFE1`. Render `The Bits Today | <date>` and the transparent
-   bottom-right logo. Use bundled Roboto for headlines and the byline.
-4. Apply the persisted highlight treatment: `cyan` highlights only the first
-   line in mint, `red` highlights only the first line in coral, and `dual`
-   highlights the first line in coral and the second in mint. Do not add
-   `Desk`, an AI-generated credit, an extra badge, or an experimental preset.
-   Always retain the approved shared Codeastrix sponsor footer.
-5. The generated post is always primary. If the tweet has photos, place the
-   first downloaded photo uncropped in a borderless rounded-corner inset over
-   the lower portion of the selected local background only when its
-   orientation-independent source dimensions are at least 640x480 pixels and
-   its fitted inset retains a useful minimum footprint. Never upscale it. A
-   smaller or extreme-aspect-ratio photo remains secondary only, while the
-   primary uses the generated editorial background. Keep an inset photo out of
-   the secondary set so the carousel never repeats an image already visible in
-   the generated primary.
+3. Run `tools/news/generate_post.py --headline --tweet-json --style cinema`.
+   Always pass the fetched tweet JSON: the Cinema card reads the persisted
+   highlight, the tweet ID that keeps its choices stable across both platforms
+   and revisions, and the photo count that decides whether it shows
+   `Swipe For More`. When the first downloaded photo is eligible, do not call
+   the image model. When there is no downloaded photo, or the first photo is
+   ineligible, the script generates one text-free editorial background with the
+   image model, composed so the story sits in the top of the frame above the
+   headline. On a revision, reuse that saved background with
+   `--background-input <output>-background.png`. Pillow owns all rendering: the
+   BBH Bogle headline low on a black fade, the date, the logo and name,
+   `Follow For More` at the top right and `Swipe For More` at the bottom right.
+   News cards carry no sponsor footer.
+4. The persisted highlight marks the headline's first line with a hand-cut
+   marker stroke and black text: `cyan` in mint, `red` in coral; a persisted
+   `dual` settles on one of the two per post. Do not add `Desk`, an
+   AI-generated credit, an extra badge, or an experimental preset.
+5. The generated post is always primary. If the tweet has photos, show the
+   first downloaded photo on it only when its orientation-independent source
+   dimensions are at least 640x480 pixels and its fitted size stays useful.
+   Never upscale it. A photo within 5% of the 4:5 card fills it; any other
+   shape is shown whole, with rounded corners and a shadow, over one of the
+   approved dark backdrops in `assets/news/backdrops`. A smaller or
+   extreme-aspect-ratio photo remains secondary only, while the primary uses
+   the generated editorial background. Keep a primary photo out of the
+   secondary set so the carousel never repeats an image already visible in the
+   generated primary.
 6. Generate the English description with
    `tools/news/generate_description.py`. The first fixed `gpt-5.6-luna` call
    creates consequential but source-grounded English copy. Do not make a
@@ -107,15 +111,14 @@ downloaded media; do not fetch or classify the story again.
 10. Render the shared English package with
     `tools/news/generate_carousel.py --platform facebook`, supplying its
     already-rendered primary image and the English copy JSON. The
-    primary remains the headline card. Every media detail card places its short
-    description above the complete uncropped tweet image with rounded corners,
-    a subtle shadow, and no border. Center the image vertically in the available
-    media region below the description and above the footer regardless of its
-    fitted height, over a stably selected local
-    `assets/fonts/images/bg-*.png` background. The no-media summary card
-    centers its segment over a local background. Reuse the same background seed
-    across both platforms and revisions. Every card retains the
-    approved shared Codeastrix footer.
+    primary remains the headline card, and a Cinema primary gets Cinema detail
+    cards. Every media detail card shows its count and short description at the
+    top and the complete uncropped tweet image beneath it with rounded corners
+    and a shadow, over one of the approved dark backdrops; small images may
+    enlarge up to 1.75x. The no-media summary card sets its segment larger, with
+    the first line on the same marker stroke as the headline. Backdrops and the
+    highlight follow the tweet ID, so both platforms and revisions match. Every
+    card but the last shows `Swipe For More`; none carries a sponsor footer.
 11. Run `tools/news/prepare_platform_descriptions.py` after source finalization.
     Pass `--english-title` with the approved English headline for the website
     manifest. Both platform captions contain only English, followed by sources

@@ -69,6 +69,8 @@ BRAND_MINT = (194, 255, 225, 255)
 INK = (12, 17, 21, 255)
 WHITE = (250, 250, 248, 255)
 STYLE_CHOICES = ("brand-block", "editorial-italic", "split-signal")
+# Cinema has its own renderer (cinema_post.py), so it is a command-line style but not a compose_post one.
+CLI_STYLE_CHOICES = (*STYLE_CHOICES, "cinema")
 FEATURE_IMAGE_MIN_SIZE = (640, 480)
 FEATURE_IMAGE_MAX_RENDERED_SIZE = (940, 940)
 FEATURE_IMAGE_MIN_RENDERED_SIDE = 240
@@ -1072,6 +1074,17 @@ def compose_post(
     return canvas.convert("RGB")
 
 
+def load_cinema() -> Any:
+    """The Cinema renderer, imported late because it builds on this module."""
+    try:
+        from . import cinema_post
+    except ImportError:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from tools.news import cinema_post
+    return cinema_post
+
+
 def parse_date(value: str) -> date:
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -1161,9 +1174,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--font", type=Path, help="Optional bold TrueType/OpenType font.")
     parser.add_argument(
         "--style",
-        choices=STYLE_CHOICES,
+        choices=CLI_STYLE_CHOICES,
         default="brand-block",
-        help="Pillow typography and brand-color preset.",
+        help="Pillow typography and brand-color preset; the news workflow uses cinema.",
     )
     parser.add_argument(
         "--logo",
@@ -1234,6 +1247,14 @@ def main(argv: list[str] | None = None) -> int:
             require_api_key()
             print("Translating approved headline to Bangla...", file=sys.stderr)
             title = translate_headline_to_bangla(make_client(), english_title)
+        style = args.style
+        if style == "cinema" and contains_bangla_text(title):
+            # Cinema's headline face is Latin-only, so a localized headline keeps the brand-block card.
+            print("Cinema renders Latin headlines only; using brand-block for this headline.", file=sys.stderr)
+            style = "brand-block"
+        cinema = load_cinema() if style == "cinema" else None
+        if cinema is not None:
+            image_prompt = cinema.cinema_image_prompt(source_text, english_title)
         if args.background_input:
             if not args.background_input.is_file():
                 raise FileNotFoundError(
@@ -1242,6 +1263,10 @@ def main(argv: list[str] | None = None) -> int:
             print("Reusing local editorial background...", file=sys.stderr)
             background_bytes = args.background_input.read_bytes()
             background_source = str(args.background_input.resolve())
+        elif feature_image_path is not None and cinema is not None:
+            # Cinema shows the photo itself, over its own backdrops, so no bg-* image is needed.
+            background_bytes = None
+            background_source = "tweet-photo"
         elif feature_image_path is not None:
             local_background = select_news_background_for_photo(
                 tweet_json=args.tweet_json,
@@ -1270,23 +1295,42 @@ def main(argv: list[str] | None = None) -> int:
             background_source = "openai-image-api"
 
         print("Composing post with Pillow...", file=sys.stderr)
-        post = compose_post(
-            background_bytes,
-            title,
-            source=args.source,
-            post_date=args.date,
-            credit=args.credit,
-            font_override=args.font,
-            style=args.style,
-            logo_path=args.logo,
-            headline_highlight=headline_highlight,
-            feature_image_path=feature_image_path,
-        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        if cinema is not None:
+            background_file = None
+            if feature_image_path is None:
+                # The generated or reused scene fills the card; Cinema reads it from disk.
+                background_file = args.output.with_name(f"{args.output.stem}-background.png")
+                background_file.write_bytes(background_bytes)
+            post, cinema_metadata = cinema.render(
+                title,
+                args.date,
+                photo_path=feature_image_path,
+                highlight=headline_highlight,
+                background_path=background_file,
+                seed=cinema.tweet_seed(args.tweet_json, english_title),
+                swipe_hint=cinema.has_more_cards(args.tweet_json, feature_image_path),
+            )
+            if feature_image_path is not None:
+                background_bytes = None
+                background_source = cinema_metadata["backdrop"] or "tweet-photo"
+        else:
+            post = compose_post(
+                background_bytes,
+                title,
+                source=args.source,
+                post_date=args.date,
+                credit=args.credit,
+                font_override=args.font,
+                style=style,
+                logo_path=args.logo,
+                headline_highlight=headline_highlight,
+                feature_image_path=feature_image_path,
+            )
         save_png_atomic(post, args.output)
 
         background_asset_path = None
-        if args.keep_background or background_source == "openai-image-api":
+        if background_bytes is not None and (args.keep_background or background_source == "openai-image-api"):
             background_path = args.output.with_name(f"{args.output.stem}-background.png")
             background_path.write_bytes(background_bytes)
             background_asset_path = str(background_path.resolve())
@@ -1304,7 +1348,7 @@ def main(argv: list[str] | None = None) -> int:
             image_model=args.image_model,
             image_size=args.image_size,
             image_quality=args.image_quality,
-            style=args.style,
+            style=style,
             logo_source=str(args.logo.resolve()),
             feature_image_source=(
                 str(feature_image_path.resolve()) if feature_image_path else None

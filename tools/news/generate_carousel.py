@@ -28,7 +28,8 @@ from tools.news.generate_carousel_copy import (
     MAX_SECONDARY_CARDS,
     MAX_SHORT_DESCRIPTION_CHARACTERS,
 )
-from tools.news.post_language import read_platform_language
+from tools.news import cinema_post
+from tools.news.post_language import read_headline_highlight, read_platform_language
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,14 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         secondary_count = len(descriptions)
+        # A Cinema headline card gets Cinema detail cards; packages started in the older design keep it on revision.
+        primary_metadata_path = args.primary_image.with_suffix(".json")
+        primary_metadata = (
+            json.loads(primary_metadata_path.read_text(encoding="utf-8"))
+            if primary_metadata_path.is_file()
+            else {}
+        )
+        cinema = primary_metadata.get("style") == "cinema" and language == "english"
         background_seed: int | None = None
         selected_backgrounds: list[Path] = []
         if secondary_count:
@@ -176,11 +185,19 @@ def main(argv: list[str] | None = None) -> int:
                 if args.seed is not None
                 else local_backgrounds.stable_seed("news-details", source_text)
             )
-            selected_backgrounds = local_backgrounds.select_backgrounds(
-                local_backgrounds.list_backgrounds(args.background_dir),
-                secondary_count,
-                background_seed,
-            )
+            if cinema:
+                cinema_seed = cinema_post.tweet_seed(args.tweet_json, source_text)
+                highlight = read_headline_highlight(args.tweet_json)
+                selected_backgrounds = [
+                    cinema_post.pick_backdrop(f"{cinema_seed}-card-{offset + 2}")
+                    for offset in range(secondary_count)
+                ]
+            else:
+                selected_backgrounds = local_backgrounds.select_backgrounds(
+                    local_backgrounds.list_backgrounds(args.background_dir),
+                    secondary_count,
+                    background_seed,
+                )
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
         primary_path = args.output_dir / "01-headline.png"
@@ -201,6 +218,16 @@ def main(argv: list[str] | None = None) -> int:
             output_path = args.output_dir / (
                 f"{index:02d}-detail-{offset + 1}.png"
             )
+            if cinema:
+                card_options = {"index": index, "count": secondary_count + 1, "highlight": highlight, "seed": cinema_seed}
+                image = (
+                    cinema_post.render_detail(description, source_images[offset], **card_options)
+                    if mode == "media"
+                    else cinema_post.render_summary(description, **card_options)
+                )
+                image.save(output_path, format="PNG", optimize=True)
+                secondary_paths.append(output_path)
+                continue
             background_bytes = selected_backgrounds[offset].read_bytes()
             if mode == "media":
                 image = compose_media_secondary(

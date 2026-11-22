@@ -81,11 +81,11 @@ the shared sponsor-footer requirement below remains mandatory for the social
 carousel workflows.
 
 Every generated image must include the approved shared Codeastrix sponsor
-footer from `tools/news/codeastrix_footer.py`. This includes news primary cards,
-branded tweet-media secondary cards, and every model/product/informative
-carousel card. Keep content above the reserved footer area; no image workflow
-may omit, cover, erase, or replace the footer. Reels carry no advertisement
-banner or sponsor footer.
+footer from `tools/news/codeastrix_footer.py`. This includes every
+model/product/informative carousel card. Keep content above the reserved footer
+area; no image workflow may omit, cover, erase, or replace the footer. News
+cards use the Cinema design in `tools/news/cinema_post.py` and carry no sponsor
+footer, and reels carry no advertisement banner or sponsor footer.
 
 Generate the English copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to
