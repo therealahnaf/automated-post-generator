@@ -28,16 +28,16 @@ import requests
 from PIL import Image, ImageDraw
 
 try:
-    from tools.news import generate_post
+    from tools.news import cinema_post, generate_post
 except ImportError:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tools.news import generate_post
+    from tools.news import cinema_post, generate_post
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANVAS = (1080, 1920)
-RENDER_VERSION = 7
+RENDER_VERSION = 8
 MIN_FRAME_RATE = Fraction(1, 1)
 MAX_FRAME_RATE = Fraction(240, 1)
 # Leave one source frame of headroom: FFmpeg timestamps a frame on its end
@@ -248,6 +248,7 @@ def make_layers(
     headline: str,
     post_date: date,
     highlight: str,
+    seed: str | None = None,
 ) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     overlay = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
@@ -258,15 +259,25 @@ def make_layers(
         for x in range(CANVAS[0]):
             gradient_pixels[x, y] = alpha
     overlay.paste(Image.new("RGBA", CANVAS, (0, 0, 0, 255)), (0, 0), gradient)
-    generate_post.draw_brand_block(
-        ImageDraw.Draw(overlay),
-        headline,
-        "The Bits Today",
-        post_date,
-        None,
-        highlight,
-        top_y=210,
-    )
+    shown = cinema_post.displayable(headline, cinema_post.HEADLINE_FACE.path)
+    if generate_post.contains_bangla_text(headline) or not shown:
+        # The news-card headline face is Latin-only, so anything else keeps the earlier brand block.
+        generate_post.draw_brand_block(
+            ImageDraw.Draw(overlay), headline, "The Bits Today", post_date, None, highlight, top_y=210,
+        )
+    else:
+        # The same headline as the news cards: BBH Bogle, its first line on a hand-cut coral or mint marker.
+        seed = seed or headline
+        accent = cinema_post.highlight_color(cinema_post.resolve_highlight(highlight, seed))
+        layout = cinema_post.fit_headline(shown, cinema_post.HEADLINE_MAX_SIZE, 395, cinema_post.HEADLINE_FACE)
+        text_layer = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+        bottom = cinema_post.draw_headline(text_layer, layout, 210, accent, seed)
+        generate_post.draw_byline(
+            ImageDraw.Draw(text_layer), "The Bits Today", post_date, cinema_post.MARGIN, round(bottom) + 14,
+            source_color=generate_post.BRAND_CORAL, detail_color=generate_post.BRAND_MINT,
+        )
+        overlay.alpha_composite(cinema_post.text_shadow(text_layer))
+        overlay.alpha_composite(text_layer)
     generate_post.paste_brand_logo(overlay, generate_post.DEFAULT_BRAND_LOGO)
     overlay_path = directory / "headline-overlay.png"
     overlay.save(overlay_path, "PNG", optimize=True)
@@ -595,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
                     headline=headline,
                     post_date=post_date,
                     highlight=highlight,
+                    seed=str(tweet["id"]),
                 )
                 atomic_render_reel(
                     source,

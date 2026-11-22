@@ -22,6 +22,22 @@ class GenerateReelTests(unittest.TestCase):
             with Image.open(layers["headline"]) as layer:
                 self.assertEqual(layer.size, generate_reel.CANVAS)
 
+    def test_headline_uses_the_news_card_marker_in_one_colour(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layers = generate_reel.make_layers(
+                Path(directory), headline="A robot in action", post_date=date(2026, 10, 2),
+                highlight="red", seed="123",
+            )
+            with Image.open(layers["headline"]) as layer:
+                # The first line's band only; the byline's mint date sits below it.
+                band = list(layer.convert("RGB").crop((0, 225, 1080, 320)).getdata())
+
+        def near(colour: tuple[int, ...]) -> int:
+            return sum(1 for pixel in band if max(abs(a - b) for a, b in zip(pixel, colour[:3])) < 30)
+
+        self.assertGreater(near(generate_reel.generate_post.BRAND_CORAL), 5000)
+        self.assertEqual(near(generate_reel.generate_post.BRAND_MINT), 0)
+
     def test_rejects_non_x_video_hosts(self) -> None:
         self.assertTrue(
             generate_reel.valid_x_video_url(

@@ -411,6 +411,20 @@ def draw_marked_line(overlay: Image.Image, text: str, font: ImageFont.FreeTypeFo
     ImageDraw.Draw(overlay).text((MARGIN, baseline), text, font=font, fill=generate_post.INK, anchor="ls")
 
 
+def draw_headline(overlay: Image.Image, layout: HeadlineLayout, top: float, accent: tuple[int, ...], seed: str) -> float:
+    """The headline from `top`: its first line on the marker in black, the rest white; returns the block's bottom."""
+    font = layout.font
+    _, glyph_top, _, glyph_bottom = font.getbbox("Hgjpy", anchor="ls")
+    glyph_height = glyph_bottom - glyph_top
+    draw_marked_line(overlay, layout.lines[0], font, top, layout.lead_height, accent, seed)
+    draw = ImageDraw.Draw(overlay)
+    for row, text in enumerate(layout.lines[1:]):
+        line_top = top + layout.lead_height + row * layout.line_height
+        draw.text((MARGIN, line_top + (layout.line_height - glyph_height) / 2 - glyph_top), text, font=font,
+                  fill=generate_post.WHITE, anchor="ls")
+    return top + layout.height
+
+
 def draw_chrome(canvas: Image.Image, accent: tuple[int, ...], swipe_hint: bool) -> None:
     """The logo, name and Follow For More across the top, and Swipe For More at the foot, with a light shadow."""
     masthead = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
@@ -501,16 +515,8 @@ def render(
     draw = ImageDraw.Draw(overlay)
     draw_rule(draw, date_center, accent, post_date.strftime("%d %b %Y").upper())
 
-    # The persisted highlight marks the first line with a hand-drawn coral or mint marker stroke, under black text;
-    # the rest is white. Each line centres its full letter height, capitals to descenders, so the stroke holds all of it.
-    font = layout.font
-    _, glyph_top, _, glyph_bottom = font.getbbox("Hgjpy", anchor="ls")
-    glyph_height = glyph_bottom - glyph_top
-    draw_marked_line(overlay, layout.lines[0], font, headline_top, layout.lead_height, accent, seed or headline)
-    for row, text in enumerate(layout.lines[1:]):
-        top = headline_top + layout.lead_height + row * layout.line_height
-        draw.text((MARGIN, top + (layout.line_height - glyph_height) / 2 - glyph_top), text, font=font,
-                  fill=generate_post.WHITE, anchor="ls")
+    # The persisted highlight marks the first line with a hand-cut coral or mint marker stroke, under black text.
+    draw_headline(overlay, layout, headline_top, accent, seed or headline)
 
     canvas.alpha_composite(text_shadow(overlay))
     canvas.alpha_composite(overlay)

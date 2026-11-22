@@ -29,7 +29,9 @@ tweet JSON and never reclassify it during revisions or publishing.
    - at most 59.5 seconds total;
    - the complete landscape/portrait source contained without cropping over a
      blurred, darkened moving fill of the same video;
-   - The Bits Today news headline treatment and persisted coral/mint highlight;
+   - the news-card headline: BBH Bogle with its first line on a hand-cut coral
+     or mint marker from the persisted highlight (a persisted `dual` settles on
+     one per post), with the byline and logo;
    - original audio fading during the final 0.5 seconds;
    - for source videos 15 seconds or longer, the three-second Board outro:
      the logo drops onto the video as a chip, a circuit board spreads across
