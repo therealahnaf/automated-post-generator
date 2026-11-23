@@ -182,7 +182,7 @@ def resolve_highlight(highlight: str, seed: str) -> str:
 
 
 def highlight_color(highlight: str) -> tuple[int, ...]:
-    """The first line's box and the date rule share one brand colour; the boxed text is black and the date white."""
+    """The brand colour of the first line's box; the boxed text is black and the date white."""
     return generate_post.BRAND_CORAL if highlight == "red" else generate_post.BRAND_MINT
 
 
@@ -442,10 +442,9 @@ def draw_chrome(canvas: Image.Image, accent: tuple[int, ...], swipe_hint: bool) 
     canvas.alpha_composite(masthead)
 
 
-def draw_rule(draw: ImageDraw.ImageDraw, middle: float, accent: tuple[int, ...], label: str) -> None:
-    """The short accent rule with a white monospaced label beside it: the date on the headline card, the count on the rest."""
-    draw.rectangle((MARGIN, middle - 3, MARGIN + 96, middle + 4), fill=accent)
-    draw_tracked(draw, (MARGIN + 96 + 18, middle), label, load_face(Face(GEIST_MONO, {"Weight": 600}), 24), generate_post.WHITE, 3)
+def draw_date(draw: ImageDraw.ImageDraw, middle: float, label: str) -> None:
+    """The white monospaced date on the headline card, on its own: no rule or bar beside it."""
+    draw_tracked(draw, (MARGIN, middle), label, load_face(Face(GEIST_MONO, {"Weight": 600}), 24), generate_post.WHITE, 3)
 
 
 def render(
@@ -513,7 +512,7 @@ def render(
     draw_chrome(canvas, accent, swipe_hint)
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    draw_rule(draw, date_center, accent, post_date.strftime("%d %b %Y").upper())
+    draw_date(draw, date_center, post_date.strftime("%d %b %Y").upper())
 
     # The persisted highlight marks the first line with a hand-cut coral or mint marker stroke, under black text.
     draw_headline(overlay, layout, headline_top, accent, seed or headline)
@@ -569,7 +568,7 @@ def card_backdrop(seed: str, index: int) -> Image.Image:
 
 def render_detail(description: str, photo_path: Path, *, index: int, count: int, highlight: str = "dual",
                   seed: str) -> Image.Image:
-    """A media card: its count and short description at the top, and the tweet photo whole beneath it.
+    """A media card: its short description at the top and the tweet photo whole beneath it, with no page number.
 
     `index` counts from 2, since the headline card is 1; `count` is the whole carousel, headline included.
     """
@@ -577,7 +576,7 @@ def render_detail(description: str, photo_path: Path, *, index: int, count: int,
     description = displayable(generate_post.normalize_news_text(description), INTER_TIGHT)
     font, lines, step = fit_description(description, DESCRIPTION_MAX_SIZE, DESCRIPTION_MIN_SIZE, DESCRIPTION_MAX_HEIGHT, 700, 1.2)
     canvas = card_backdrop(seed, index)
-    text_top = DESCRIPTION_TOP + 44
+    text_top = DESCRIPTION_TOP - 20
     text_bottom = text_top + len(lines) * step
     with Image.open(photo_path) as opened:
         source = ImageOps.exif_transpose(opened).convert("RGB")
@@ -585,7 +584,6 @@ def render_detail(description: str, photo_path: Path, *, index: int, count: int,
     draw_chrome(canvas, accent, swipe_hint=index < count)
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    draw_rule(draw, DESCRIPTION_TOP, accent, f"{index:02d} / {count:02d}")
     for row, line in enumerate(lines):
         draw.text((MARGIN, text_top + row * step + font.size * 0.92), line, font=font, fill=generate_post.WHITE, anchor="ls")
     canvas.alpha_composite(text_shadow(overlay, spread=9, blur=16, strength=200))
@@ -605,7 +603,6 @@ def render_summary(description: str, *, index: int, count: int, highlight: str =
     draw_chrome(canvas, accent, swipe_hint=index < count)
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    draw_rule(draw, top - 44, accent, f"{index:02d} / {count:02d}")
     draw_marked_line(overlay, lines[0], font, top, lead_step, accent, f"{seed}-summary")
     _, glyph_top, _, glyph_bottom = font.getbbox("Hgjpy", anchor="ls")
     for row, line in enumerate(lines[1:]):

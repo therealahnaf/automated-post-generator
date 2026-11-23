@@ -1,0 +1,595 @@
+{
+  "openai": {
+    "name": "OpenAI",
+    "aliases": [
+      "openai"
+    ],
+    "families": [
+      "gpt",
+      "o3",
+      "o4",
+      "o5",
+      "sora",
+      "codex"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "openai/mark.png",
+    "wordmark": "openai/wordmark.png"
+  },
+  "anthropic": {
+    "name": "Anthropic",
+    "aliases": [
+      "anthropic"
+    ],
+    "families": [],
+    "accent": "#D97757",
+    "mark": "anthropic/mark.png",
+    "wordmark": "anthropic/wordmark.png"
+  },
+  "claude": {
+    "name": "Claude",
+    "aliases": [],
+    "families": [
+      "claude"
+    ],
+    "accent": "#D97757",
+    "mark": "claude/mark.png",
+    "color": "claude/color.png",
+    "wordmark": "claude/wordmark.png"
+  },
+  "google": {
+    "name": "Google",
+    "aliases": [
+      "google",
+      "google ai",
+      "google research"
+    ],
+    "families": [],
+    "accent": "#4285F4",
+    "mark": "google/mark.png",
+    "color": "google/color.png"
+  },
+  "deepmind": {
+    "name": "Google DeepMind",
+    "aliases": [
+      "google deepmind",
+      "deepmind"
+    ],
+    "families": [],
+    "accent": "#4285F4",
+    "mark": "deepmind/mark.png",
+    "color": "deepmind/color.png",
+    "wordmark": "deepmind/wordmark.png"
+  },
+  "gemini": {
+    "name": "Gemini",
+    "aliases": [],
+    "families": [
+      "gemini",
+      "gemma"
+    ],
+    "accent": "#4C8DF6",
+    "mark": "gemini/mark.png",
+    "color": "gemini/color.png",
+    "wordmark": "gemini/wordmark.png"
+  },
+  "deepseek": {
+    "name": "DeepSeek",
+    "aliases": [
+      "deepseek",
+      "deepseek ai",
+      "deepseek-ai"
+    ],
+    "families": [
+      "deepseek"
+    ],
+    "accent": "#4D6BFE",
+    "mark": "deepseek/mark.png",
+    "color": "deepseek/color.png",
+    "wordmark": "deepseek/wordmark.png"
+  },
+  "qwen": {
+    "name": "Qwen",
+    "aliases": [
+      "qwen",
+      "alibaba qwen",
+      "alibaba",
+      "alibaba cloud",
+      "qwen team",
+      "tongyi"
+    ],
+    "families": [
+      "qwen",
+      "qwq"
+    ],
+    "accent": "#615CED",
+    "mark": "qwen/mark.png",
+    "color": "qwen/color.png",
+    "wordmark": "qwen/wordmark.png"
+  },
+  "kimi": {
+    "name": "Kimi",
+    "aliases": [],
+    "families": [
+      "kimi"
+    ],
+    "accent": "#1E90FF",
+    "mark": "kimi/mark.png",
+    "color": "kimi/color.png",
+    "wordmark": "kimi/wordmark.png"
+  },
+  "moonshot": {
+    "name": "Moonshot AI",
+    "aliases": [
+      "moonshot",
+      "moonshot ai",
+      "kimi"
+    ],
+    "families": [],
+    "accent": "#1E90FF",
+    "mark": "moonshot/mark.png",
+    "wordmark": "moonshot/wordmark.png"
+  },
+  "xai": {
+    "name": "xAI",
+    "aliases": [
+      "xai",
+      "x.ai"
+    ],
+    "families": [],
+    "accent": "#E8E8E8",
+    "mark": "xai/mark.png",
+    "wordmark": "xai/wordmark.png"
+  },
+  "grok": {
+    "name": "Grok",
+    "aliases": [],
+    "families": [
+      "grok"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "grok/mark.png",
+    "wordmark": "grok/wordmark.png"
+  },
+  "meta": {
+    "name": "Meta",
+    "aliases": [
+      "meta",
+      "meta ai",
+      "meta superintelligence labs",
+      "facebook",
+      "meta fair"
+    ],
+    "families": [
+      "llama",
+      "muse"
+    ],
+    "accent": "#0866FF",
+    "mark": "meta/mark.png",
+    "color": "meta/color.png",
+    "wordmark": "meta/wordmark.png"
+  },
+  "mistral": {
+    "name": "Mistral AI",
+    "aliases": [
+      "mistral",
+      "mistral ai"
+    ],
+    "families": [
+      "mistral",
+      "magistral",
+      "devstral",
+      "codestral",
+      "ministral",
+      "pixtral"
+    ],
+    "accent": "#FA520F",
+    "mark": "mistral/mark.png",
+    "color": "mistral/color.png",
+    "wordmark": "mistral/wordmark.png"
+  },
+  "microsoft": {
+    "name": "Microsoft",
+    "aliases": [
+      "microsoft",
+      "microsoft ai",
+      "microsoft research"
+    ],
+    "families": [
+      "phi",
+      "mai-"
+    ],
+    "accent": "#00A4EF",
+    "mark": "microsoft/mark.png",
+    "color": "microsoft/color.png",
+    "wordmark": "microsoft/wordmark.png"
+  },
+  "nvidia": {
+    "name": "NVIDIA",
+    "aliases": [
+      "nvidia"
+    ],
+    "families": [
+      "nemotron",
+      "cosmos"
+    ],
+    "accent": "#76B900",
+    "mark": "nvidia/mark.png",
+    "color": "nvidia/color.png",
+    "wordmark": "nvidia/wordmark.png"
+  },
+  "tencent": {
+    "name": "Tencent",
+    "aliases": [
+      "tencent",
+      "tencent ai lab"
+    ],
+    "families": [],
+    "accent": "#0052D9",
+    "mark": "tencent/mark.png",
+    "color": "tencent/color.png",
+    "wordmark": "tencent/wordmark.png"
+  },
+  "hunyuan": {
+    "name": "Hunyuan",
+    "aliases": [
+      "tencent hunyuan",
+      "hunyuan"
+    ],
+    "families": [
+      "hunyuan",
+      "hy"
+    ],
+    "accent": "#0052D9",
+    "mark": "hunyuan/mark.png",
+    "color": "hunyuan/color.png",
+    "wordmark": "hunyuan/wordmark.png"
+  },
+  "baidu": {
+    "name": "Baidu",
+    "aliases": [
+      "baidu"
+    ],
+    "families": [],
+    "accent": "#2932E1",
+    "mark": "baidu/mark.png",
+    "color": "baidu/color.png",
+    "wordmark": "baidu/wordmark.png"
+  },
+  "wenxin": {
+    "name": "ERNIE",
+    "aliases": [],
+    "families": [
+      "ernie",
+      "wenxin"
+    ],
+    "accent": "#2932E1",
+    "mark": "wenxin/mark.png",
+    "color": "wenxin/color.png",
+    "wordmark": "wenxin/wordmark.png"
+  },
+  "zhipu": {
+    "name": "Zhipu AI",
+    "aliases": [
+      "zhipu",
+      "zhipu ai"
+    ],
+    "families": [
+      "glm",
+      "chatglm",
+      "cogview",
+      "cogvideo"
+    ],
+    "accent": "#3859FF",
+    "mark": "zhipu/mark.png",
+    "color": "zhipu/color.png",
+    "wordmark": "zhipu/wordmark.png"
+  },
+  "zai": {
+    "name": "Z.ai",
+    "aliases": [
+      "z.ai",
+      "zai",
+      "z ai"
+    ],
+    "families": [],
+    "accent": "#E8E8E8",
+    "mark": "zai/mark.png",
+    "wordmark": "zai/wordmark.png"
+  },
+  "minimax": {
+    "name": "MiniMax",
+    "aliases": [
+      "minimax"
+    ],
+    "families": [
+      "minimax",
+      "abab"
+    ],
+    "accent": "#F23F5D",
+    "mark": "minimax/mark.png",
+    "color": "minimax/color.png",
+    "wordmark": "minimax/wordmark.png"
+  },
+  "hailuo": {
+    "name": "Hailuo",
+    "aliases": [],
+    "families": [
+      "hailuo"
+    ],
+    "accent": "#F23F5D",
+    "mark": "hailuo/mark.png",
+    "color": "hailuo/color.png",
+    "wordmark": "hailuo/wordmark.png"
+  },
+  "cohere": {
+    "name": "Cohere",
+    "aliases": [
+      "cohere"
+    ],
+    "families": [
+      "command",
+      "aya"
+    ],
+    "accent": "#FF7759",
+    "mark": "cohere/mark.png",
+    "color": "cohere/color.png",
+    "wordmark": "cohere/wordmark.png"
+  },
+  "perplexity": {
+    "name": "Perplexity",
+    "aliases": [
+      "perplexity",
+      "perplexity ai"
+    ],
+    "families": [
+      "sonar"
+    ],
+    "accent": "#20B8CD",
+    "mark": "perplexity/mark.png",
+    "color": "perplexity/color.png",
+    "wordmark": "perplexity/wordmark.png"
+  },
+  "apple": {
+    "name": "Apple",
+    "aliases": [
+      "apple"
+    ],
+    "families": [],
+    "accent": "#E8E8E8",
+    "mark": "apple/mark.png",
+    "wordmark": "apple/wordmark.png"
+  },
+  "nova": {
+    "name": "Amazon",
+    "aliases": [
+      "amazon",
+      "aws",
+      "amazon web services",
+      "amazon agi"
+    ],
+    "families": [
+      "nova"
+    ],
+    "accent": "#FF9900",
+    "mark": "nova/mark.png",
+    "color": "nova/color.png",
+    "wordmark": "nova/wordmark.png"
+  },
+  "bytedance": {
+    "name": "ByteDance",
+    "aliases": [
+      "bytedance",
+      "bytedance seed",
+      "seed"
+    ],
+    "families": [
+      "seed",
+      "seedance",
+      "seedream"
+    ],
+    "accent": "#325AB4",
+    "mark": "bytedance/mark.png",
+    "color": "bytedance/color.png",
+    "wordmark": "bytedance/wordmark.png"
+  },
+  "doubao": {
+    "name": "Doubao",
+    "aliases": [],
+    "families": [
+      "doubao"
+    ],
+    "accent": "#325AB4",
+    "mark": "doubao/mark.png",
+    "color": "doubao/color.png",
+    "wordmark": "doubao/wordmark.png"
+  },
+  "stability": {
+    "name": "Stability AI",
+    "aliases": [
+      "stability",
+      "stability ai"
+    ],
+    "families": [
+      "stable diffusion",
+      "stable "
+    ],
+    "accent": "#9D39FF",
+    "mark": "stability/mark.png",
+    "color": "stability/color.png",
+    "wordmark": "stability/wordmark.png"
+  },
+  "bfl": {
+    "name": "Black Forest Labs",
+    "aliases": [
+      "black forest labs",
+      "bfl"
+    ],
+    "families": [
+      "flux"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "bfl/mark.png",
+    "wordmark": "bfl/wordmark.png"
+  },
+  "runway": {
+    "name": "Runway",
+    "aliases": [
+      "runway",
+      "runwayml",
+      "runway ml"
+    ],
+    "families": [
+      "gen-"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "runway/mark.png",
+    "wordmark": "runway/wordmark.png"
+  },
+  "huggingface": {
+    "name": "Hugging Face",
+    "aliases": [
+      "hugging face",
+      "huggingface"
+    ],
+    "families": [
+      "smol"
+    ],
+    "accent": "#FFD21E",
+    "mark": "huggingface/mark.png",
+    "color": "huggingface/color.png",
+    "wordmark": "huggingface/wordmark.png"
+  },
+  "ai2": {
+    "name": "Ai2",
+    "aliases": [
+      "ai2",
+      "allen institute for ai",
+      "allenai",
+      "allen ai"
+    ],
+    "families": [
+      "olmo",
+      "molmo",
+      "tulu"
+    ],
+    "accent": "#F0529C",
+    "mark": "ai2/mark.png",
+    "color": "ai2/color.png",
+    "wordmark": "ai2/wordmark.png"
+  },
+  "reka": {
+    "name": "Reka",
+    "aliases": [
+      "reka",
+      "reka ai"
+    ],
+    "families": [],
+    "accent": "#E8E8E8",
+    "mark": "reka/mark.png",
+    "wordmark": "reka/wordmark.png"
+  },
+  "liquid": {
+    "name": "Liquid AI",
+    "aliases": [
+      "liquid",
+      "liquid ai"
+    ],
+    "families": [
+      "lfm"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "liquid/mark.png",
+    "wordmark": "liquid/wordmark.png"
+  },
+  "nousresearch": {
+    "name": "Nous Research",
+    "aliases": [
+      "nous",
+      "nous research"
+    ],
+    "families": [
+      "hermes"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "nousresearch/mark.png",
+    "wordmark": "nousresearch/wordmark.png"
+  },
+  "midjourney": {
+    "name": "Midjourney",
+    "aliases": [
+      "midjourney"
+    ],
+    "families": [],
+    "accent": "#E8E8E8",
+    "mark": "midjourney/mark.png",
+    "wordmark": "midjourney/wordmark.png"
+  },
+  "kling": {
+    "name": "Kling",
+    "aliases": [
+      "kuaishou",
+      "kling ai"
+    ],
+    "families": [
+      "kling"
+    ],
+    "accent": "#2CCBFF",
+    "mark": "kling/mark.png",
+    "color": "kling/color.png",
+    "wordmark": "kling/wordmark.png"
+  },
+  "stepfun": {
+    "name": "StepFun",
+    "aliases": [
+      "stepfun"
+    ],
+    "families": [
+      "step-"
+    ],
+    "accent": "#0A6CFF",
+    "mark": "stepfun/mark.png",
+    "color": "stepfun/color.png",
+    "wordmark": "stepfun/wordmark.png"
+  },
+  "ibm": {
+    "name": "IBM",
+    "aliases": [
+      "ibm",
+      "ibm research"
+    ],
+    "families": [
+      "granite"
+    ],
+    "accent": "#E8E8E8",
+    "mark": "ibm/mark.png",
+    "wordmark": "ibm/wordmark.png"
+  },
+  "lg": {
+    "name": "LG AI Research",
+    "aliases": [
+      "lg",
+      "lg ai research"
+    ],
+    "families": [
+      "exaone"
+    ],
+    "accent": "#C5003E",
+    "mark": "lg/mark.png",
+    "color": "lg/color.png",
+    "wordmark": "lg/wordmark.png"
+  },
+  "thinkingmachines": {
+    "name": "Thinking Machines Lab",
+    "aliases": [
+      "thinking machines",
+      "thinking machines lab"
+    ],
+    "families": [
+      "inkling"
+    ],
+    "accent": "#D8D4CC",
+    "mark": "thinkingmachines/mark.png",
+    "wordmark": "thinkingmachines/wordmark.png"
+  }
+}

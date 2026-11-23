@@ -219,6 +219,8 @@ class ModelGeneratePostTests(unittest.TestCase):
                     str(output_dir),
                     "--date",
                     "2026-07-23",
+                    "--primary-style",
+                    "signal-stack-condensed",
                 ]
             )
 

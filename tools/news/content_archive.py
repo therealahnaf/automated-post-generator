@@ -183,11 +183,56 @@ def background_assets(media: list[Path]) -> list[dict]:
     return selected
 
 
+def website_media(media: list[Path]) -> list[Path]:
+    """Model posts show a wide benchmark as two consecutive slides; the website gets each such spread whole.
+
+    A pair is replaced only when the renderer's post.json beside it records those two slides (matched by path or
+    by content hash) and the whole image still exists; anything else is archived exactly as published.
+    """
+    wholes: dict[tuple[str, str], Path] = {}
+    for sidecar in {path.parent / "post.json" for path in media}:
+        if not sidecar.is_file():
+            continue
+        try:
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for spread in metadata.get("spreads", []) if isinstance(metadata, dict) else []:
+            if not isinstance(spread, dict):
+                continue
+            joined = Path(str(spread.get("joined", "")))
+            if not joined.is_file():
+                continue
+            for key in (spread.get("slides"), spread.get("sha256")):
+                if isinstance(key, list) and len(key) == 2:
+                    wholes[(str(key[0]), str(key[1]))] = joined
+    if not wholes:
+        return media
+
+    def keys(path: Path) -> tuple[str, str]:
+        return str(path.resolve()), hashlib.sha256(path.read_bytes()).hexdigest()
+
+    result: list[Path] = []
+    index = 0
+    while index < len(media):
+        if index + 1 < len(media):
+            left, right = keys(media[index]), keys(media[index + 1])
+            whole = wholes.get((left[0], right[0])) or wholes.get((left[1], right[1]))
+            if whole:
+                result.append(whole)
+                index += 2
+                continue
+        result.append(media[index])
+        index += 1
+    return result
+
+
 def prepare_delivery(
     caption_file: Path | None, media: list[Path], explicit_manifest: Path | None = None
 ) -> Path | None:
     if not os.getenv("CONTENT_API_URL", "").strip():
         return None
+    media = website_media(media)
     parsed = urlparse(os.environ["CONTENT_API_URL"])
     if parsed.scheme != "https" and not (
         parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}

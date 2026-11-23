@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -31,6 +32,8 @@ from tools.news import advertisement_footer
 from tools.news import generate_post as news_post
 from tools.news import local_backgrounds
 from tools.news.post_language import read_platform_language
+from tools.news import cinema_post
+from tools.models import giant_post
 
 
 CANVAS_SIZE = news_post.CANVAS_SIZE
@@ -38,7 +41,9 @@ CARD_MARGIN = 58
 MEDIA_TOP = 560
 MEDIA_BOTTOM = advertisement_footer.footer_top(CANVAS_SIZE) - 84
 MEDIA_VERTICAL_GAP = 28
+DEFAULT_PRIMARY_STYLE = "giant-mark"
 PRIMARY_STYLE_CHOICES = (
+    "giant-mark",
     "brand-block",
     "launch-label",
     "glass-frame",
@@ -81,6 +86,11 @@ class ModelPostMetadata:
     platform: str | None
     post_language: str
     created_at: str
+    # Giant Mark only: each photo's layout ("lead-and-wide", "adaptive-max", "single" or "summary") and colour.
+    sections: list = field(default_factory=list)
+    # Giant Mark only: each two-slide spread's slides (with their SHA-256) and the whole image, which the website
+    # archive receives in place of the two halves.
+    spreads: list = field(default_factory=list)
 
 
 def read_copy_file(path: Path) -> tuple[str, str, list[str]]:
@@ -202,8 +212,23 @@ def wrap_signal_name(
     for size in range(152, 75, -2):
         font = load_signal_font(variant, size)
         lines = news_post.wrap_headline(draw, text, font, 840)
+        if len(lines) == 1 and news_post.text_width(draw, lines[0], font) > 840:
+            # Model IDs are often a single hyphenated token. Break only at
+            # existing hyphens so the displayed name remains exact.
+            parts = text.split("-")
+            wrapped: list[str] = []
+            current = parts[0]
+            for part in parts[1:]:
+                candidate = f"{current}-{part}"
+                if news_post.text_width(draw, candidate, font) <= 840:
+                    current = candidate
+                else:
+                    wrapped.append(f"{current}-")
+                    current = part
+            wrapped.append(current)
+            lines = wrapped
         line_height = size + (10 if variant == "condensed" else 16)
-        if len(lines) <= 2 and all(
+        if len(lines) <= 3 and all(
             news_post.text_width(draw, line, font) <= 840 for line in lines
         ):
             return font, lines, line_height
@@ -590,6 +615,8 @@ def compose_primary(
     style: str = "signal-stack-condensed",
     language: str = "english",
 ) -> Image.Image:
+    if style == "giant-mark":
+        style = "signal-stack-condensed"
     canvas = news_post.add_scrim(open_background(background_bytes))
     if style not in PRIMARY_STYLE_CHOICES:
         raise ValueError(f"Unknown primary style: {style}")
@@ -773,8 +800,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--primary-style",
         choices=PRIMARY_STYLE_CHOICES,
-        default="signal-stack-condensed",
-        help="Typography treatment for the centered primary headline.",
+        default=DEFAULT_PRIMARY_STYLE,
+        help="Carousel design: giant-mark (default) or a classic primary-card treatment.",
     )
     return parser
 
@@ -783,6 +810,84 @@ def configure_utf8(stream: TextIO) -> None:
     reconfigure = getattr(stream, "reconfigure", None)
     if callable(reconfigure):
         reconfigure(encoding="utf-8", errors="replace")
+
+
+def remove_previous_render(output_dir: Path) -> None:
+    """Delete the images a previous render in this folder listed, so a revision never leaves stale slides behind."""
+    metadata_path = output_dir / "post.json"
+    if not metadata_path.is_file():
+        return
+    try:
+        previous = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    folder = output_dir.resolve()
+    joined = [spread.get("joined") for spread in previous.get("spreads", []) if isinstance(spread, dict)]
+    for value in [previous.get("primary_image"), *previous.get("secondary_images", []), *joined]:
+        if not value:
+            continue
+        path = Path(str(value)).resolve()
+        if path.parent == folder and path.suffix.lower() == ".png" and path.is_file():
+            path.unlink()
+
+
+def write_giant_carousel(
+    args: argparse.Namespace,
+    carousel: "giant_post.Carousel",
+    *,
+    model_name: str,
+    company_name: str,
+    short_descriptions: list[str],
+    source_images: list[Path],
+    background_seed: int,
+    language: str,
+    slug: str,
+) -> int:
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    remove_previous_render(args.output_dir)
+    paths: list[Path] = []
+    for number, slide in enumerate(carousel.slides, start=1):
+        name = f"01-meet-{slug}.png" if number == 1 else f"{number:02d}-{slide.name}.png"
+        path = args.output_dir / name
+        slide.image.save(path, format="PNG", optimize=True)
+        paths.append(path)
+    spreads = []
+    for first, whole in carousel.spreads:
+        left, right = paths[first], paths[first + 1]
+        joined = args.output_dir / f"{left.stem.removesuffix('-left')}-spread.png"
+        whole.save(joined, format="PNG", optimize=True)
+        spreads.append({
+            "slides": [str(left.resolve()), str(right.resolve())],
+            "sha256": [hashlib.sha256(path.read_bytes()).hexdigest() for path in (left, right)],
+            "joined": str(joined.resolve()),
+        })
+    metadata = ModelPostMetadata(
+        model_name=model_name,
+        company_name=company_name,
+        headline=build_headline(model_name),
+        short_descriptions=short_descriptions,
+        primary_image=str(paths[0].resolve()),
+        secondary_images=[str(path.resolve()) for path in paths[1:]],
+        source_images=[str(path.resolve()) for path in source_images],
+        background_source=str(carousel.backdrops[0].resolve()),
+        background_sources=[str(path.resolve()) for path in carousel.backdrops],
+        background_seed=background_seed,
+        primary_style="giant-mark",
+        platform=args.platform,
+        post_language=language,
+        created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        sections=carousel.sections,
+        spreads=spreads,
+    )
+    metadata_path = args.output_dir / "post.json"
+    metadata_path.write_text(
+        json.dumps(asdict(metadata), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    for path in paths:
+        print(path.resolve())
+    print(metadata_path.resolve())
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -828,9 +933,6 @@ def main(argv: list[str] | None = None) -> int:
                 "A no-media model post requires two or three short descriptions."
             )
 
-        available_backgrounds = local_backgrounds.list_backgrounds(
-            args.background_dir
-        )
         background_seed = (
             args.seed
             if args.seed is not None
@@ -841,6 +943,52 @@ def main(argv: list[str] | None = None) -> int:
                 source_text,
             )
         )
+        slug = "".join(
+            character.lower() if character.isalnum() else "-"
+            for character in model_name
+        ).strip("-")
+        while "--" in slug:
+            slug = slug.replace("--", "-")
+
+        if args.primary_style == "giant-mark" and language == "english":
+            design_seed = (
+                str(args.seed)
+                if args.seed is not None
+                else cinema_post.tweet_seed(args.tweet_json, model_name)
+            )
+            try:
+                carousel = giant_post.render_carousel(
+                    model_name,
+                    company_name,
+                    short_descriptions[:secondary_count],
+                    source_images,
+                    args.date,
+                    seed=design_seed,
+                )
+            except giant_post.UnsupportedText as exc:
+                print(
+                    f"Warning: {exc} Using signal-stack-condensed instead.",
+                    file=sys.stderr,
+                )
+                args.primary_style = "signal-stack-condensed"
+            else:
+                return write_giant_carousel(
+                    args,
+                    carousel,
+                    model_name=model_name,
+                    company_name=company_name,
+                    short_descriptions=short_descriptions[:secondary_count],
+                    source_images=source_images,
+                    background_seed=background_seed,
+                    language=language,
+                    slug=slug,
+                )
+        if args.primary_style == "giant-mark":
+            args.primary_style = "signal-stack-condensed"
+
+        available_backgrounds = local_backgrounds.list_backgrounds(
+            args.background_dir
+        )
         selected_backgrounds = local_backgrounds.select_backgrounds(
             available_backgrounds,
             secondary_count + 1,
@@ -849,12 +997,7 @@ def main(argv: list[str] | None = None) -> int:
         background_bytes = selected_backgrounds[0].read_bytes()
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        slug = "".join(
-            character.lower() if character.isalnum() else "-"
-            for character in model_name
-        ).strip("-")
-        while "--" in slug:
-            slug = slug.replace("--", "-")
+        remove_previous_render(args.output_dir)
         primary_path = args.output_dir / f"01-meet-{slug}.png"
         compose_primary(
             background_bytes,

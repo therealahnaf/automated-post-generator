@@ -82,10 +82,11 @@ carousel workflows.
 
 Every generated image must include the approved shared Codeastrix sponsor
 footer from `tools/news/codeastrix_footer.py`. This includes every
-model/product/informative carousel card. Keep content above the reserved footer
+product/informative carousel card. Keep content above the reserved footer
 area; no image workflow may omit, cover, erase, or replace the footer. News
-cards use the Cinema design in `tools/news/cinema_post.py` and carry no sponsor
-footer, and reels carry no advertisement banner or sponsor footer.
+cards use the Cinema design in `tools/news/cinema_post.py`, model cards use the
+Giant Mark design in `tools/models/giant_post.py`, and neither carries a
+sponsor footer; reels carry no advertisement banner or sponsor footer.
 
 Generate the English copy once. Run
 `tools/news/prepare_platform_descriptions.py` after source finalization to

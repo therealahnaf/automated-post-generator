@@ -27,23 +27,28 @@ Use this workflow for posts announcing or introducing an AI model.
    the segment count must exactly match the downloaded-photo count. Without
    photos, generate two or three segments according to the amount of detail.
 4. Run `tools/models/generate_post.py`; never call an image model for this
-   workflow. The renderer pseudo-randomly selects every card background from
-   `assets/fonts/images/bg-*.png`, avoids immediate repeats, and derives a
-   stable seed from the validated post so both platforms
-   use the same ordered background sequence. Pass `--seed <integer>` only when
-   deliberately overriding that sequence, and reuse the same seed for every
-   revision and platform.
-5. The first card places a larger `Meet`, the model name, and
-   `by <company name>` directly beneath it in the middle using the default
-   `signal-stack-condensed` preset: centered condensed model-name typography
-   with no side rule. For each downloaded photo, create a secondary card with
-   its short description at the top and the complete, uncropped photo aligned
-   toward the bottom over its selected local background. Keep the primary first
-   and preserve downloaded-photo order. The complete carousel must never
-   exceed 10 images.
-6. When no photos were downloaded, create one secondary summary card for each
-   of the two or three description segments. Center each segment over its
-   selected local background; do not generate any background.
+   workflow. It renders the default Giant Mark design deterministically: every
+   backdrop, highlight colour and marker shape is seeded from the validated
+   post, so a re-render and both platforms are identical. Pass `--seed
+   <integer>` only when deliberately overriding that sequence, and reuse the
+   same seed for every revision and platform. Do not pass `--primary-style`;
+   the classic styles remain only as an automatic fallback.
+5. The first card is the Giant Mark cover: a darkened news backdrop, the
+   releasing company's logo from `assets/models/logos/` large behind a big
+   left-aligned `Meet <model name>` headline on the hand-cut marker, then
+   `by <company name>` and the date. The logo is matched only from the
+   company name; a company without a logo on file shows two or three large
+   letters instead. Each downloaded photo follows in downloaded-photo order
+   with its own short description. A landscape photo becomes a two-slide
+   spread showing the complete, uncropped image across both slides, alternating
+   Lead + Wide and Adaptive Max layouts; a portrait photo, or any photo beyond
+   what fits, uses a single card. The renderer keeps the complete carousel
+   within 10 images and alternates the coral and mint highlight per section.
+   Preview and publish every slide it lists, in order; never drop one half of
+   a spread. The website archive automatically receives each spread whole.
+6. When no photos were downloaded, create one summary card for each of the two
+   or three description segments, as the renderer does by default; do not
+   generate any background.
 7. Render one English package with
    `tools/models/generate_post.py --platform facebook` and reuse it for both
    platforms. Do not translate the headline or secondary copy. Run
