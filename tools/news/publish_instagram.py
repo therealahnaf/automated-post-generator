@@ -433,6 +433,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="UTF-8 file containing the Instagram caption.",
     )
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--skip-website", action="store_true",
+                        help="Do not map this post on the website (meme posts only).")
     parser.add_argument(
         "--confirm",
         help="Must be the exact word 'yes' when --publish is supplied.",
@@ -458,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
             args.image_url, args.secondary_image_url
         )
         caption = read_caption(args)
-        archive_key = instagram_archive_key(args.caption_file) if args.publish else None
+        archive_key = instagram_archive_key(args.caption_file) if args.publish and not args.skip_website else None
         publish_method = load_publish_method()
         if publish_method == "music":
             project_root = str(PROJECT_ROOT)

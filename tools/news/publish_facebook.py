@@ -299,6 +299,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image", required=True, type=Path)
     parser.add_argument('--website-manifest', type=Path, help='Override caption-adjacent English website manifest.')
+    parser.add_argument('--skip-website', action='store_true',
+                        help='Do not archive this post on the website (meme posts only).')
     parser.add_argument(
         "--secondary-image",
         action="append",
@@ -383,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if len(images) == 1:
-                archive_receipt = prepare_delivery(args.message_file, images, args.website_manifest)
+                archive_receipt = None if args.skip_website else prepare_delivery(args.message_file, images, args.website_manifest)
                 result = publish_photo(session, config, images[0], message)
                 photo_ids = [str(result.get("id", ""))]
                 post_id = str(result.get("post_id", ""))
@@ -395,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 permalink = photo_details[0].get("link") if photo_details else None
             else:
-                archive_receipt = prepare_delivery(args.message_file, images, args.website_manifest)
+                archive_receipt = None if args.skip_website else prepare_delivery(args.message_file, images, args.website_manifest)
                 photo_ids = [
                     upload_unpublished_photo(session, config, image)
                     for image in images

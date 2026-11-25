@@ -49,7 +49,7 @@ STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
-WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "auto")
+WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "meme", "auto")
 POST_LANGUAGES = ("english", "bangla")
 CODEX_MODEL = "gpt-6-luna"
 CODEX_MODEL_REASONING_EFFORT = "medium"
@@ -59,6 +59,7 @@ WORKFLOW_LABELS = {
     "product": "Product Release",
     "informative": "Informative",
     "reel": "Reel",
+    "meme": "Meme",
     "auto": "Auto Detect",
 }
 PROGRESS_STAGE_LABELS = {
@@ -499,7 +500,10 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
                 {"text": "Product Release", "callback_data": f"workflow:{job_id}:product"},
                 {"text": "Informative", "callback_data": f"workflow:{job_id}:informative"},
             ],
-            [{"text": "Reel", "callback_data": f"workflow:{job_id}:reel"}],
+            [
+                {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
+                {"text": "Meme", "callback_data": f"workflow:{job_id}:meme"},
+            ],
             [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
         ]
     }
@@ -721,6 +725,13 @@ def news_pipeline_for(config: Config, job: sqlite3.Row, job_dir: Path, *, first_
     return choice
 
 
+# Workflows run by a fixed script pipeline instead of a Codex turn: (script, state file, name in messages).
+SCRIPT_PIPELINES = {
+    "news-v2": (("tools", "news_v2", "pipeline.py"), "v2-state.json", "News v2"),
+    "meme": (("tools", "viral", "meme_pipeline.py"), "meme-state.json", "Meme"),
+}
+
+
 def invoke_news_v2(
     config: Config,
     job: sqlite3.Row,
@@ -731,16 +742,19 @@ def invoke_news_v2(
     environment: dict[str, str],
     paths: tuple[Path, Path, Path, Path],
     job_dir: Path,
+    pipeline_name: str = "news-v2",
 ) -> CodexResult:
-    """News v2: a fixed script chain around one research session (tools/news_v2/pipeline.py). Returns the same
-    result shape as a Codex turn, so preview registration, approval and completion stay unchanged."""
+    """A script pipeline's turn: news v2 (tools/news_v2/pipeline.py, a fixed chain around one research session)
+    or memes (tools/viral/meme_pipeline.py, no agent). Returns the same result shape as a Codex turn, so preview
+    registration, approval and completion stay unchanged."""
     stdout_path, stderr_path, final_output_path, receipt_path = paths
-    pipeline = [sys.executable, str(config.repo_dir / "tools" / "news_v2" / "pipeline.py")]
+    script, state_name, label = SCRIPT_PIPELINES[pipeline_name]
+    pipeline = [sys.executable, str(config.repo_dir.joinpath(*script))]
     if not resume:
         match = X_STATUS_URL_RE.search(str(job["request_text"]))
         if match is None:
             return CodexResult(1, None, stdout_path, stderr_path, final_output_path, receipt_path,
-                               "News v2 could not find an X status URL in the request")
+                               f"{label} could not find an X status URL in the request")
         command = [*pipeline, "start", "--url", match.group(0)]
     elif prompt.strip().lower() == "yes":
         command = [*pipeline, "publish"]
@@ -751,11 +765,11 @@ def invoke_news_v2(
         with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open("w", encoding="utf-8") as stderr_file:
             exit_code = subprocess.run(command, text=True, cwd=config.repo_dir, env=environment, stdout=stdout_file,
                                        stderr=stderr_file, check=False).returncode
-        error = None if exit_code == 0 else f"News v2 exited with status {exit_code}"
+        error = None if exit_code == 0 else f"{label} exited with status {exit_code}"
     except Exception as exc:
-        exit_code, error = -1, f"Could not run news v2: {type(exc).__name__}: {exc}"
+        exit_code, error = -1, f"Could not run {label}: {type(exc).__name__}: {exc}"
     session_id = None
-    state_path = job_dir / "v2-state.json"
+    state_path = job_dir / state_name
     if state_path.is_file():
         try:
             session_id = json.loads(state_path.read_text(encoding="utf-8")).get("session_id")
@@ -829,6 +843,10 @@ def invoke_codex(
             "BITS_TODAY_JOB_DIR": str(job_dir),
         }
     )
+    if str(job["workflow_type"] or "") == "meme":
+        return invoke_news_v2(config, job, prompt=prompt, feedback=feedback, resume=resume, environment=environment,
+                              paths=(stdout_path, stderr_path, final_output_path, receipt_path), job_dir=job_dir,
+                              pipeline_name="meme")
     if news_pipeline_for(config, job, job_dir, first_turn=not resume) == "v2":
         return invoke_news_v2(config, job, prompt=prompt, feedback=feedback, resume=resume, environment=environment,
                               paths=(stdout_path, stderr_path, final_output_path, receipt_path), job_dir=job_dir)
@@ -1895,7 +1913,7 @@ def handle_update(
                     )
             return
         workflow_match = re.fullmatch(
-            r"workflow:(\d+):(news|model|product|informative|reel|auto|cancel)",
+            r"workflow:(\d+):(news|model|product|informative|reel|meme|auto|cancel)",
             callback.data,
         )
         facebook_language_match = re.fullmatch(
@@ -2004,7 +2022,7 @@ def handle_update(
         return
     if message.text.startswith("/"):
         command_match = re.match(
-            r"^/(news|model|product|informative|reel|auto)(?:@\w+)?\s+(.+)$",
+            r"^/(news|model|product|informative|reel|meme|auto)(?:@\w+)?\s+(.+)$",
             message.text,
             re.IGNORECASE | re.DOTALL,
         )
@@ -2014,7 +2032,7 @@ def handle_update(
                 session,
                 config,
                 "Send an X status URL, or use /news, /model, /product, "
-                "/informative, /reel, or /auto followed by the URL.",
+                "/informative, /reel, /meme, or /auto followed by the URL.",
                 reply_to_message_id=message.message_id,
             )
             return

@@ -60,6 +60,10 @@ complete or an explicit approval is required.
    - For `product`, read and follow `tools/products/WORKFLOW.md`.
    - For `informative`, read and follow `tools/thoughts/WORKFLOW.md`.
    - For `reel`, read and follow `tools/reels/WORKFLOW.md`.
+   - `meme` (the Meme button or `/meme`) never reaches a Codex turn: the watcher
+     runs `tools/viral/meme_pipeline.py`, which posts one image, our title over a
+     faithful render of the X post, to Facebook and Instagram after the same
+     Telegram preview and `yes`. Meme posts are not archived on the website.
 
 The selected workflow owns its copy, research, visual assets, layout, and
 ordered carousel construction. Do not mix layouts or generation rules between
