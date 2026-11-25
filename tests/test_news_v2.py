@@ -183,6 +183,42 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("Facebook published: https://fb/p", final.read_text(encoding="utf-8"))
 
 
+class DescriptionStepTests(unittest.TestCase):
+    def test_description_calls_the_real_function_signature(self) -> None:
+        from tools.news import generate_description as news_description
+
+        with tempfile.TemporaryDirectory() as directory:
+            job = make_job(Path(directory) / "job")
+            calls = []
+
+            def fake_run(command, **_):
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(news_description, "generate_description", autospec=True,
+                              return_value="NVIDIA reinstated Huang.") as generate,                     patch.object(news_description, "require_api_key"),                     patch.object(news_description, "make_client"),                     patch.object(pipeline.subprocess, "run", side_effect=fake_run):
+                pipeline.write_description(job, GOOD_BRIEF)
+            self.assertEqual(generate.call_args.kwargs["max_output_tokens"], pipeline.DESCRIPTION_TOKENS)
+            self.assertIn("Verified context from research", generate.call_args.args[1])
+            self.assertEqual(job.description.read_text(encoding="utf-8").strip(), "NVIDIA reinstated Huang.")
+            finalize = next(command for command in calls if "finalize_description.py" in command[1])
+            self.assertIn("https://x.com/nvidianewsroom/status/2124865060397019480", finalize)
+
+    def test_an_unexpected_error_reports_failed_with_the_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            final = root / "final.txt"
+            stages = []
+
+            def fake_progress(job, stage, detail=None):
+                stages.append((stage, detail))
+
+            with patch.dict(os.environ, {"BITS_TODAY_JOB_DIR": str(root), "BITS_TODAY_FINAL_OUTPUT": str(final)}),                     patch.object(pipeline, "progress", side_effect=fake_progress),                     patch.object(pipeline, "command_publish", side_effect=TypeError("boom")):
+                self.assertEqual(pipeline.main(["publish"]), 1)
+            self.assertEqual(stages[-1][0], "failed")
+            self.assertIn("TypeError: boom", final.read_text(encoding="utf-8"))
+
+
 class WatcherRoutingTests(unittest.TestCase):
     def config(self, root: Path) -> watcher.Config:
         return watcher.Config("token", "1", frozenset(), root, root / "state", root / "state" / "db.sqlite3", Path("codex"))

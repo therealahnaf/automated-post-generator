@@ -36,6 +36,7 @@ from tools.news_v2 import brief as research_brief  # noqa: E402
 PY = sys.executable
 SELECTION = ROOT / ".automation" / "news-pipeline"
 CODEX_MODEL = os.getenv("BITS_TODAY_CODEX_MODEL", "gpt-6-luna")
+DESCRIPTION_TOKENS = 1500  # the description script's own default
 
 RESEARCH_PROMPT = """Read tools/news_v2/RESEARCH.md and follow it exactly.
 
@@ -237,7 +238,11 @@ def write_description(job: Job, brief: dict) -> None:
         f"{news_description.read_tweet_text(job.tweet)}\n\nVerified context from research:\n{brief.get('summary', '')}\n{facts}")
     log(job, "$ description")
     news_description.require_api_key()
-    text = news_description.generate_description(news_description.make_client(), source_text)
+    try:
+        text = news_description.generate_description(news_description.make_client(), source_text,
+                                                     max_output_tokens=DESCRIPTION_TOKENS)
+    except Exception as exc:
+        raise StepError(f"description failed: {type(exc).__name__}: {exc}")
     if not text:
         raise StepError("The description came back empty.")
     job.description.write_text(text + "\n", encoding="utf-8")
@@ -481,7 +486,18 @@ def main(argv: list[str] | None = None) -> int:
     use.add_argument("version", choices=("v1", "v2"))
     use.set_defaults(handler=command_use)
     args = parser.parse_args(argv)
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except Exception as exc:  # a bug or an unexpected error: report it like any failed step
+        reason = f"{args.command} stopped unexpectedly: {type(exc).__name__}: {exc}"
+        if os.getenv("BITS_TODAY_JOB_DIR"):
+            log(job_from_env(), reason)
+            progress(job_from_env(), "failed", reason)
+        final_output(f"News v2 {reason}")
+        import traceback
+
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
