@@ -31,6 +31,15 @@ and less than half as many when led by corporate or policy framing. So:
   must come first. Aim for about 6-12 words and at most about 75 characters.
 
 Also (from testing these rules):
+- Lead with the story's main takeaway, the thing a reader would tell a friend,
+  not a side detail. Say it with the concept people know and that catches the
+  eye (an AI that makes things up, a privacy leak, a price cut, a ban), not
+  the name of the benchmark, metric or document it came from.
+- When the source gives a result a familiar label (hallucination rate, battery
+  life, price), use that label. Definitions, test settings such as `(max)` or
+  `xhigh`, methodology and caveats belong in the description, not the
+  headline; the editor notes are for the description and never a reason to
+  bury the takeaway.
 - Use the name people recognise, not an internal model code or SKU: write
   "8GB Nvidia Mining Card", not "CMP 170HX"; "Nvidia's New Mini PC", not a
   part number. Keep a technical name only when readers know it (RTX 3090, GTA 6).
@@ -71,4 +80,5 @@ stronger. Preserve important names and numbers. Avoid vague hype such as
 `game-changing`, `revolutionary`, or `shocking` when a concrete result can
 carry the headline. Do not add unverified facts.
 
-Use Title Case like the examples. Write in English only.
+Use Title Case like the examples. Write one clean line with no semicolons or
+brackets. Write in English only.

@@ -132,7 +132,10 @@ downloaded media; do not fetch or classify the story again.
      often a tweet copy and the original. Use only one of them, normally the primary source's larger original.
    - Slides: keep every tweet photo that adds information, then add source images that show something new
      (official product shots, figures, the advisory or release itself). Skip duplicates, logos, decorative
-     stock and anything that repeats the cover. Use `"text": true` when the image needs a story segment beside
+     stock and anything that repeats the cover. Every slide image must show something about the story's main
+     point itself, not just the same company or product: for a story about one benchmark result, a general
+     spec or pricing sheet does not belong. Fewer slides that fit beat more that do not; an empty `slides` list
+     is fine. Use `"text": true` when the image needs a story segment beside
      it, and leave it out for images that already carry their own words, such as spec graphics or labelled
      charts.
    - Quotes: at most two, and only a sentence that adds something the headline and caption do not, such as an

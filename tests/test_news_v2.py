@@ -58,6 +58,46 @@ class HeadlineCheckTests(unittest.TestCase):
         self.assertIn("banned clickbait phrase", headline.check("You Won't Believe What This GPU Does", ""))
         self.assertTrue(any(issue.startswith("all-caps") for issue in headline.check("Nvidia Card Is MASSIVE Now", "")))
         self.assertIn("needs 3-16 words", headline.check("Huge", ""))
+        self.assertIn("no semicolons or brackets: one clean line",
+                      headline.check("Gemini 4 (xhigh) Scores 8.5%; GPT Hits 59%", ""))
+
+    def test_the_takeaway_reaches_the_judge_and_the_output(self) -> None:
+        replies = iter([
+            '{"takeaway": "Gemini 4 makes things up far less often", "candidates": ["Gemini 4 Hallucinates Far Less Than GPT"]}',
+            '{"best": 1, "reason": "Leads with the gap."}',
+        ])
+        prompts = []
+
+        def fake_ask(client, system, user, effort="medium"):
+            prompts.append(user)
+            return next(replies)
+
+        with patch.object(headline, "ask", side_effect=fake_ask):
+            result = headline.generate(None, "tweet", {"summary": "s", "facts": [{"fact": "f", "source": "x"}]})
+        self.assertEqual(result["takeaway"], "Gemini 4 makes things up far less often")
+        self.assertIn("TAKEAWAY\nGemini 4 makes things up far less often", prompts[1])
+
+
+class SlideCopyImageTests(unittest.TestCase):
+    def test_each_segment_is_written_with_its_image_attached(self) -> None:
+        from tools.news import generate_carousel_copy as copy
+
+        with tempfile.TemporaryDirectory() as folder:
+            paths = [picture(Path(folder) / f"slide-{n}.png", (40 * n, 90, 120)) for n in (1, 2)]
+            sent = {}
+
+            def create(**kwargs):
+                sent.update(kwargs)
+                return SimpleNamespace(output_text='["About the first chart.", "About the second table."]')
+
+            client = SimpleNamespace(responses=SimpleNamespace(create=create))
+            result = copy.generate_short_descriptions(client, "Headline", "tweet", "source", 2, images=paths)
+        self.assertEqual(result, ["About the first chart.", "About the second table."])
+        content = sent["input"][1]["content"]
+        self.assertEqual([part["type"] for part in content],
+                         ["input_text", "input_text", "input_image", "input_text", "input_image"])
+        self.assertEqual(content[3]["text"], "Image 2:")
+        self.assertTrue(content[2]["image_url"].startswith("data:image/jpeg;base64,"))
 
 
 def make_job(root: Path) -> pipeline.Job:

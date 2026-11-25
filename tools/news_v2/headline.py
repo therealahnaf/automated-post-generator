@@ -33,11 +33,13 @@ EMOJI = re.compile(r"[\U0001F000-\U0001FAFF☀-➿️]")
 
 JUDGE = """You are the senior editor of The Bits Today. Pick the strongest headline for this story from the
 numbered candidates. Judge, in order:
-1. Accurate to the sources: nothing the tweet or the facts do not support; opinions keep their speaker.
-2. The hook comes first, in the first three or four words.
-3. Names what readers own, play or use, by the name they know (not an internal model code).
-4. States the real stakes and the hardest number.
-5. Bold and consequence-first without clickbait; plain English a non-specialist understands.
+1. Delivers the story's takeaway (given below): what the post is actually about, not a side detail, in words
+   that catch the eye of someone scrolling.
+2. Accurate to the sources: nothing the tweet or the facts do not support; opinions keep their speaker.
+3. The hook comes first, in the first three or four words.
+4. Names what readers own, play or use, by the name they know (not an internal model code or benchmark name).
+5. States the real stakes and the hardest number.
+6. Bold and consequence-first without clickbait; plain English a non-specialist understands.
 Return only JSON: {"best": <candidate number>, "reason": "<one sentence>"}."""
 
 
@@ -51,6 +53,8 @@ def check(headline: str, source_text: str) -> list[str]:
         issues.append(f"longer than {MAX_CHARACTERS} characters")
     if "!" in headline or "?" in headline:
         issues.append("no exclamation or question marks")
+    if any(mark in headline for mark in ";()[]"):
+        issues.append("no semicolons or brackets: one clean line")
     if EMOJI.search(headline):
         issues.append("no emoji")
     if BANNED.search(headline):
@@ -96,9 +100,14 @@ def story_block(tweet_text: str, brief: dict) -> str:
 def generate(client: Any, tweet_text: str, brief: dict, count: int = CANDIDATES) -> dict:
     story = story_block(tweet_text, brief)
     source_text = f"{tweet_text}\n{brief.get('summary', '')}\n" + "\n".join(item["fact"] for item in brief.get("facts", []))
-    request = (f"{story}\n\nWrite {count} different candidate headlines for this story, each following every rule. "
-               "Vary the angle: lead with different hooks. Return only JSON: {\"candidates\": [\"...\"]}.")
-    candidates = [str(value).strip().strip('"') for value in parse_json(ask(client, RULES, request)).get("candidates", [])]
+    request = (f"{story}\n\nFirst write the story's takeaway: one plain sentence saying what this post is really about "
+               "and why a reader would care, using everyday words for the concept and no caveats. Then write "
+               f"{count} different candidate headlines that each deliver that takeaway and follow every rule; vary "
+               "the hook and wording, not the point. Return only JSON: "
+               "{\"takeaway\": \"...\", \"candidates\": [\"...\"]}.")
+    answer = parse_json(ask(client, RULES, request))
+    takeaway = str(answer.get("takeaway", "")).strip()
+    candidates = [str(value).strip().strip('"') for value in answer.get("candidates", [])]
     checked = [{"headline": value, "issues": check(value, source_text)} for value in candidates if value]
     passing = [item for item in checked if not item["issues"]]
     if not passing:
@@ -112,11 +121,11 @@ def generate(client: Any, tweet_text: str, brief: dict, count: int = CANDIDATES)
     if not passing:
         raise RuntimeError("No headline candidate passed the hard rules.")
     numbered = "\n".join(f"{index}. {item['headline']}" for index, item in enumerate(passing, start=1))
-    verdict = parse_json(ask(client, JUDGE, f"{story}\n\nCANDIDATES\n{numbered}"))
+    verdict = parse_json(ask(client, JUDGE, f"{story}\n\nTAKEAWAY\n{takeaway}\n\nCANDIDATES\n{numbered}"))
     best = int(verdict.get("best", 1))
     if not 1 <= best <= len(passing):
         best = 1
-    return {"headline": passing[best - 1]["headline"], "reason": verdict.get("reason", ""),
+    return {"headline": passing[best - 1]["headline"], "takeaway": takeaway, "reason": verdict.get("reason", ""),
             "candidates": checked, "model": MODEL}
 
 
