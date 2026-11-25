@@ -29,6 +29,7 @@ from tools.news.generate_carousel_copy import (
     MAX_SHORT_DESCRIPTION_CHARACTERS,
 )
 from tools.news import cinema_post
+from tools.news import media_plan as news_media_plan
 from tools.news.post_language import read_headline_highlight, read_platform_language
 
 
@@ -122,6 +123,68 @@ def read_copy_file(
     return mode, copy_language, descriptions, source_images
 
 
+def render_planned(args: argparse.Namespace, payload: dict) -> int:
+    """A Cinema carousel laid out by the agent's resolved media plan: detail, photo and quote cards in plan order,
+    each with its source credit at the foot."""
+    plan = news_media_plan.read_resolved(Path(payload["media_plan"]))
+    slides = plan["slides"]
+    descriptions = validate_descriptions(payload.get("short_descriptions") or [], "english")
+    detail_count = sum(1 for slide in slides if slide["kind"] == "detail")
+    if len(descriptions) != detail_count:
+        raise ValueError(f"The media plan has {detail_count} text slides but the copy has {len(descriptions)} segments.")
+    source_text = news_description.read_tweet_text(args.tweet_json)
+    seed = cinema_post.tweet_seed(args.tweet_json, source_text)
+    highlight = read_headline_highlight(args.tweet_json)
+    count = len(slides) + 1
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    primary_path = args.output_dir / "01-headline.png"
+    if args.primary_image.resolve() != primary_path.resolve():
+        shutil.copy2(args.primary_image, primary_path)
+        source_metadata = args.primary_image.with_suffix(".json")
+        if source_metadata.is_file():
+            shutil.copy2(source_metadata, primary_path.with_suffix(".json"))
+
+    texts = iter(descriptions)
+    secondary_paths: list[Path] = []
+    used_images: list[Path] = []
+    for index, slide in enumerate(slides, start=2):
+        options = {"index": index, "count": count, "highlight": highlight, "seed": seed, "credit": slide["credit"]}
+        if slide["kind"] == "detail":
+            image = cinema_post.render_detail(next(texts), Path(slide["path"]), **options)
+        elif slide["kind"] == "photo":
+            image = cinema_post.render_photo(Path(slide["path"]), **options)
+        else:
+            image = cinema_post.render_quote(slide["text"], **options)
+        if slide["kind"] != "quote":
+            used_images.append(Path(slide["path"]))
+        output_path = args.output_dir / f"{index:02d}-{slide['kind']}-{index - 1}.png"
+        image.save(output_path, format="PNG", optimize=True)
+        secondary_paths.append(output_path)
+
+    metadata = NewsCarouselMetadata(
+        primary_image=str(primary_path.resolve()),
+        secondary_images=[str(path.resolve()) for path in secondary_paths],
+        source_images=[str(path.resolve()) for path in used_images],
+        short_descriptions=descriptions,
+        secondary_mode="plan",
+        background_sources=[str(cinema_post.pick_backdrop(f"{seed}-card-{index}").resolve()) for index in range(2, count + 1)],
+        background_seed=None,
+        platform=args.platform,
+        post_language="english",
+        created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+    )
+    metadata_path = args.output_dir / "carousel.json"
+    metadata_path.write_text(json.dumps({**asdict(metadata), "media_plan": payload["media_plan"],
+                                         "credits": [slide["credit"] for slide in slides]},
+                                        ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(primary_path.resolve())
+    for path in secondary_paths:
+        print(path.resolve())
+    print(metadata_path.resolve())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Render and package ordered news carousel detail cards."
@@ -154,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not args.primary_image.is_file():
             raise FileNotFoundError(f"Primary news image not found: {args.primary_image}")
+        copy_payload = json.loads(args.copy_json.read_text(encoding="utf-8"))
+        if copy_payload.get("mode") == "plan":
+            return render_planned(args, copy_payload)
         mode, copy_language, descriptions, source_images = read_copy_file(
             args.copy_json
         )

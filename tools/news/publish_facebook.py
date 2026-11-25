@@ -16,6 +16,11 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+
+try:
+    from . import dev_mode
+except ImportError:
+    import dev_mode
 from PIL import Image
 
 try:
@@ -333,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("Facebook publishing")
     try:
         require_publish_confirmation(args.publish, args.confirm)
         images = validate_image_paths(args.image, args.secondary_image)

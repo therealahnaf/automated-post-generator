@@ -21,6 +21,11 @@ from urllib.parse import urlparse
 from uuid import uuid4
 from uuid import UUID
 
+try:
+    from . import dev_mode
+except ImportError:
+    import dev_mode
+
 import requests
 from dotenv import load_dotenv
 
@@ -546,6 +551,8 @@ def archive_instagram_published(
 
 
 def main() -> int:
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("website archive delivery")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--retry-pending", action="store_true")

@@ -17,6 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.news import dev_mode
+
 try:
     from tools.news.publish_facebook import (
         FacebookConfig,
@@ -173,6 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("Facebook Reel publishing")
     try:
         require_publish_confirmation(args.publish, args.confirm)
         video, info = validate_reel(args.video)

@@ -11,6 +11,11 @@ import sys
 import requests
 
 try:
+    from . import dev_mode
+except ImportError:
+    import dev_mode
+
+try:
     from .telegram_codex_watcher import (
         PROGRESS_STAGE_LABELS,
         connect_database,
@@ -52,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
     if len(detail) > 500:
         print("Error: --detail cannot exceed 500 characters.", file=sys.stderr)
         return 1
+    if dev_mode.directory() is not None:
+        dev_mode.record_progress(int(raw_job_id), args.stage, detail or None)
+        print(json.dumps({"updated": True, "dev": True, "job_id": int(raw_job_id), "stage": args.stage,
+                          "detail": detail or None}, ensure_ascii=False))
+        return 0
     try:
         config = load_config()
         connection = connect_database(config.database_path)

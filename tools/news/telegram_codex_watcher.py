@@ -499,10 +499,7 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
                 {"text": "Product Release", "callback_data": f"workflow:{job_id}:product"},
                 {"text": "Informative", "callback_data": f"workflow:{job_id}:informative"},
             ],
-            [
-                {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
-                {"text": "Auto Detect", "callback_data": f"workflow:{job_id}:auto"},
-            ],
+            [{"text": "Reel", "callback_data": f"workflow:{job_id}:reel"}],
             [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
         ]
     }
@@ -705,6 +702,71 @@ def codex_command_prefix(config: Config) -> list[str]:
     ]
 
 
+def news_pipeline_for(config: Config, job: sqlite3.Row, job_dir: Path, *, first_turn: bool) -> str:
+    """Which news pipeline a job runs. Chosen once, on its first turn, from `.automation/news-pipeline` (set with
+    `tools/news_v2/pipeline.py use v1|v2`), and recorded in the job folder so its revisions and approval stay on it."""
+    if str(job["workflow_type"] or "") != "news":
+        return "v1"
+    recorded = job_dir / "pipeline.txt"
+    if recorded.is_file():
+        return recorded.read_text(encoding="utf-8").strip() or "v1"
+    if not first_turn:
+        return "v1"
+    try:
+        choice = (config.repo_dir / ".automation" / "news-pipeline").read_text(encoding="utf-8").strip()
+    except OSError:
+        choice = "v1"
+    choice = choice if choice in ("v1", "v2") else "v1"
+    recorded.write_text(choice + "\n", encoding="utf-8")
+    return choice
+
+
+def invoke_news_v2(
+    config: Config,
+    job: sqlite3.Row,
+    *,
+    prompt: str,
+    feedback: str | None,
+    resume: bool,
+    environment: dict[str, str],
+    paths: tuple[Path, Path, Path, Path],
+    job_dir: Path,
+) -> CodexResult:
+    """News v2: a fixed script chain around one research session (tools/news_v2/pipeline.py). Returns the same
+    result shape as a Codex turn, so preview registration, approval and completion stay unchanged."""
+    stdout_path, stderr_path, final_output_path, receipt_path = paths
+    pipeline = [sys.executable, str(config.repo_dir / "tools" / "news_v2" / "pipeline.py")]
+    if not resume:
+        match = X_STATUS_URL_RE.search(str(job["request_text"]))
+        if match is None:
+            return CodexResult(1, None, stdout_path, stderr_path, final_output_path, receipt_path,
+                               "News v2 could not find an X status URL in the request")
+        command = [*pipeline, "start", "--url", match.group(0)]
+    elif prompt.strip().lower() == "yes":
+        command = [*pipeline, "publish"]
+    else:
+        command = [*pipeline, "revise", "--feedback", (feedback or prompt).strip()]
+    environment = {**environment, "CODEX_BIN": str(config.codex_bin), "BITS_TODAY_FINAL_OUTPUT": str(final_output_path)}
+    try:
+        with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open("w", encoding="utf-8") as stderr_file:
+            exit_code = subprocess.run(command, text=True, cwd=config.repo_dir, env=environment, stdout=stdout_file,
+                                       stderr=stderr_file, check=False).returncode
+        error = None if exit_code == 0 else f"News v2 exited with status {exit_code}"
+    except Exception as exc:
+        exit_code, error = -1, f"Could not run news v2: {type(exc).__name__}: {exc}"
+    session_id = None
+    state_path = job_dir / "v2-state.json"
+    if state_path.is_file():
+        try:
+            session_id = json.loads(state_path.read_text(encoding="utf-8")).get("session_id")
+        except (OSError, ValueError):
+            session_id = None
+    if error and final_output_path.is_file():
+        error = final_output_path.read_text(encoding="utf-8").strip()[:500] or error
+    return CodexResult(exit_code, session_id or (str(job["session_id"]) if job["session_id"] else None), stdout_path,
+                       stderr_path, final_output_path, receipt_path, error)
+
+
 def invoke_codex(
     config: Config,
     job: sqlite3.Row,
@@ -712,6 +774,7 @@ def invoke_codex(
     prompt: str,
     reply_to_message_id: int,
     resume: bool,
+    feedback: str | None = None,
 ) -> CodexResult:
     turn = int(job["turn_count"])
     logs_dir = config.state_dir / "logs"
@@ -766,6 +829,9 @@ def invoke_codex(
             "BITS_TODAY_JOB_DIR": str(job_dir),
         }
     )
+    if news_pipeline_for(config, job, job_dir, first_turn=not resume) == "v2":
+        return invoke_news_v2(config, job, prompt=prompt, feedback=feedback, resume=resume, environment=environment,
+                              paths=(stdout_path, stderr_path, final_output_path, receipt_path), job_dir=job_dir)
     try:
         with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open(
             "w", encoding="utf-8"
@@ -1411,6 +1477,7 @@ def process_claimed_resume(
         prompt="yes" if approval else build_revision_prompt(message.text),
         reply_to_message_id=message.message_id,
         resume=True,
+        feedback=None if approval else message.text,
     )
     if result.exit_code != 0:
         error = result.error or "Codex resume failed"
@@ -2112,8 +2179,7 @@ def handle_update(
             config,
             (
                 f"The Bits Today · Job {job_id}\n\n"
-                "Choose the workflow for this X post. Auto Detect uses the existing "
-                "news/model/product classifier."
+                "Choose the workflow for this X post."
             ),
             reply_to_message_id=message.message_id,
             reply_markup=workflow_keyboard(job_id),

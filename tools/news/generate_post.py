@@ -95,6 +95,8 @@ class PostMetadata:
     logo_source: str
     feature_image_source: str | None
     created_at: str
+    media_plan: str | None = None
+    feature_image_credit: str | None = None
 
 
 def normalize_news_text(value: str) -> str:
@@ -1074,6 +1076,14 @@ def compose_post(
     return canvas.convert("RGB")
 
 
+def load_media_plan(path: Path) -> dict:
+    try:
+        from . import media_plan
+    except ImportError:
+        from tools.news import media_plan
+    return media_plan.read_resolved(path)
+
+
 def load_cinema() -> Any:
     """The Cinema renderer, imported late because it builds on this module."""
     try:
@@ -1157,6 +1167,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not add a tweet photo to the main post.",
     )
     parser.add_argument(
+        "--media-plan",
+        type=Path,
+        help=(
+            "Resolved media plan (media-plan.resolved.json). Cinema only: its cover image, credit and fill "
+            "replace the first-tweet-photo choice, and its slides decide the swipe hint."
+        ),
+    )
+    parser.add_argument(
         "--translated-title",
         help="Reuse an already approved localized headline instead of translating again.",
     )
@@ -1224,10 +1242,17 @@ def main(argv: list[str] | None = None) -> int:
         headline_highlight = (
             read_headline_highlight(args.tweet_json) if args.tweet_json else "dual"
         )
+        plan = load_media_plan(args.media_plan) if args.media_plan else None
+        if plan is not None and args.style != "cinema":
+            print("A media plan applies to the Cinema design only; ignoring it.", file=sys.stderr)
+            plan = None
+        plan_cover = plan["cover"] if plan else None
         discovered_tweet_photo = (
             find_first_tweet_photo(args.tweet_json) if args.tweet_json else None
         )
-        background_photo = args.feature_image or discovered_tweet_photo
+        background_photo = (
+            Path(plan_cover["path"]) if plan_cover else args.feature_image or discovered_tweet_photo
+        )
         feature_image_path = None
         if not args.no_feature_image:
             candidate = background_photo
@@ -1302,6 +1327,10 @@ def main(argv: list[str] | None = None) -> int:
                 # The generated or reused scene fills the card; Cinema reads it from disk.
                 background_file = args.output.with_name(f"{args.output.stem}-background.png")
                 background_file.write_bytes(background_bytes)
+            cover_credit = None
+            if feature_image_path is not None and plan is not None:
+                # With a plan every real image is credited, including a tweet photo kept as the cover.
+                cover_credit = plan_cover["credit"] if plan_cover else "Image via X"
             post, cinema_metadata = cinema.render(
                 title,
                 args.date,
@@ -1309,7 +1338,12 @@ def main(argv: list[str] | None = None) -> int:
                 highlight=headline_highlight,
                 background_path=background_file,
                 seed=cinema.tweet_seed(args.tweet_json, english_title),
-                swipe_hint=cinema.has_more_cards(args.tweet_json, feature_image_path),
+                swipe_hint=(
+                    bool(plan["slides"]) if plan is not None
+                    else cinema.has_more_cards(args.tweet_json, feature_image_path)
+                ),
+                credit=cover_credit,
+                fill=bool(plan_cover and plan_cover.get("fill")),
             )
             if feature_image_path is not None:
                 background_bytes = None
@@ -1354,6 +1388,8 @@ def main(argv: list[str] | None = None) -> int:
                 str(feature_image_path.resolve()) if feature_image_path else None
             ),
             created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            media_plan=str(args.media_plan.resolve()) if plan is not None else None,
+            feature_image_credit=cover_credit if cinema is not None else None,
         )
         metadata_path = args.output.with_suffix(".json")
         metadata_path.write_text(

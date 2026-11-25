@@ -17,6 +17,11 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+try:
+    from . import dev_mode
+except ImportError:
+    import dev_mode
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -528,8 +533,51 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def dev_preview(args: argparse.Namespace) -> int:
+    """Dev runs: validate exactly as a real send would, then save the package locally instead of sending it."""
+    if (args.image is None and args.video is None) or not (args.description or args.description_file):
+        raise ValueError("--image or --video and either --description or --description-file are required.")
+    if args.video is not None and args.secondary_image:
+        raise ValueError("--secondary-image cannot be used with --video.")
+    image = validate_image(args.image) if args.image is not None else None
+    video = validate_video(args.video) if args.video is not None else None
+    secondary_images = [validate_image(item) for item in args.secondary_image]
+    description = read_description(args)
+    images = [image, *secondary_images] if image is not None else []
+    videos = [video] if video is not None else []
+    if not args.send:
+        print(json.dumps({"validated": True, "sent": False, "dev": True, "stage": args.stage,
+                          "image_count": len(images), "description_characters": len(description)}, indent=2))
+        return 0
+    result = dev_mode.save_preview(images=images, videos=videos, description=description,
+                                   platform=args.platform, stage=args.stage)
+    receipt_path = None
+    configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
+    if args.stage == "preview" and configured_receipt:
+        receipt_path = write_preview_receipt(
+            Path(configured_receipt),
+            job_id=os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip() or None,
+            reply_to_message_id=None,
+            images=images,
+            videos=videos,
+            description=description,
+            telegram_result=result,
+            platform=args.platform,
+        )
+    print(json.dumps({"validated": True, "sent": True, "dev": True, "stage": args.stage,
+                      "preview_receipt": str(receipt_path) if receipt_path else None, **result},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if dev_mode.directory() is not None and not args.discover_chat:
+        try:
+            return dev_preview(args)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
     try:
         config = load_config(require_chat_id=not args.discover_chat)
         with requests.Session() as session:

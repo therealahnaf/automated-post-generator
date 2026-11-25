@@ -447,6 +447,34 @@ def draw_date(draw: ImageDraw.ImageDraw, middle: float, label: str) -> None:
     draw_tracked(draw, (MARGIN, middle), label, load_face(Face(GEIST_MONO, {"Weight": 600}), 24), generate_post.WHITE, 3)
 
 
+CREDIT_PLATE = (26, 27, 30)
+
+
+def open_flat(path: Path) -> Image.Image:
+    """A photo as RGB; a transparent product shot sits on a dark plate instead of turning black at its edges."""
+    with Image.open(path) as opened:
+        image = ImageOps.exif_transpose(opened)
+        if image.mode in ("RGBA", "LA", "P") and "A" in image.convert("RGBA").getbands():
+            rgba = image.convert("RGBA")
+            if rgba.getchannel("A").getextrema()[0] < 255:
+                plate = Image.new("RGBA", rgba.size, CREDIT_PLATE + (255,))
+                return Image.alpha_composite(plate, rgba).convert("RGB")
+        return image.convert("RGB")
+
+
+def draw_credit(canvas: Image.Image, credit: str | None) -> None:
+    """The source credit, small and monospaced at the foot on the left, opposite the swipe hint. The only
+    attribution a card carries: no badges or labels elsewhere."""
+    if not credit:
+        return
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    text = displayable(" ".join(credit.split()).upper(), GEIST_MONO)[:48]
+    draw_tracked(ImageDraw.Draw(layer), (MARGIN, FOOTER_HINT_MIDDLE), text, load_face(Face(GEIST_MONO, {"Weight": 500}), 19),
+                 (235, 235, 235), 2)
+    canvas.alpha_composite(text_shadow(layer, spread=5, blur=10, strength=150))
+    canvas.alpha_composite(layer)
+
+
 def render(
     headline: str,
     post_date: date,
@@ -458,6 +486,8 @@ def render(
     seed: str | None = None,
     swipe_hint: bool = True,
     face: Face = HEADLINE_FACE,
+    credit: str | None = None,
+    fill: bool = False,
 ) -> tuple[Image.Image, dict[str, object]]:
     """Lay out the card.
 
@@ -465,6 +495,8 @@ def render(
     `photo_backdrop` sits behind a photo shown whole; by default one is picked from
     BACKDROP_DIR by `seed` (the tweet ID or URL), falling back to the headline.
     `swipe_hint` is off only when the post has no further carousel items.
+    `credit` is the photo's source credit, drawn small at the foot; `fill` crops a square-ish photo (a portrait)
+    to fill the card instead of showing it whole.
     """
     headline = generate_post.normalize_news_text(headline)
     highlight = resolve_highlight(highlight, seed or headline)
@@ -484,8 +516,10 @@ def render(
     block_top = date_center - 16
 
     source_path = photo_path if usable else background_path
-    with Image.open(source_path) as opened:
-        source = ImageOps.exif_transpose(opened).convert("RGB")
+    source = open_flat(source_path)
+    if usable and fill and 0.6 < source.width / source.height < 1.25:
+        source = ImageOps.fit(source, (round(source.height * WIDTH / HEIGHT), source.height),
+                              Image.Resampling.LANCZOS, centering=(0.5, 0.25))
 
     card_ratio = WIDTH / HEIGHT
     ratio = source.width / source.height
@@ -519,6 +553,7 @@ def render(
 
     canvas.alpha_composite(text_shadow(overlay))
     canvas.alpha_composite(overlay)
+    draw_credit(canvas, credit if usable else None)
     return canvas.convert("RGB"), {
         "style": "cinema",
         "headline": headline,
@@ -567,7 +602,7 @@ def card_backdrop(seed: str, index: int) -> Image.Image:
 
 
 def render_detail(description: str, photo_path: Path, *, index: int, count: int, highlight: str = "dual",
-                  seed: str) -> Image.Image:
+                  seed: str, credit: str | None = None) -> Image.Image:
     """A media card: its short description at the top and the tweet photo whole beneath it, with no page number.
 
     `index` counts from 2, since the headline card is 1; `count` is the whole carousel, headline included.
@@ -578,8 +613,7 @@ def render_detail(description: str, photo_path: Path, *, index: int, count: int,
     canvas = card_backdrop(seed, index)
     text_top = DESCRIPTION_TOP - 20
     text_bottom = text_top + len(lines) * step
-    with Image.open(photo_path) as opened:
-        source = ImageOps.exif_transpose(opened).convert("RGB")
+    source = open_flat(photo_path)
     place_photo(canvas, source, (40, text_bottom + 44, WIDTH - 80, PHOTO_BOTTOM - text_bottom - 44), DETAIL_MAX_SCALE)
     draw_chrome(canvas, accent, swipe_hint=index < count)
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
@@ -588,6 +622,41 @@ def render_detail(description: str, photo_path: Path, *, index: int, count: int,
         draw.text((MARGIN, text_top + row * step + font.size * 0.92), line, font=font, fill=generate_post.WHITE, anchor="ls")
     canvas.alpha_composite(text_shadow(overlay, spread=9, blur=16, strength=200))
     canvas.alpha_composite(overlay)
+    draw_credit(canvas, credit)
+    return canvas.convert("RGB")
+
+
+def render_photo(photo_path: Path, *, index: int, count: int, highlight: str = "dual", seed: str,
+                 credit: str | None = None) -> Image.Image:
+    """A real image on its own, as large as the card allows: for source graphics that already carry their words."""
+    accent = highlight_color(resolve_highlight(highlight, seed))
+    canvas = card_backdrop(seed, index)
+    top = MASTHEAD_BOTTOM + 30
+    place_photo(canvas, open_flat(photo_path), (40, top, WIDTH - 80, PHOTO_BOTTOM - top), DETAIL_MAX_SCALE)
+    draw_chrome(canvas, accent, swipe_hint=index < count)
+    draw_credit(canvas, credit)
+    return canvas.convert("RGB")
+
+
+def render_quote(quote: str, *, index: int, count: int, highlight: str = "dual", seed: str,
+                 credit: str | None = None) -> Image.Image:
+    """A primary-source sentence, verbatim, under a large quote mark in the post's accent colour."""
+    accent = highlight_color(resolve_highlight(highlight, seed))
+    quote = displayable(" ".join(quote.split()), INTER_TIGHT)
+    # The large mark above says "quote"; the sentence itself stays exactly as published, with its own marks.
+    font, lines, step = fit_description(quote, 60, 38, 640, 600, 1.22)
+    canvas = card_backdrop(seed, index)
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    block = 150 + len(lines) * step
+    top = (HEIGHT - block) / 2 + 10
+    draw.text((MARGIN - 8, top + 150), "“", font=inter(190, 800), fill=accent, anchor="ls")
+    for row, line in enumerate(lines):
+        draw.text((MARGIN, top + 160 + row * step + font.size), line, font=font, fill=generate_post.WHITE, anchor="ls")
+    canvas.alpha_composite(text_shadow(overlay, spread=9, blur=16, strength=200))
+    canvas.alpha_composite(overlay)
+    draw_chrome(canvas, accent, swipe_hint=index < count)
+    draw_credit(canvas, credit)
     return canvas.convert("RGB")
 
 

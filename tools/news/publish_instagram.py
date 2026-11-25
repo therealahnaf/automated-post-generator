@@ -19,6 +19,11 @@ import requests
 from dotenv import load_dotenv
 
 try:
+    from . import dev_mode
+except ImportError:
+    import dev_mode
+
+try:
     from .content_archive import instagram_archive_key, archive_instagram_published
 except ImportError:
     from content_archive import instagram_archive_key, archive_instagram_published
@@ -445,6 +450,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("Instagram publishing")
     try:
         require_publish_confirmation(args.publish, args.confirm)
         image_urls = validate_image_urls(

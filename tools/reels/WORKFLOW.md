@@ -13,7 +13,7 @@ tweet JSON and never reclassify it during revisions or publishing.
    persisted highlight choice. Use the approved English headline directly for
    both platforms and report it with progress stage `headline`.
 3. Generate and research the English description by following news workflow
-   steps 6–8. Use thread and quote text. Add useful context when found,
+   steps 3–5. Use thread and quote text. Add useful context when found,
    and end with recognizable labels for every
    research publisher actually used under `Sources:`. Omit the original X
    account attribution and do not place raw links in the caption.

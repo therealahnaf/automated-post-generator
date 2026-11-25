@@ -13,11 +13,15 @@ import requests
 
 try:
     from .content_archive import original_photo_assets, background_assets
+    from . import dev_mode
 except ImportError:
     from content_archive import original_photo_assets, background_assets
+    import dev_mode
 
 
 def main() -> int:
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("website asset repair")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--post-id', required=True, type=UUID)
     parser.add_argument('--tweet-json', required=True, type=Path)

@@ -19,6 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.news import dev_mode
+
 from tools.news.content_archive import instagram_archive_key, archive_instagram_published
 
 SUPPORTED_VIDEO_SUFFIXES = {".mp4", ".mov"}
@@ -199,6 +201,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if dev_mode.directory() is not None:
+        return dev_mode.refuse("Instagram Reel publishing")
     try:
         require_publish_confirmation(args.publish, args.confirm)
         video_path = validate_video_file(args.video) if args.video else None
