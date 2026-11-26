@@ -240,6 +240,7 @@ class TelegramCodexWatcherTests(unittest.TestCase):
                 "workflow:42:informative",
                 "workflow:42:reel",
                 "workflow:42:meme",
+                "collect:42",
                 "workflow:42:cancel",
             ],
         )

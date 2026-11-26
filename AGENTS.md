@@ -64,6 +64,11 @@ complete or an explicit approval is required.
      runs `tools/viral/meme_pipeline.py`, which posts one image, our title over a
      faithful render of the X post, to Facebook and Instagram after the same
      Telegram preview and `yes`. Meme posts are not archived on the website.
+   - `collection` (Collect on a link, then Save and build, or `/collections`)
+     never reaches a Codex turn either: the watcher runs
+     `tools/collections/pipeline.py`, which builds one Instagram carousel of
+     photos and videos from a saved collection (Media, Tweets or Media + Tweets)
+     and posts it to Instagram only after the same preview and `yes`.
 
 The selected workflow owns its copy, research, visual assets, layout, and
 ordered carousel construction. Do not mix layouts or generation rules between

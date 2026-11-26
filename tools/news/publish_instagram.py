@@ -217,6 +217,69 @@ def create_carousel_item_container(
     return container_id
 
 
+def create_carousel_video_container(
+    session: requests.Session,
+    config: InstagramConfig,
+    video_url: str,
+) -> str:
+    response = session.post(
+        graph_url(config, config.user_id, "media"),
+        data={"media_type": "VIDEO", "video_url": video_url, "is_carousel_item": "true"},
+        headers=bearer_headers(config),
+        timeout=(10, CONTAINER_CREATE_TIMEOUT_SECONDS),
+    )
+    payload = parse_graph_response(response)
+    container_id = str(payload.get("id", ""))
+    if not container_id:
+        raise RuntimeError("Instagram returned no carousel video container ID.")
+    return container_id
+
+
+def parse_carousel_items(values: list[str]) -> list[tuple[str, str]]:
+    """`image=URL` / `video=URL` values, in carousel order."""
+    items = []
+    for value in values:
+        kind, _, url = value.partition("=")
+        if kind not in ("image", "video") or not url:
+            raise ValueError(f"Carousel items look like image=URL or video=URL, not {value!r}.")
+        items.append((kind, validate_image_url(url)))
+    if not 2 <= len(items) <= MAX_CAROUSEL_ITEMS:
+        raise ValueError(f"An Instagram carousel requires 2 to {MAX_CAROUSEL_ITEMS} items.")
+    return items
+
+
+def publish_mixed_carousel(
+    session: requests.Session,
+    config: InstagramConfig,
+    items: list[tuple[str, str]],
+    caption: str,
+    receipt: dict[str, Any],
+    receipt_path: Path,
+) -> str:
+    """Create every child (videos waited on until processed), then the carousel; resumable from the receipt."""
+    child_ids = [str(value) for value in receipt.get("carousel_item_ids", [])]
+    if len(child_ids) > len(items):
+        raise RuntimeError(f"Instagram recovery receipt has too many child IDs: {receipt_path}")
+    if not receipt.get("container_id"):
+        for kind, url in items[len(child_ids):]:
+            if kind == "video":
+                child_id = create_carousel_video_container(session, config, url)
+            else:
+                child_id = create_carousel_item_container(session, config, url)
+            child_ids.append(child_id)
+            receipt["carousel_item_ids"] = child_ids
+            save_receipt(receipt_path, receipt)
+        for (kind, _), child_id in zip(items, child_ids):
+            wait_for_container(session, config, child_id, attempts=90 if kind == "video" else 30,
+                               interval_seconds=4.0 if kind == "video" else 2.0)
+        container_id = create_carousel_container(session, config, child_ids, caption)
+        receipt["container_id"] = container_id
+        save_receipt(receipt_path, receipt)
+    container_id = str(receipt["container_id"])
+    wait_for_container(session, config, container_id, attempts=60, interval_seconds=3.0)
+    return container_id
+
+
 def create_carousel_container(
     session: requests.Session,
     config: InstagramConfig,
@@ -413,8 +476,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--image-url",
-        required=True,
         help="Public HTTPS URL for the generated main image.",
+    )
+    parser.add_argument(
+        "--carousel-item",
+        action="append",
+        default=[],
+        help=(
+            "A carousel slide as image=URL or video=URL, in order; replaces --image-url and "
+            "--secondary-image-url for carousels that mix photos and videos."
+        ),
     )
     parser.add_argument(
         "--secondary-image-url",
@@ -450,17 +521,59 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def publish_mixed(args: argparse.Namespace, items: list[tuple[str, str]], caption: str, archive_key: str | None) -> int:
+    """A carousel that mixes photos and videos, through the Graph API (no music method)."""
+    fingerprint = publish_fingerprint([f"{kind}={url}" for kind, url in items], caption)
+    receipt_path = args.receipt_file or default_receipt_path(fingerprint)
+    receipt = load_receipt(receipt_path, fingerprint)
+    config = load_config()
+    with requests.Session() as session:
+        account = verify_account(session, config)
+        common = {
+            "instagram_user_id": account["user_id"],
+            "instagram_username": account["username"],
+            "carousel_items": [kind for kind, _ in items],
+            "caption_characters": len(caption),
+        }
+        if not args.publish:
+            print(json.dumps({"status": "validated_not_published", **common}, indent=2))
+            return 0
+        container_id = publish_mixed_carousel(session, config, items, caption, receipt, receipt_path)
+        media_id = str(receipt.get("media_id") or "")
+        if not media_id:
+            media_id = publish_container(session, config, container_id)
+            receipt["media_id"] = media_id
+            save_receipt(receipt_path, receipt)
+        media = get_media_details(session, config, media_id)
+        receipt["permalink"] = media.get("permalink")
+        receipt["status"] = "published"
+        save_receipt(receipt_path, receipt)
+        website_mapping = archive_instagram_published(archive_key, media_id, media.get("permalink"))
+        print(json.dumps({"status": "published", **common, "instagram_container_id": container_id,
+                          "instagram_carousel_item_ids": receipt.get("carousel_item_ids", []),
+                          "instagram_media_id": media_id, "instagram_permalink": media.get("permalink"),
+                          "instagram_receipt_file": str(receipt_path.resolve()), "website_mapping": website_mapping},
+                         indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if dev_mode.directory() is not None:
         return dev_mode.refuse("Instagram publishing")
     try:
         require_publish_confirmation(args.publish, args.confirm)
+        caption = read_caption(args)
+        archive_key = instagram_archive_key(args.caption_file) if args.publish and not args.skip_website else None
+        if args.carousel_item:
+            if args.image_url or args.secondary_image_url:
+                raise ValueError("--carousel-item replaces --image-url and --secondary-image-url.")
+            return publish_mixed(args, parse_carousel_items(args.carousel_item), caption, archive_key)
+        if not args.image_url:
+            raise ValueError("--image-url or --carousel-item is required.")
         image_urls = validate_image_urls(
             args.image_url, args.secondary_image_url
         )
-        caption = read_caption(args)
-        archive_key = instagram_archive_key(args.caption_file) if args.publish and not args.skip_website else None
         publish_method = load_publish_method()
         if publish_method == "music":
             project_root = str(PROJECT_ROOT)

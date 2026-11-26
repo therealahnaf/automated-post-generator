@@ -354,7 +354,7 @@ def posted_at(status: dict) -> datetime | None:
 
 
 # ------------------------------------------------------------------------------------------------ layout
-def media_grid(images: list[tuple[Image.Image, bool]], width: int, height: int) -> Image.Image:
+def media_grid(images: list[tuple[Image.Image, bool]], width: int, height: int, play_icons: bool = True) -> Image.Image:
     """X's photo grid: one, side by side, one plus two stacked, or two by two; a video shows its frame and a play button."""
     grid = Image.new("RGBA", (width, height), PANEL + (255,))
     gap = 6
@@ -369,7 +369,7 @@ def media_grid(images: list[tuple[Image.Image, bool]], width: int, height: int) 
     }[count]
     for (image, is_video), (x, y, w, h) in zip(images, boxes):
         grid.paste(ImageOps.fit(image, (w, h), Image.Resampling.LANCZOS, centering=(0.5, 0.15)), (x, y))
-        if is_video:
+        if is_video and play_icons:
             play = icon("play", 96)
             grid.alpha_composite(play, (x + (w - 96) // 2, y + (h - 96) // 2))
     return rounded(grid, 22)
@@ -449,6 +449,7 @@ def find_phrase(boxes: list, phrase: str) -> tuple[float, float, float, float] |
 
 
 def render_post_card(status: dict, tweet_dir: Path, *, budget: int = BOTTOM_LIMIT - TOP_LIMIT, anchors: dict | None = None,
+                     play_icons: bool = True,
                      phrase: str | None = None) -> Image.Image:
     """The post itself, X dark theme, as an RGBA panel PANEL_WIDTH wide.
 
@@ -490,7 +491,7 @@ def render_post_card(status: dict, tweet_dir: Path, *, budget: int = BOTTOM_LIMI
         y += step
     if layout.media_h:
         y += 24
-        panel.alpha_composite(media_grid(images, INNER, layout.media_h), (PAD, y))
+        panel.alpha_composite(media_grid(images, INNER, layout.media_h, play_icons), (PAD, y))
         anchors["media"] = (PAD, y, PAD + INNER, y + layout.media_h)
         y += layout.media_h
     if quote:
@@ -556,15 +557,24 @@ def render_post_card(status: dict, tweet_dir: Path, *, budget: int = BOTTOM_LIMI
     return rounded(panel, 30)
 
 
-def render(tweet_json: Path, *, index: int = 2, count: int = 3, highlight: str = "dual", seed: str | None = None) -> Image.Image:
-    """The post card on a Cinema backdrop with the masthead; `index` counts from 2, the cover being 1."""
+def render(tweet_json: Path, *, index: int = 2, count: int = 3, highlight: str = "dual", seed: str | None = None,
+           anchors: dict | None = None, play_icons: bool = True) -> Image.Image:
+    """The post card on a Cinema backdrop with the masthead; `index` counts from 2, the cover being 1.
+
+    `anchors`, when given, receives the card's boxes in canvas coordinates ("media", "quote"), so a video can be
+    laid into the media box; `play_icons=False` leaves the play button off for that.
+    """
     tweet = json.loads(tweet_json.read_text(encoding="utf-8-sig"))
     status = (tweet.get("items") or [{}])[0]
     seed = seed or str(status.get("id") or tweet_json)
     accent = cinema.highlight_color(cinema.resolve_highlight(highlight, seed))
     canvas = cinema.card_backdrop(seed, index)
-    panel = render_post_card(status, tweet_json.parent)
+    found: dict = {}
+    panel = render_post_card(status, tweet_json.parent, anchors=found, play_icons=play_icons)
     top = TOP_LIMIT + max(0, (BOTTOM_LIMIT - TOP_LIMIT - panel.height) // 2)
+    if anchors is not None:
+        anchors.update({name: (box[0] + PANEL_LEFT, box[1] + top, box[2] + PANEL_LEFT, box[3] + top)
+                        for name, box in found.items()})
     for offset, blur, strength in ((28, 42, 215), (8, 10, 150)):
         shadow = Image.new("L", canvas.size, 0)
         shadow.paste(panel.getchannel("A").point(lambda value, strength=strength: value * strength // 255), (PANEL_LEFT, top + offset))

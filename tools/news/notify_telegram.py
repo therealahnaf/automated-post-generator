@@ -466,6 +466,74 @@ def send_review_package(
     }
 
 
+def split_slides(slides: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Validate carousel slides in order; returns (images, videos) for the receipt."""
+    if not 2 <= len(slides) <= 10:
+        raise ValueError("A carousel preview needs 2 to 10 slides.")
+    images, videos = [], []
+    for slide in slides:
+        if slide.suffix.lower() in ALLOWED_VIDEO_SUFFIXES:
+            videos.append(validate_video(slide))
+        else:
+            images.append(validate_image(slide))
+    return images, videos
+
+
+def send_album_package(
+    session: requests.Session,
+    config: TelegramConfig,
+    *,
+    slides: list[Path],
+    description: str,
+    stage: str,
+    reply_to_message_id: int | None = None,
+    platform: str | None = None,
+) -> dict[str, Any]:
+    """A carousel of photos and videos as one Telegram album, in slide order, then the caption."""
+    split_slides(slides)
+    description = validate_description(description)
+    label = STAGE_LABELS[stage]
+    platform_label = f" — {platform.upper()}" if platform else ""
+    media, files, handles = [], {}, []
+    try:
+        for index, slide in enumerate(slides):
+            kind = "video" if slide.suffix.lower() in ALLOWED_VIDEO_SUFFIXES else "photo"
+            name = f"slide{index}"
+            handle = slide.open("rb")
+            handles.append(handle)
+            files[name] = (slide.name, handle, mimetypes.guess_type(slide.name)[0] or "application/octet-stream")
+            entry = {"type": kind, "media": f"attach://{name}"}
+            if kind == "video":
+                entry["supports_streaming"] = True
+            if index == 0:
+                entry["caption"] = f"The Bits Today — {label}{platform_label} — CAROUSEL ({len(slides)} slides)"
+            media.append(entry)
+        messages = call_telegram(
+            session,
+            config,
+            "sendMediaGroup",
+            data={"chat_id": config.chat_id, "media": json.dumps(media), **reply_parameters(reply_to_message_id)},
+            files=files,
+            timeout=(10, 300),
+        )
+    finally:
+        for handle in handles:
+            handle.close()
+    messages = messages if isinstance(messages, list) else [messages]
+    text_results = [
+        call_telegram(session, config, "sendMessage",
+                      data={"chat_id": config.chat_id, "text": chunk, "disable_web_page_preview": "true",
+                            **reply_parameters(reply_to_message_id)}, timeout=(10, 30))
+        for chunk in split_message(f"The Bits Today — {label}{platform_label}\n\n{description}")
+    ]
+    return {
+        "photo_message_ids": [item.get("message_id") for item in messages if "photo" in item],
+        "video_message_ids": [item.get("message_id") for item in messages if "video" in item],
+        "description_message_ids": [item.get("message_id") for item in text_results],
+        "reply_to_message_id": reply_to_message_id,
+    }
+
+
 def watcher_reply_message_id() -> int | None:
     raw_value = os.getenv("TELEGRAM_REPLY_TO_MESSAGE_ID", "").strip()
     if not raw_value:
@@ -505,6 +573,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Additional source image to preview after --image; repeat as needed.",
     )
+    parser.add_argument(
+        "--slide",
+        action="append",
+        default=[],
+        type=Path,
+        help="A carousel slide (JPEG/PNG or MP4), in order; 2-10 are sent as one album. Replaces --image.",
+    )
     description_group = parser.add_mutually_exclusive_group()
     description_group.add_argument("--description", help="Review description.")
     description_group.add_argument(
@@ -535,6 +610,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dev_preview(args: argparse.Namespace) -> int:
     """Dev runs: validate exactly as a real send would, then save the package locally instead of sending it."""
+    if args.slide:
+        if args.image is not None or args.video is not None or args.secondary_image:
+            raise ValueError("--slide cannot be combined with --image, --video or --secondary-image.")
+        images, videos = split_slides(args.slide)
+        description = read_description(args)
+        if not args.send:
+            print(json.dumps({"validated": True, "sent": False, "dev": True, "slides": len(args.slide)}))
+            return 0
+        result = dev_mode.save_preview(images=[slide.resolve() for slide in args.slide], videos=[],
+                                       description=description, platform=args.platform, stage=args.stage)
+        configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
+        receipt_path = None
+        if args.stage == "preview" and configured_receipt:
+            receipt_path = write_preview_receipt(Path(configured_receipt),
+                                                 job_id=os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip() or None,
+                                                 reply_to_message_id=None, images=images, videos=videos,
+                                                 description=description, telegram_result=result, platform=args.platform)
+        print(json.dumps({"validated": True, "sent": True, "dev": True, "preview_receipt": str(receipt_path) if receipt_path else None,
+                          **result}, ensure_ascii=False, indent=2))
+        return 0
     if (args.image is None and args.video is None) or not (args.description or args.description_file):
         raise ValueError("--image or --video and either --description or --description-file are required.")
     if args.video is not None and args.secondary_image:
@@ -593,6 +688,30 @@ def main(argv: list[str] | None = None) -> int:
                         indent=2,
                     )
                 )
+                return 0
+
+            if args.slide:
+                if args.image is not None or args.video is not None or args.secondary_image:
+                    raise ValueError("--slide cannot be combined with --image, --video or --secondary-image.")
+                images, videos = split_slides(args.slide)
+                description = read_description(args)
+                verify_chat(session, config)
+                if not args.send:
+                    print(json.dumps({"validated": True, "sent": False, "slides": len(args.slide)}))
+                    return 0
+                result = send_album_package(session, config, slides=[slide.resolve() for slide in args.slide],
+                                            description=description, stage=args.stage,
+                                            reply_to_message_id=watcher_reply_message_id(), platform=args.platform)
+                receipt_path = None
+                configured_receipt = os.getenv("TELEGRAM_PREVIEW_RECEIPT_PATH", "").strip()
+                if args.stage == "preview" and configured_receipt:
+                    receipt_path = write_preview_receipt(
+                        Path(configured_receipt), job_id=os.getenv("TELEGRAM_WATCHER_JOB_ID", "").strip() or None,
+                        reply_to_message_id=result["reply_to_message_id"], images=images, videos=videos,
+                        description=description, telegram_result=result, platform=args.platform)
+                print(json.dumps({"validated": True, "sent": True, "stage": args.stage,
+                                  "preview_receipt": str(receipt_path) if receipt_path else None, **result},
+                                 ensure_ascii=False, indent=2))
                 return 0
 
             if (args.image is None and args.video is None) or not (

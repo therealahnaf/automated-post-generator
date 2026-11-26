@@ -27,6 +27,7 @@ try:
 except ModuleNotFoundError:  # Direct script invocation from outside the repository.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools.thoughts import youtube_companion
+from tools.collections import telegram_ui as collection_ui  # noqa: E402
 
 try:
     import fcntl
@@ -49,7 +50,7 @@ STATE_DIR_NAME = ".automation/watcher"
 CRON_BEGIN = "# BEGIN bits-today telegram codex queue"
 CRON_END = "# END bits-today telegram codex queue"
 ACTIVE_STATUSES = ("generating", "revising", "publishing")
-WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "meme", "auto")
+WORKFLOW_TYPES = ("news", "model", "product", "informative", "reel", "meme", "collection", "auto")
 POST_LANGUAGES = ("english", "bangla")
 CODEX_MODEL = "gpt-6-luna"
 CODEX_MODEL_REASONING_EFFORT = "medium"
@@ -60,6 +61,7 @@ WORKFLOW_LABELS = {
     "informative": "Informative",
     "reel": "Reel",
     "meme": "Meme",
+    "collection": "Collection",
     "auto": "Auto Detect",
 }
 PROGRESS_STAGE_LABELS = {
@@ -504,6 +506,7 @@ def workflow_keyboard(job_id: int) -> dict[str, Any]:
                 {"text": "Reel", "callback_data": f"workflow:{job_id}:reel"},
                 {"text": "Meme", "callback_data": f"workflow:{job_id}:meme"},
             ],
+            [{"text": "Collect", "callback_data": f"collect:{job_id}"}],
             [{"text": "Cancel", "callback_data": f"workflow:{job_id}:cancel"}],
         ]
     }
@@ -729,6 +732,7 @@ def news_pipeline_for(config: Config, job: sqlite3.Row, job_dir: Path, *, first_
 SCRIPT_PIPELINES = {
     "news-v2": (("tools", "news_v2", "pipeline.py"), "v2-state.json", "News v2"),
     "meme": (("tools", "viral", "meme_pipeline.py"), "meme-state.json", "Meme"),
+    "collection": (("tools", "collections", "pipeline.py"), "collection-state.json", "Collection post"),
 }
 
 
@@ -750,7 +754,9 @@ def invoke_news_v2(
     stdout_path, stderr_path, final_output_path, receipt_path = paths
     script, state_name, label = SCRIPT_PIPELINES[pipeline_name]
     pipeline = [sys.executable, str(config.repo_dir.joinpath(*script))]
-    if not resume:
+    if not resume and pipeline_name == "collection":
+        command = [*pipeline, "start", "--request", str(job["request_text"])]
+    elif not resume:
         match = X_STATUS_URL_RE.search(str(job["request_text"]))
         if match is None:
             return CodexResult(1, None, stdout_path, stderr_path, final_output_path, receipt_path,
@@ -843,10 +849,10 @@ def invoke_codex(
             "BITS_TODAY_JOB_DIR": str(job_dir),
         }
     )
-    if str(job["workflow_type"] or "") == "meme":
+    if str(job["workflow_type"] or "") in ("meme", "collection"):
         return invoke_news_v2(config, job, prompt=prompt, feedback=feedback, resume=resume, environment=environment,
                               paths=(stdout_path, stderr_path, final_output_path, receipt_path), job_dir=job_dir,
-                              pipeline_name="meme")
+                              pipeline_name=str(job["workflow_type"]))
     if news_pipeline_for(config, job, job_dir, first_turn=not resume) == "v2":
         return invoke_news_v2(config, job, prompt=prompt, feedback=feedback, resume=resume, environment=environment,
                               paths=(stdout_path, stderr_path, final_output_path, receipt_path), job_dir=job_dir)
@@ -1912,6 +1918,9 @@ def handle_update(
                         file=sys.stderr,
                     )
             return
+        if collection_ui.handles(callback.data):
+            collection_ui.handle_callback(sys.modules[__name__], session, config, connection, callback)
+            return
         workflow_match = re.fullmatch(
             r"workflow:(\d+):(news|model|product|informative|reel|meme|auto|cancel)",
             callback.data,
@@ -2020,6 +2029,11 @@ def handle_update(
         record_event(connection, message, "youtube_title_" + result["review_status"], None)
         send_text(session, config, result["message"], reply_to_message_id=message.message_id)
         return
+    if collection_ui.handle_reply(sys.modules[__name__], session, config, connection, message):
+        return
+    if collection_ui.COMMAND.match(message.text):
+        collection_ui.show_list(sys.modules[__name__], session, config, connection, message)
+        return
     if message.text.startswith("/"):
         command_match = re.match(
             r"^/(news|model|product|informative|reel|meme|auto)(?:@\w+)?\s+(.+)$",
@@ -2032,7 +2046,8 @@ def handle_update(
                 session,
                 config,
                 "Send an X status URL, or use /news, /model, /product, "
-                "/informative, /reel, /meme, or /auto followed by the URL.",
+                "/informative, /reel, /meme, or /auto followed by the URL. "
+                "/collections lists your collections.",
                 reply_to_message_id=message.message_id,
             )
             return
