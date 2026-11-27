@@ -255,6 +255,32 @@ class TelegramFlowTests(CollectionTestCase):
         self.assertEqual(job["status"], "queued")
         self.assertIsNotNone(job["progress_message_id"])
 
+    def test_the_dashboard_lists_collections_and_opens_one_in_place(self) -> None:
+        for command in ("/m", "/menu", "/dashboard", "/start", "/collections", "/M@BitsTodayBot"):
+            self.assertTrue(telegram_ui.COMMAND.match(command), command)
+        self.assertFalse(telegram_ui.COMMAND.match("/meme https://x.com/a/status/1"))
+        collection = self.collection()
+        other = store.create(self.connection, "Empty one")
+        text, keyboard = telegram_ui.list_view()
+        self.assertIn("Dashboard", text)
+        buttons = [row[0] for row in keyboard["inline_keyboard"]]
+        self.assertEqual({button["callback_data"] for button in buttons},
+                         {f"dash:col:{collection.id}", f"dash:col:{other.id}", "dash:home"})
+        self.assertIn(f"{collection.name} · 4 posts", [button["text"] for button in buttons])
+
+        self.run_callback(f"dash:col:{collection.id}", update_id=6)
+        rows = self.sent[-1][2]["inline_keyboard"]
+        self.assertEqual(rows[0][0]["callback_data"], f"colview:{collection.id}")
+        self.assertEqual([button["callback_data"] for button in rows[1]],
+                         [f"build:{collection.id}:{kind}" for kind in slides.TYPES])
+        self.assertEqual([button["callback_data"] for button in rows[2]], [f"colarchive:{collection.id}", "dash:home"])
+
+        self.run_callback(f"colarchive:{other.id}", update_id=7)
+        self.assertNotIn(f"dash:col:{other.id}",
+                         [row[0]["callback_data"] for row in self.sent[-1][2]["inline_keyboard"]])
+        self.run_callback(f"dash:col:{other.id}", update_id=8)
+        self.assertIn(("answer", "That collection is no longer open."), self.sent)
+
     def test_a_named_reply_creates_the_collection(self) -> None:
         self.run_callback(f"newcol:{self.job_id}")
         prompt_id = self.db.execute("SELECT message_id FROM collection_prompts WHERE kind = 'name'").fetchone()[0]

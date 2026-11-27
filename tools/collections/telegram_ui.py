@@ -3,8 +3,9 @@
 Flow: an X link's workflow selector has a Collect button -> pick a recent collection or New collection (reply
 with a name) -> Save for later / Save and build -> build asks Media / Tweets / Media + Tweets and queues a normal
 watcher job (workflow "collection") whose preview, revisions and `yes` work like any other post.
-/collections lists open collections with View (a numbered contact sheet; reply "drop 3", "move 5 to 1" or
-"rename New name"), Build and Archive.
+/m (also /menu, /dashboard, /start or /collections) opens the dashboard: one message listing open collections.
+Tapping a collection turns it, in place, into that collection's actions: View (a numbered contact sheet; reply
+"drop 3", "move 5 to 1" or "rename New name"), build as Media / Tweets / Media + Tweets, Archive, and Back.
 
 Every function takes the watcher module as `w`, so this file has no import cycle with it.
 """
@@ -23,8 +24,10 @@ from typing import Any
 from tools.collections import slides, store
 
 ROOT = Path(__file__).resolve().parents[2]
-CALLBACK = re.compile(r"(collect|into|newcol|save|build|colview|colbuild|colarchive):[\w:]+")
-COMMAND = re.compile(r"^/collections(?:@\w+)?\s*$", re.I)
+CALLBACK = re.compile(r"(collect|into|newcol|save|build|colview|colbuild|colarchive|dash):[\w:]+")
+# The dashboard command: one short letter to type, plus the longer names and Telegram's own /start.
+COMMAND = re.compile(r"^/(?:m|menu|dashboard|start|collections)(?:@\w+)?\s*$", re.I)
+DASHBOARD_LIMIT = 12
 COLLECT_TIMEOUT = 300
 
 PROMPTS = """
@@ -79,19 +82,35 @@ def type_keyboard(collection_id: int) -> dict[str, Any]:
 
 
 def list_view() -> tuple[str, dict[str, Any]]:
+    """The dashboard: every open collection as one button, newest activity first."""
     connection = store.connect()
-    collections = store.recent(connection, limit=8)
-    if not collections:
-        return "No collections yet. Tap Collect under any X link to start one.", {"inline_keyboard": []}
-    lines = ["The Bits Today · Collections", ""]
+    collections = store.recent(connection, limit=DASHBOARD_LIMIT)
+    lines = ["The Bits Today · Dashboard", "", "Collections"]
     rows = []
+    if not collections:
+        lines.append("None yet. Tap Collect under any X link to start one.")
     for collection in collections:
         size = store.count(connection, collection.id)
-        lines.append(f"• {collection.name}: {size} post{'s' if size != 1 else ''}")
-        rows.append([{"text": f"View {collection.name[:24]}", "callback_data": f"colview:{collection.id}"},
-                     {"text": "Build", "callback_data": f"colbuild:{collection.id}"},
-                     {"text": "Archive", "callback_data": f"colarchive:{collection.id}"}])
+        rows.append([{"text": f"{collection.name[:28]} · {size} post{'s' if size != 1 else ''}",
+                      "callback_data": f"dash:col:{collection.id}"}])
+    if collections:
+        lines.append("Tap one to view, build or archive it.")
+    rows.append([{"text": "Refresh", "callback_data": "dash:home"}])
     return "\n".join(lines), {"inline_keyboard": rows}
+
+
+def collection_view(collection_id: int) -> tuple[str, dict[str, Any]]:
+    """One collection's actions, shown in place of the dashboard list."""
+    connection = store.connect()
+    collection = store.get(connection, collection_id)
+    size = store.count(connection, collection_id)
+    text = (f"The Bits Today · Dashboard\n\n{collection.name} · {size} post{'s' if size != 1 else ''}\n"
+            "View shows the posts as a numbered sheet. Build makes the carousel as:")
+    rows = [[{"text": "View posts", "callback_data": f"colview:{collection_id}"}],
+            [{"text": slides.TYPE_LABELS[kind], "callback_data": f"build:{collection_id}:{kind}"} for kind in slides.TYPES],
+            [{"text": "Archive", "callback_data": f"colarchive:{collection_id}"},
+             {"text": "‹ Back", "callback_data": "dash:home"}]]
+    return text, {"inline_keyboard": rows}
 
 
 # ------------------------------------------------------------------------------------------------ actions
@@ -164,8 +183,24 @@ def start_build(w, session, config, connection: sqlite3.Connection, callback, co
 def handle_callback(w, session, config, connection: sqlite3.Connection, callback) -> None:
     action, _, rest = callback.data.partition(":")
     parts = rest.split(":")
-    answer = lambda text: w.answer_callback(session, config, callback.callback_id, text)  # noqa: E731
+    answer = lambda text="": w.answer_callback(session, config, callback.callback_id, text)  # noqa: E731
     try:
+        if action == "dash":
+            # Dashboard navigation edits the same message: the list, or one collection's actions.
+            if parts[0] == "col":
+                collection_id = int(parts[1])
+                if store.get(store.connect(), collection_id).status != "open":
+                    answer("That collection is no longer open.")
+                    text, keyboard = list_view()
+                else:
+                    answer()
+                    text, keyboard = collection_view(collection_id)
+            else:
+                answer("Refreshed.")
+                text, keyboard = list_view()
+            w.record_event(connection, callback, "dashboard_" + parts[0], None)
+            w.edit_text(session, config, callback.message_id, text, reply_markup=keyboard)
+            return
         if action in ("collect", "into", "newcol", "save"):
             job_id = int(parts[0])
             job = pending_link_job(connection, job_id)
@@ -296,6 +331,7 @@ def handle_reply(w, session, config, connection: sqlite3.Connection, message) ->
 
 
 def show_list(w, session, config, connection: sqlite3.Connection, message) -> None:
-    w.record_event(connection, message, "collections_listed", None)
+    """Send the dashboard (the /m command)."""
+    w.record_event(connection, message, "dashboard_opened", None)
     text, keyboard = list_view()
     w.send_text(session, config, text, reply_to_message_id=message.message_id, reply_markup=keyboard)

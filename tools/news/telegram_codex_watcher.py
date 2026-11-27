@@ -2047,7 +2047,7 @@ def handle_update(
                 config,
                 "Send an X status URL, or use /news, /model, /product, "
                 "/informative, /reel, /meme, or /auto followed by the URL. "
-                "/collections lists your collections.",
+                "/m opens the dashboard with your collections.",
                 reply_to_message_id=message.message_id,
             )
             return
