@@ -183,8 +183,9 @@ def arrow_tail(arrow: Image.Image) -> tuple[int, float]:
     return left, (top + bottom - 1) / 2
 
 
-def draw_arrow(layer: Image.Image, title: Title, top: float, seed: str) -> None:
-    """The loop at one fixed size, its tail a small gap right of the middle of the highlight's right edge."""
+def draw_arrow(layer: Image.Image, title: Title, top: float, accent: tuple[int, ...], seed: str) -> None:
+    """The loop at one fixed size in the highlight's colour, its tail a small gap right of the middle of the
+    highlight's right edge."""
     marker = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     cinema.draw_marked_line(marker, title.lead, title.lead_font, top, title.lead_height, (255, 255, 255, 255), seed)
     alpha = solid(marker)
@@ -194,7 +195,9 @@ def draw_arrow(layer: Image.Image, title: Title, top: float, seed: str) -> None:
     cap = -cinema.load_face(cinema.HEADLINE_FACE, full_size()).getbbox("H", anchor="ls")[1]
     with Image.open(ARROW) as source:
         height = round(cap * ARROW_CAPS)
-        arrow = source.convert("RGBA").resize((round(source.width * height / source.height), height), Image.Resampling.LANCZOS)
+        shape = source.convert("RGBA").resize((round(source.width * height / source.height), height), Image.Resampling.LANCZOS)
+    arrow = Image.new("RGBA", shape.size, tuple(accent[:3]) + (255,))
+    arrow.putalpha(shape.getchannel("A"))
     tail_x, tail_y = arrow_tail(arrow)
     layer.alpha_composite(arrow, (round(edge + full_size() * ARROW_GAP - tail_x), round(middle - tail_y)))
 
@@ -226,7 +229,7 @@ def render(title: str, post_date: date, kind: str, items: list[Item], planned: l
 
     # The arrow goes down first, so the card stack covers it wherever the two meet.
     arrow_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw_arrow(arrow_layer, fitted, headline_top, seed)
+    draw_arrow(arrow_layer, fitted, headline_top, accent, seed)
     canvas.alpha_composite(cinema.text_shadow(arrow_layer))
     canvas.alpha_composite(arrow_layer)
 
