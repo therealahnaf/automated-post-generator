@@ -81,8 +81,8 @@ def build(job: Job) -> list[Path]:
         raise StepError("The collection is empty.")
     copy = read_json(job.copy)
     progress(job, "generating_items", f"{slides.TYPE_LABELS[kind]} from {len(items)} posts")
-    cover, planned, left_out = slides.plan(items, kind)
-    if not planned:
+    planned, left_out = slides.plan(items, kind)
+    if len(planned) < 2:
         raise StepError("The collection needs at least two posts, or one post with more than one photo or video.")
     if job.package.is_dir():
         shutil.rmtree(job.package)
@@ -92,7 +92,7 @@ def build(job: Job) -> list[Path]:
     posted = datetime.now(timezone.utc).date()
     cover_path = job.package / "01.jpg"
     try:
-        slides.render_cover(copy["title"], posted, cover, planned, job.package, seed).save(cover_path, quality=92)
+        slides.render_cover(copy["title"], posted, kind, items, planned, job.package, seed).save(cover_path, quality=92)
         rendered = [cover_path] + [slides.render_slide(slide, index, count, job.package, seed)
                                    for index, slide in enumerate(planned, start=2)]
     except subprocess.CalledProcessError as exc:

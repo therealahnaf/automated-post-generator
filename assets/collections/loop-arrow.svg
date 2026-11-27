@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 230 170">
+  <!-- Hand-drawn swoosh: one loop, then a short run into an open head. -->
+  <g fill="none" stroke="#C2FFE1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 12 128 C 40 132 70 122 90 98 C 110 72 104 32 80 32 C 56 32 58 80 96 104 C 128 124 170 120 206 102" stroke-width="15"/>
+    <path d="M 168 74 L 210 100 L 178 140" stroke-width="17"/>
+  </g>
+</svg>

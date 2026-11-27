@@ -6,7 +6,7 @@ Types (picked by the user, never by a model):
   tweets  each post as a faithful X post card; a post whose media is one video plays it inside the card
   combo   per post: media when the media carries it (it has media and at most COMBO_TEXT characters of text),
           otherwise the post card
-The first slide is always the cover: the title over the first photo or video frame. Photos are JPEG, videos
+The first slide is always the cover: the title under a fanned stack of the first posts' cards (cover.py). Photos are JPEG, videos
 are H.264/AAC MP4 at most VIDEO_SECONDS long, all 1080x1350, so Instagram takes them as carousel items.
 """
 
@@ -82,9 +82,9 @@ def post_slide(item: Item) -> Slide:
     return Slide("card", item)
 
 
-def plan(items: list[Item], kind: str) -> tuple[Slide | None, list[Slide], list[int]]:
-    """The photo slide the cover uses (if any), the slides after the cover (at most MAX_SLIDES - 1), and the
-    numbers of items that did not fit."""
+def plan(items: list[Item], kind: str) -> tuple[list[Slide], list[int]]:
+    """The slides after the cover (at most MAX_SLIDES - 1) and the numbers of items that did not fit. The cover's
+    card stack only previews the first posts, so every post still gets its own full slide."""
     if kind not in TYPES:
         raise ValueError(f"Unknown type {kind}; use one of {', '.join(TYPES)}.")
     wanted: list[Slide] = []
@@ -96,19 +96,9 @@ def plan(items: list[Item], kind: str) -> tuple[Slide | None, list[Slide], list[
         if kind == "combo" and media and len(card.x_text(item.status())) > COMBO_TEXT:
             media = []
         wanted.extend(media or [post_slide(item)])
-    # The cover shows the first photo, so that photo is not repeated as the next slide.
-    if kind != "tweets":
-        first_photo = next((slide for slide in wanted if slide.kind == "photo"), None)
-        first_video = next((slide for slide in wanted if slide.kind == "video"), None)
-        if first_photo is not None and (first_video is None or wanted.index(first_photo) < wanted.index(first_video)):
-            first_photo.extra["cover"] = True
-            wanted.remove(first_photo)
-            wanted.insert(0, first_photo)
-    slides = [slide for slide in wanted if not slide.extra.get("cover")][:MAX_SLIDES - 1]
-    covers = [slide for slide in wanted if slide.extra.get("cover")]
-    shown = {slide.item.id for slide in slides + covers}
-    left_out = [item.position for item in items if item.id not in shown]
-    return (covers[0] if covers else None), slides, left_out
+    slides = wanted[:MAX_SLIDES - 1]
+    shown = {slide.item.id for slide in slides}
+    return slides, [item.position for item in items if item.id not in shown]
 
 
 # ------------------------------------------------------------------------------------------------ video helpers
@@ -168,29 +158,12 @@ def credit(item: Item) -> str:
     return f"Via @{handle(item)}"
 
 
-def cover_photo(cover: Slide | None, slides: list[Slide], work: Path) -> tuple[Path | None, Item | None]:
-    if cover is not None:
-        return cover.media, cover.item
-    for slide in slides:
-        if slide.kind == "photo":
-            return slide.media, slide.item
-        if slide.kind in ("video", "card_video"):
-            return frame(slide.media, work / f"cover-frame-{slide.item.id}.jpg"), slide.item
-    for slide in slides:
-        found = photos(slide.item)
-        if found:
-            return found[0], slide.item
-    return None, None
+def render_cover(title: str, post_date: date, kind: str, items: list[Item], planned: list[Slide], work: Path,
+                 seed: str) -> Image.Image:
+    """The stacked-card cover; see tools/collections/cover.py."""
+    from tools.collections import cover
 
-
-def render_cover(title: str, post_date: date, cover: Slide | None, slides: list[Slide], work: Path, seed: str) -> Image.Image:
-    photo, item = cover_photo(cover, slides, work)
-    background = None
-    if photo is None or not cinema.photo_is_usable(photo):
-        background = cinema.pick_backdrop(seed)
-    image, _ = cinema.render(title, post_date, photo_path=photo, background_path=background, seed=seed,
-                             credit=credit(item) if item and photo else None, swipe_hint=True)
-    return image
+    return cover.render(title, post_date, kind, items, planned, work, seed)
 
 
 def render_slide(slide: Slide, index: int, count: int, work: Path, seed: str) -> Path:

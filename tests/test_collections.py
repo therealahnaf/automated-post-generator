@@ -2,13 +2,14 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image
 
-from tools.collections import collection_copy, pipeline, slides, store, telegram_ui
+from tools.collections import collection_copy, cover, pipeline, slides, store, telegram_ui
 from tools.news import notify_telegram, publish_instagram
 from tools.news import telegram_codex_watcher as watcher
 
@@ -77,29 +78,53 @@ class StoreTests(CollectionTestCase):
 class PlanTests(CollectionTestCase):
     def test_the_three_types_choose_slides_as_documented(self) -> None:
         items = store.items(self.connection, self.collection().id)
-        cover, media, _ = slides.plan(items, "media")
-        # The first photo becomes the cover and is not repeated; a post without media becomes a card.
-        self.assertEqual(cover.item.tweet_id, "2")
+        media, _ = slides.plan(items, "media")
+        # Every post keeps its own slide (the cover only previews them); a post without media becomes a card.
         self.assertEqual([(slide.kind, slide.item.tweet_id) for slide in media],
-                         [("card", "1"), ("photo", "2"), ("video", "3"), ("photo", "4")])
-        cover, tweets, _ = slides.plan(items, "tweets")
-        self.assertIsNone(cover)
+                         [("card", "1"), ("photo", "2"), ("photo", "2"), ("video", "3"), ("photo", "4")])
+        tweets, _ = slides.plan(items, "tweets")
         self.assertEqual([slide.kind for slide in tweets], ["card", "card", "card_video", "card"])
-        cover, combo, _ = slides.plan(items, "combo")
-        # Kalshi's long text makes it a card; the short posts show their media. The video comes before the only
-        # photo, so the cover uses the video's frame and the photo stays a slide.
+        combo, _ = slides.plan(items, "combo")
+        # Kalshi's long text makes it a card; the short posts show their media.
         self.assertEqual([(slide.kind, slide.item.tweet_id) for slide in combo],
                          [("card", "1"), ("card", "2"), ("video", "3"), ("photo", "4")])
-        self.assertIsNone(cover)
 
     def test_slides_stop_at_the_carousel_limit_and_name_what_was_left_out(self) -> None:
         collection = store.create(self.connection, "Many")
         for index in range(12):
             store.add(self.connection, collection.id, str(100 + index), "u",
                       fetched(self.root, str(100 + index), "a", "short", photos=1))
-        cover, planned, left_out = slides.plan(store.items(self.connection, collection.id), "media")
+        planned, left_out = slides.plan(store.items(self.connection, collection.id), "media")
         self.assertEqual(len(planned) + 1, slides.MAX_SLIDES)
-        self.assertEqual(left_out, [11, 12])
+        self.assertEqual(left_out, [10, 11, 12])
+
+
+class CoverTests(CollectionTestCase):
+    def test_the_stack_follows_the_type(self) -> None:
+        items = store.items(self.connection, self.collection().id)
+        media, _ = slides.plan(items, "media")
+        self.assertEqual([(slide.kind, slide.item.tweet_id) for slide in cover.pick("media", media)],
+                         [("photo", "2"), ("video", "3"), ("photo", "4")])
+        tweets, _ = slides.plan(items, "tweets")
+        self.assertTrue(all(slide.kind in ("card", "card_video") for slide in cover.pick("tweets", tweets)))
+        combo, _ = slides.plan(items, "combo")
+        self.assertEqual([slide.kind for slide in cover.pick("combo", combo)], ["card", "video", "card"])
+
+    def test_every_first_line_is_one_width_of_one_to_three_words(self) -> None:
+        target = cover.cinema.load_face(cover.cinema.HEADLINE_FACE, cover.full_size()).getlength(cover.REFERENCE_LEAD)
+        for title in ("Jensen Is Everywhere", "AI Agents Took Over Every Job On This Team",
+                      "Superintelligence Researchers Respond To The Strange Jensen Rumors"):
+            fitted = cover.fit_title(title)
+            self.assertLessEqual(len(fitted.lead.split()), cover.FIRST_LINE_WORDS)
+            self.assertAlmostEqual(fitted.lead_font.getlength(fitted.lead), target, delta=target * 0.03)
+            self.assertEqual(" ".join([fitted.lead, *fitted.rest]).split(), title.split())
+
+    def test_the_cover_renders_without_a_swipe_hint(self) -> None:
+        items = store.items(self.connection, self.collection().id)
+        planned, _ = slides.plan(items, "tweets")
+        image = cover.render("The Strange Jensen Huang Rumors Spreading Across X", date(2026, 11, 27), "tweets",
+                             items, planned, self.root, "collection-1")
+        self.assertEqual(image.size, (cover.WIDTH, cover.HEIGHT))
 
 
 class CopyTests(CollectionTestCase):
