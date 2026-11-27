@@ -143,17 +143,49 @@ class PipelineTests(CollectionTestCase):
         job.dir.mkdir()
         return job
 
-    def test_feedback_edits_the_collection_or_switches_the_type(self) -> None:
+    def edit(self, job: pipeline.Job, *words: str) -> int:
+        with patch.dict(os.environ, {"BITS_TODAY_JOB_DIR": str(job.dir)}), patch.object(pipeline, "progress"):
+            return pipeline.main(["edit", *words])
+
+    def test_the_revision_tools_edit_posts_type_and_copy(self) -> None:
         collection = self.collection()
         job = self.job()
         job.save(collection_id=collection.id, type="media")
-        self.assertTrue(pipeline.apply_collection_edits(job, "drop 2, 4"))
-        self.assertEqual([item.tweet_id for item in store.items(self.connection, collection.id)], ["1", "3"])
-        self.assertTrue(pipeline.apply_collection_edits(job, "move 2 to 1"))
-        self.assertEqual([item.tweet_id for item in store.items(self.connection, collection.id)], ["3", "1"])
-        self.assertTrue(pipeline.apply_collection_edits(job, "type: tweets"))
+        job.copy.write_text(json.dumps({"title": "Old", "explanation": "Old caption.", "hashtags": ["AI"]}), encoding="utf-8")
+        self.assertEqual(self.edit(job, "move", "1", "4"), 0)
+        self.assertEqual([item.tweet_id for item in store.items(self.connection, collection.id)], ["2", "3", "4", "1"])
+        # Slide numbers are one higher than post numbers (the cover is slide 1): an 8 here is refused, not fatal.
+        self.assertEqual(self.edit(job, "move", "4", "8"), 2)
+        self.assertEqual(self.edit(job, "drop", "9"), 2)
+        self.assertEqual(self.edit(job, "drop", "2", "3"), 0)
+        self.assertEqual([item.tweet_id for item in store.items(self.connection, collection.id)], ["2", "1"])
+        self.assertEqual(self.edit(job, "type", "tweets"), 0)
         self.assertEqual(job.state()["type"], "tweets")
-        self.assertFalse(pipeline.apply_collection_edits(job, "make the title funnier"))
+        self.assertEqual(self.edit(job, "title", "Here's All The Conjectures AI Disproved This Week"), 0)
+        self.assertEqual(json.loads(job.copy.read_text(encoding="utf-8"))["title"],
+                         "Here's All The Conjectures AI Disproved This Week")
+
+    def test_a_revision_that_cannot_be_applied_resends_the_preview_instead_of_failing(self) -> None:
+        collection = self.collection()
+        job = self.job()
+        job.save(collection_id=collection.id, type="media")
+        job.copy.write_text(json.dumps({"title": "Old", "explanation": "x", "hashtags": []}), encoding="utf-8")
+        environment = {"BITS_TODAY_JOB_DIR": str(job.dir), "BITS_TODAY_FINAL_OUTPUT": str(job.dir / "final.txt"),
+                       "TELEGRAM_PREVIEW_RECEIPT_PATH": str(job.dir / "receipt.json")}
+        with patch.dict(os.environ, environment), patch.object(pipeline, "progress"), \
+                patch.object(pipeline, "codex_revision", side_effect=pipeline.StepError("the session exited")), \
+                patch.object(pipeline, "build", return_value=[]) as build:
+            self.assertEqual(pipeline.main(["revise", "--feedback", "move the deez notz one to the end"]), 0)
+        build.assert_called_once()
+        self.assertIn("Revision not applied", (job.dir / "final.txt").read_text(encoding="utf-8"))
+        with patch.dict(os.environ, environment), patch.object(pipeline, "progress"), \
+                patch.object(pipeline, "codex_revision") as session, patch.object(pipeline, "build", return_value=[]), \
+                patch.object(pipeline, "write_copy") as write_copy:
+            pipeline.main(["revise", "--feedback", "title: Exactly This"])
+            pipeline.main(["revise", "--feedback", "type: tweets"])
+        session.assert_not_called()
+        write_copy.assert_called_once()
+        self.assertEqual(job.state()["type"], "tweets")
 
     def test_publish_sends_photos_and_videos_to_instagram_only(self) -> None:
         collection = self.collection()

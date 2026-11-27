@@ -135,9 +135,8 @@ downloaded media; do not fetch or classify the story again.
      stock and anything that repeats the cover. Every slide image must show something about the story's main
      point itself, not just the same company or product: for a story about one benchmark result, a general
      spec or pricing sheet does not belong. Fewer slides that fit beat more that do not; an empty `slides` list
-     is fine. Use `"text": true` when the image needs a story segment beside
-     it, and leave it out for images that already carry their own words, such as spec graphics or labelled
-     charts.
+     is fine. Every image slide carries a story segment (its own heading and text under the image);
+     `media_plan.py` turns the text on for every image, so `"text": true` is optional.
    - Quotes: at most two, and only a sentence that adds something the headline and caption do not, such as an
      official statement or the researcher's own claim; never marketing copy. Quotes appear verbatim and are
      chosen by ID only.

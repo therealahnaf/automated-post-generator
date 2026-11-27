@@ -1,3 +1,4 @@
+import contextlib
 import io
 import json
 import tempfile
@@ -190,6 +191,21 @@ class MediaPlanTests(unittest.TestCase):
         self.assertEqual([slide["credit"] for slide in resolved["slides"]],
                          ["Image via X", "Image: GitHub", "Source: NVIDIA Newsroom"])
         self.assertEqual(resolved["slides"][2]["text"], "The Board believes Jensen is the right person to lead NVIDIA.")
+
+    def test_the_v1_command_puts_text_under_every_image(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "source-media.json").write_text(json.dumps(manifest_for(root)), encoding="utf-8")
+            plan = root / "media-plan.json"
+            plan.write_text(json.dumps({"cover": "s1", "slides": [{"image": "s2"}, {"quote": "q1"}]}), encoding="utf-8")
+            arguments = ["--source-media", str(root / "source-media.json"), "--plan", str(plan)]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(media_plan.main(arguments), 0)
+                kinds = [slide["kind"] for slide in json.loads((root / "media-plan.resolved.json").read_text(encoding="utf-8"))["slides"]]
+                self.assertEqual(kinds, ["detail", "quote"])
+                self.assertEqual(media_plan.main([*arguments, "--allow-photo-slides"]), 0)
+                kinds = [slide["kind"] for slide in json.loads((root / "media-plan.resolved.json").read_text(encoding="utf-8"))["slides"]]
+                self.assertEqual(kinds, ["photo", "quote"])
 
     def test_rejects_bad_plans(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

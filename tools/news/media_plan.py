@@ -52,7 +52,7 @@ def image_index(manifest: dict) -> dict[str, dict]:
     return index
 
 
-def resolve(plan: dict, manifest: dict) -> dict:
+def resolve(plan: dict, manifest: dict, *, text_on_images: bool = False) -> dict:
     if not isinstance(plan, dict):
         raise ValueError("The media plan must be a JSON object.")
     unknown = set(plan) - {"cover", "slides", "notes"}
@@ -132,6 +132,7 @@ def resolve(plan: dict, manifest: dict) -> dict:
         text = slide.get("text", False)
         if not isinstance(text, bool):
             raise ValueError(f"Slide {number}: text must be true or false.")
+        text = text or text_on_images
         resolved_slides.append({"kind": "detail" if text else "photo", "id": image_id, **images[image_id]})
     if quote_count > MAX_QUOTES:
         raise ValueError(f"At most {MAX_QUOTES} quote slides.")
@@ -162,9 +163,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-media", type=Path, required=True, help="The collector's source-media.json.")
     parser.add_argument("--plan", type=Path, required=True, help="The agent's media-plan.json.")
     parser.add_argument("--output", type=Path, help="Defaults to media-plan.resolved.json beside the plan.")
+    parser.add_argument("--allow-photo-slides", action="store_true",
+                        help="Honour photo-only slides. By default every image slide gets a story segment, as news "
+                             "v1 always had (the user wants a heading under every image).")
     args = parser.parse_args(argv)
     try:
-        resolved = resolve(json.loads(args.plan.read_text(encoding="utf-8-sig")), load_manifest(args.source_media))
+        resolved = resolve(json.loads(args.plan.read_text(encoding="utf-8-sig")), load_manifest(args.source_media),
+                           text_on_images=not args.allow_photo_slides)
     except (OSError, ValueError, KeyError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
